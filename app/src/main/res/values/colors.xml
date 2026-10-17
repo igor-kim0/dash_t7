@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Тёмная тема дашборда для ГУ. -->
+    <color name="dash_background">#FF101214</color>
+    <color name="dash_card">#FF1B2024</color>
+    <color name="dash_card_border">#FF2E353B</color>
+    <color name="dash_primary_text">#FFEDEDED</color>
+    <color name="dash_secondary_text">#FF9AA3AD</color>
+    <color name="dash_accent">#FF4DA3FF</color>
+    <color name="dash_edit_border">#FF4DA3FF</color>
+</resources>

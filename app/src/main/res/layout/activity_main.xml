@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/dash_background"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:id="@+id/main_row"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="horizontal">
+
+        <com.dash.headunit.dashboard.DashboardGridLayout
+            android:id="@+id/dashboard"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1" />
+
+        <!-- Вертикальная колонка иконок: переносится влево/вправо настройкой. -->
+        <LinearLayout
+            android:id="@+id/side_bar"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:orientation="horizontal">
+
+        <!-- Светящаяся линия слева от колонки иконок (темы с glow). -->
+        <View
+            android:id="@+id/top_glow_line"
+            android:layout_width="2dp"
+            android:layout_height="match_parent"
+            android:layout_marginTop="120dp"
+            android:layout_marginBottom="120dp"
+            android:visibility="gone" />
+
+        <FrameLayout
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent">
+
+            <!-- Обычный режим: колонка справа — иконки статуса/действий,
+                 прижаты к верхнему краю. Пять тапов по столбцу — debug-экран. -->
+            <LinearLayout
+                android:id="@+id/bar_normal"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:gravity="top|center_horizontal"
+                android:clickable="true"
+                android:orientation="vertical"
+                android:paddingStart="8dp"
+                android:paddingEnd="12dp"
+                android:paddingTop="12dp"
+                android:paddingBottom="12dp">
+
+                <ImageButton
+                    android:id="@+id/btn_home"
+                    android:layout_width="68dp"
+                    android:layout_height="68dp"
+                    android:layout_marginBottom="10dp"
+                    android:background="@drawable/widget_card"
+                    android:contentDescription="@string/cd_home"
+                    android:padding="15dp"
+                    android:src="@drawable/ic_home" />
+
+                <ImageButton
+                    android:id="@+id/btn_night"
+                    android:layout_width="68dp"
+                    android:layout_height="68dp"
+                    android:layout_marginBottom="10dp"
+                    android:background="@drawable/widget_card"
+                    android:contentDescription="@string/cd_night"
+                    android:padding="15dp"
+                    android:src="@drawable/ic_moon" />
+
+                <ImageButton
+                    android:id="@+id/btn_settings"
+                    android:layout_width="68dp"
+                    android:layout_height="68dp"
+                    android:layout_marginBottom="10dp"
+                    android:background="@drawable/widget_card"
+                    android:contentDescription="@string/cd_app_settings"
+                    android:padding="17dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_gear" />
+
+                <ImageButton
+                    android:id="@+id/btn_edit"
+                    android:layout_width="68dp"
+                    android:layout_height="68dp"
+                    android:layout_marginBottom="10dp"
+                    android:background="@drawable/widget_card"
+                    android:contentDescription="@string/cd_edit"
+                    android:padding="15dp"
+                    android:src="@drawable/ic_grid" />
+
+                <ImageButton
+                    android:id="@+id/btn_debug"
+                    android:layout_width="68dp"
+                    android:layout_height="68dp"
+                    android:background="@drawable/widget_card"
+                    android:contentDescription="@string/cd_debug"
+                    android:padding="15dp"
+                    android:src="@drawable/ic_logs" />
+
+                <!-- Статус Wi-Fi и Bluetooth — в самом низу колонки. -->
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    android:layout_weight="1" />
+
+                <ImageView
+                    android:id="@+id/icon_wifi"
+                    android:layout_width="68dp"
+                    android:layout_height="68dp"
+                    android:layout_marginBottom="10dp"
+                    android:background="@drawable/widget_card"
+                    android:contentDescription="@string/cd_wifi"
+                    android:padding="15dp"
+                    android:src="@drawable/ic_wifi" />
+
+                <ImageView
+                    android:id="@+id/icon_bluetooth"
+                    android:layout_width="68dp"
+                    android:layout_height="68dp"
+                    android:background="@drawable/widget_card"
+                    android:contentDescription="@string/cd_bluetooth"
+                    android:padding="15dp"
+                    android:src="@drawable/ic_bluetooth" />
+            </LinearLayout>
+
+            <!-- Режим редактирования: добавить блок / сбросить / готово. -->
+            <LinearLayout
+                android:id="@+id/bar_edit"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:paddingStart="8dp"
+                android:paddingEnd="12dp"
+                android:paddingTop="12dp"
+                android:paddingBottom="12dp"
+                android:visibility="gone">
+
+                <ImageButton
+                    android:id="@+id/btn_add"
+                    android:layout_width="68dp"
+                    android:layout_height="68dp"
+                    android:background="@drawable/widget_card"
+                    android:contentDescription="@string/cd_edit_add"
+                    android:padding="15dp"
+                    android:src="@drawable/ic_plus"
+                    android:layout_marginBottom="10dp" />
+
+                <ImageButton
+                    android:id="@+id/btn_clear"
+                    android:layout_width="68dp"
+                    android:layout_height="68dp"
+                    android:background="@drawable/widget_card"
+                    android:contentDescription="@string/cd_edit_clear"
+                    android:padding="15dp"
+                    android:src="@drawable/ic_trash"
+                    android:layout_marginBottom="40dp" />
+
+                <ImageButton
+                    android:id="@+id/btn_done"
+                    android:layout_width="68dp"
+                    android:layout_height="68dp"
+                    android:background="@drawable/widget_card"
+                    android:contentDescription="@string/cd_edit_done"
+                    android:padding="15dp"
+                    android:src="@drawable/ic_check" />
+            </LinearLayout>
+        </FrameLayout>
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

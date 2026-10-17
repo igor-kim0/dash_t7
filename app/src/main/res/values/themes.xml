@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Dash.Dark" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@color/dash_background</item>
+        <item name="android:textColorPrimary">@color/dash_primary_text</item>
+        <item name="android:textColorSecondary">@color/dash_secondary_text</item>
+        <item name="colorPrimary">@color/dash_accent</item>
+        <item name="colorOnPrimary">@color/dash_background</item>
+    </style>
+
+    <!-- Дашборд полупрозрачный: под ним работает навигатор, видимый
+         в прямоугольнике блока «Навигатор» (см. navi/NaviUnderlay).
+         Фон рисует корневой layout, а не окно. -->
+    <style name="Theme.Dash.Dashboard" parent="Theme.Dash.Dark">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+    </style>
+</resources>

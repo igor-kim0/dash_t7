@@ -1,0 +1,7 @@
+## Location of the SDK. This is only used by Gradle.
+sdk.dir=/home/igor-kim/Android/Sdk
+
+## Ключ OpenWeatherMap (https://openweathermap.org/api) — запасной источник
+## погоды (основной — Open-Meteo, работает без ключа).
+## Бесплатный тариф: 60 запросов/мин. Файл local.properties не коммитится (.gitignore).
+openweathermap.key=ВСТАВЬТЕ_КЛЮЧ_СЮДА
