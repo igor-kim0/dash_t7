@@ -45,9 +45,24 @@ android {
         buildConfigField("String", "OPENWEATHER_KEY", "\"$owmKey\"")
     }
 
+    // Подпись релиза debug-ключом: приложение сайдлоадное, а APK должен
+    // обновляться поверх уже установленной на ГУ сборки (та же подпись —
+    // сохраняются авторизация adb и раскладка виджетов). Ключ — стандартный
+    // debug (alias androiddebugkey, пароль android), поэтому лежит в репе,
+    // чтобы локальная и CI-сборки давали одинаковую подпись.
+    signingConfigs {
+        create("release") {
+            storeFile = rootProject.file("keystore/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -74,6 +89,12 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+    }
+
+    // targetSdk 28 выбран осознанно (ГУ Android 9, скрытый ActivityView),
+    // Play не используется — гасим требование «targetSdk ≥ 33» в release-lint.
+    lint {
+        disable += "ExpiredTargetSdkVersion"
     }
 }
 
