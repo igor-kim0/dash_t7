@@ -144,8 +144,16 @@
     <string name="elm_voltage">АКБ</string>
     <string name="elm_rpm">обороты</string>
     <string name="elm_load">нагрузка</string>
+    <string name="elm_intake">впуск. воздух</string>
+    <string name="elm_throttle">дроссель</string>
+    <string name="elm_trim_short">поправка (кратк.)</string>
+    <string name="elm_trim_long">поправка (долг.)</string>
+    <string name="elm_map">коллектор</string>
+    <string name="elm_fuel_level">топливо бака</string>
     <string name="elm_diag_title">OBD: Bluetooth-адаптер</string>
-    <string name="set_elm_title">ELM: спаренные устройства</string>
+    <string name="set_elm_title">OBD: показатели</string>
+    <string name="elm_pick_adapter">ELM: выбрать адаптер Bluetooth…</string>
+    <string name="set_elm_adapter_title">ELM: спаренные устройства</string>
     <string name="elm_current">ELM: спаренные (текущий: %1$s, %2$s)</string>
     <string name="elm_no_name">без имени</string>
     <string name="elm_picked">Выбран: %1$s</string>

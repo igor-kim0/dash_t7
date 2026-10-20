@@ -4,7 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-/** [ObdParser]: разбор ответов ELM327 (ОЖ, обороты, нагрузка, напряжение). */
+/** [ObdParser]: разбор ответов ELM327 (ОЖ, обороты, нагрузка, напряжение, дроссель и др.). */
 class ObdParserTest {
 
     @Test
@@ -83,5 +83,41 @@ class ObdParserTest {
         assertNull(ObdParser.voltage("?\r>"))
         assertNull(ObdParser.voltage(""))
         assertNull(ObdParser.voltage("ELM327 v1.5\r>"))
+    }
+
+    @Test
+    fun intakeAir_standard() {
+        // 0x2C = 44 → 4 °C.
+        assertEquals(4f, ObdParser.intakeAir("41 10 2C\r\r>"))
+        assertNull(ObdParser.intakeAir("41 10\r\r>"))
+    }
+
+    @Test
+    fun throttle_standard() {
+        // 0x80 = 128 → 128·100/255 ≈ 50,2 %.
+        assertEquals(128 * 100f / 255f, ObdParser.throttle("41 11 80\r>")!!, 0.01f)
+        assertNull(ObdParser.throttle("41 05 80\r>"))
+    }
+
+    @Test
+    fun fuelLevel_standard() {
+        // 0xCC = 204 → 80 %.
+        assertEquals(80f, ObdParser.fuelLevel("41 2F CC\r>")!!, 0.01f)
+        assertNull(ObdParser.fuelLevel("NO DATA\r\r>"))
+    }
+
+    @Test
+    fun mapPressure_standard() {
+        // 0x66 = 102 кПа.
+        assertEquals(102f, ObdParser.mapPressure("41 0B 66\r>")!!)
+    }
+
+    @Test
+    fun fuelTrim_shortAndLong() {
+        // 0x90 = 144 → (144 − 128)·100/128 ≈ +12,5 % (богатая смесь).
+        assertEquals(12.5f, ObdParser.fuelTrimShort("41 06 90\r>")!!, 0.01f)
+        // 0x70 = 112 → −12,5 % (бедная смесь).
+        assertEquals(-12.5f, ObdParser.fuelTrimLong("41 07 70\r>")!!, 0.01f)
+        assertNull(ObdParser.fuelTrimShort("41 0C 1A F8\r\r>"))
     }
 }

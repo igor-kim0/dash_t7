@@ -598,7 +598,7 @@ class MainActivity : AppCompatActivity() {
                 WidgetType.REFERENCE -> ReferenceWidgetView(this, theme)
                 WidgetType.HEAT -> HeatWidgetView(this, theme)
                 WidgetType.OUTSIDE -> OutsideWidgetView(this, theme)
-                WidgetType.ELM -> ElmWidgetView(this, theme)
+                WidgetType.ELM -> ElmWidgetView(this, theme, spec.widgetId, settingsStore)
                 WidgetType.SPEED ->
                     if (settingsStore.getOption(spec.widgetId, OPT_SPEED_STYLE, SPEED_RETRO) == SPEED_DIGITAL) {
                         SpeedWidgetView(this, theme)
@@ -628,7 +628,7 @@ class MainActivity : AppCompatActivity() {
                         { showCarSettings(spec.widgetId) }
                     }
                     WidgetType.ELM -> {
-                        { showElmSettings() }
+                        { showElmSettings(spec.widgetId) }
                     }
                     WidgetType.SPEED -> {
                         { showSpeedSettings(spec.widgetId) }
@@ -1085,11 +1085,48 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Настройка виджета «OBD (ELM)»: выбор спаренного Bluetooth-адаптера
-     * ELM327. Выбор сохраняется глобально ([ElmHub]), а не per-widget —
-     * адаптер в машине один.
+     * Настройка виджета «OBD (ELM)»: состав показателей (мультивыбор)
+     * и строка-роутер к выбору адаптера. Состав хранится per-widget
+     * ([WidgetSettingsStore]), адаптер — глобально ([ElmHub]): он в
+     * машине один, а виджетов OBD может быть несколько.
      */
-    private fun showElmSettings() {
+    private fun showElmSettings(widgetId: String) {
+        val items = arrayOf(
+            getString(R.string.elm_pick_adapter)
+        ) + ElmWidgetView.ITEM_KEYS.map { getString(checkNotNull(ElmWidgetView.labelRes(it))) }
+        val selected = ElmWidgetView.selectedIds(settingsStore, widgetId).toMutableSet()
+        val checked = BooleanArray(items.size) { i -> i > 0 && ElmWidgetView.ITEM_KEYS[i - 1] in selected }
+        DashDialog.Builder(this)
+            .setTitle(R.string.set_elm_title)
+            .setMultiChoiceItems(items, checked, routerIndex = 0) { dlg, which, on ->
+                if (which == 0) {
+                    dlg.dismiss()
+                    showElmAdapterDialog()
+                } else {
+                    val key = ElmWidgetView.ITEM_KEYS[which - 1]
+                    if (on) selected.add(key) else selected.remove(key)
+                }
+            }
+            .setPositiveButton(R.string.edit_done) { _, _ ->
+                // Ничего не отмечено — сохраняем маркер «-»: пустая опция
+                // означала бы «ещё не настраивали» (дефолт).
+                val items = ElmWidgetView.ITEM_KEYS.filter { it in selected }
+                settingsStore.setOption(
+                    widgetId,
+                    ElmWidgetView.OPT_ITEMS,
+                    if (items.isEmpty()) ElmWidgetView.NONE_ITEMS else items.joinToString(",")
+                )
+                buildWidgets(readSpecs())
+            }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .showFullScreen()
+    }
+
+    /**
+     * Выбор спаренного Bluetooth-адаптера ELM327. Выбор сохраняется
+     * глобально ([ElmHub]), а не per-widget — адаптер в машине один.
+     */
+    private fun showElmAdapterDialog() {
         val manager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         val paired = manager.adapter?.takeIf { it.isEnabled }
             ?.bondedDevices?.sortedBy { it.name ?: "" }?.toList() ?: emptyList()
@@ -1101,7 +1138,7 @@ class MainActivity : AppCompatActivity() {
         val items = paired.map { "${it.name ?: getString(R.string.elm_no_name)} — ${it.address}" }
             .toTypedArray()
         DashDialog.Builder(this)
-            .setTitle(if (current.isEmpty()) getString(R.string.set_elm_title) else current)
+            .setTitle(if (current.isEmpty()) getString(R.string.set_elm_adapter_title) else current)
             .setItems(items) { _, which ->
                 val device = paired[which]
                 ElmHub.setDevice(this, device.address, device.name)

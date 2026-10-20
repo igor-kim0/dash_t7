@@ -14,9 +14,12 @@ import java.util.UUID
 
 /**
  * Связь с адаптером ELM327 по Bluetooth (классический SPP/RFCOMM)
- * и опрос OBD-II: температура ОЖ (0105 — её нет ни на Desay-шине,
- * ни у приборки, ни в VHAL ГУ), обороты (010C), нагрузка (0104)
- * и напряжение бортовой сети (ATRV, меряет сам адаптер).
+ * и опрос OBD-II: обороты (010C), нагрузка (0104), температура ОЖ
+ * (0105 — её нет ни на Desay-шине, ни у приборки, ни в VHAL ГУ),
+ * напряжение бортовой сети (ATRV, меряет сам адаптер), температура
+ * впускного воздуха (0110), дроссель (0111), топливные балансировки
+ * B1 (0106/0107), давление впускного коллектора (010B) и уровень
+ * топлива в баке (012F). Не поддерживаемые ЭБУ величины отпадают сами.
  *
  * Работает как [com.dash.headunit.car.ClusterPps]: один фоновый поток
  * на весь процесс, статусы для debug-экрана. Адрес адаптера выбирается
@@ -86,27 +89,24 @@ object ElmHub {
 
     // ---------- данные ----------
 
-    /** Показания OBD; null — нет связи / величина не отвечает / давно не было ответа. */
-    data class Readings(
-        val coolantC: Float?,
-        val rpm: Float?,
-        val loadPct: Float?,
-        val voltage: Float?
-    )
-
-    /** Опрашиваемые величины: команда ELM, разбор ответа, срок годности значения. */
-    private enum class Pid(val cmd: String, val staleMs: Long, val slow: Boolean) {
-        RPM("010C", LIVE_STALE_MS, slow = false),
-        LOAD("0104", LIVE_STALE_MS, slow = false),
-        COOLANT("0105", COOLANT_STALE_MS, slow = true),
-        VOLTAGE("ATRV", LIVE_STALE_MS, slow = true);
-
-        fun parse(reply: String): Float? = when (this) {
-            RPM -> ObdParser.rpm(reply)
-            LOAD -> ObdParser.engineLoad(reply)
-            COOLANT -> ObdParser.coolant(reply)
-            VOLTAGE -> ObdParser.voltage(reply)
-        }
+    /** Опрашиваемые величины: идентификатор, команда ELM, разбор ответа, срок годности. */
+    private enum class Pid(
+        val id: String,
+        val cmd: String,
+        val staleMs: Long,
+        val slow: Boolean,
+        val parse: (String) -> Float?
+    ) {
+        RPM("rpm", "010C", LIVE_STALE_MS, slow = false, parse = ObdParser::rpm),
+        LOAD("load", "0104", LIVE_STALE_MS, slow = false, parse = ObdParser::engineLoad),
+        COOLANT("coolant", "0105", COOLANT_STALE_MS, slow = true, parse = ObdParser::coolant),
+        VOLTAGE("volt", "ATRV", LIVE_STALE_MS, slow = true, parse = ObdParser::voltage),
+        INTAKE_AIR("iat", "0110", COOLANT_STALE_MS, slow = true, parse = ObdParser::intakeAir),
+        THROTTLE("throttle", "0111", LIVE_STALE_MS, slow = false, parse = ObdParser::throttle),
+        TRIM_SHORT("trim_short", "0106", LIVE_STALE_MS, slow = true, parse = ObdParser::fuelTrimShort),
+        TRIM_LONG("trim_long", "0107", LIVE_STALE_MS, slow = true, parse = ObdParser::fuelTrimLong),
+        MAP_KPA("map", "010B", LIVE_STALE_MS, slow = true, parse = ObdParser::mapPressure),
+        FUEL_LEVEL("fuel_level", "012F", COOLANT_STALE_MS, slow = true, parse = ObdParser::fuelLevel);
     }
 
     private class Value(val v: Float, val at: Long)
@@ -117,12 +117,17 @@ object ElmHub {
         values[pid]?.takeIf { now - it.at < pid.staleMs }?.v
     }
 
-    fun readings(now: Long = SystemClock.uptimeMillis()) = Readings(
-        coolantC = value(Pid.COOLANT, now),
-        rpm = value(Pid.RPM, now),
-        loadPct = value(Pid.LOAD, now),
-        voltage = value(Pid.VOLTAGE, now)
-    )
+    /**
+     * Свежие показания OBD по идентификатору величины ([Pid.id]).
+     * Величины, не отвечавшие дольше [Pid.staleMs] (или не поддерживаемые
+     * ЭБУ вовсе), в карте отсутствуют.
+     */
+    fun readings(now: Long = SystemClock.uptimeMillis()): Map<String, Float> =
+        synchronized(values) {
+            values.entries.mapNotNull { (pid, v) ->
+                if (now - v.at < pid.staleMs) pid.id to v.v else null
+            }.toMap()
+        }
 
     /** Температура ОЖ по ELM (PID 0105), °C, или null. */
     fun coolantC(now: Long = SystemClock.uptimeMillis()): Float? = value(Pid.COOLANT, now)

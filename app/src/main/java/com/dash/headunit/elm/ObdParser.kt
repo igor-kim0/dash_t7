@@ -47,6 +47,37 @@ object ObdParser {
         return m.groupValues[1].replace(',', '.').toFloatOrNull()?.takeIf { it in 5f..20f }
     }
 
+    /** Температура впускного воздуха из ответа на 0110: A − 40, °C. */
+    fun intakeAir(text: String): Float? = byteMinus40(text, "4110")
+
+    /** Положение дросселя из ответа на 0111: A · 100 / 255, %. */
+    fun throttle(text: String): Float? = bytePct(text, "4111")
+
+    /** Уровень топлива в баке из ответа на 012F (PID 47): A · 100 / 255, %. */
+    fun fuelLevel(text: String): Float? = bytePct(text, "412F")
+
+    /** Давление во впускном коллекторе (MAP) из ответа на 010B: A, кПа. */
+    fun mapPressure(text: String): Float? =
+        scanResponse(text, "410B")?.getOrNull(2)?.toFloat()
+
+    /**
+     * Короткая топливная балансировка (B1) из ответа на 0106:
+     * (A − 128) · 100 / 128, % (минус — бедная смесь).
+     */
+    fun fuelTrimShort(text: String): Float? = fuelTrim(text, "4106")
+
+    /** Долгая балансировка из ответа на 0107 — та же формула, что и короткая. */
+    fun fuelTrimLong(text: String): Float? = fuelTrim(text, "4107")
+
+    private fun fuelTrim(text: String, cmdId: String): Float? =
+        scanResponse(text, cmdId)?.getOrNull(2)?.let { (it - 128) * 100f / 128f }
+
+    private fun byteMinus40(text: String, cmdId: String): Float? =
+        scanResponse(text, cmdId)?.getOrNull(2)?.let { (it - 40).toFloat() }
+
+    private fun bytePct(text: String, cmdId: String): Float? =
+        scanResponse(text, cmdId)?.getOrNull(2)?.let { it * 100f / 255f }
+
     private val VOLTAGE = Regex("""(\d{1,2}(?:[.,]\d{1,2})?)\s*V""")
 
     /**
