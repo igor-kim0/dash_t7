@@ -52,6 +52,12 @@ class DashDialog private constructor() {
         private var singleChecked = -1
         private var multiChecked: BooleanArray? = null
         private var multiListener: ((DialogInterface, Int, Boolean) -> Unit)? = null
+        /**
+         * Строка multi-choice, где вместо чекбокса — обычная кликабельная
+         * строка-переход: тап вызывает слушателя, но состояние не меняет
+         * (пункт настроек, открывающий вложенный выбор значения).
+         */
+        private var multiRouter = -1
         private val buttons = arrayOfNulls<Pair<CharSequence, ((DialogInterface, Int) -> Unit)?>>(3)
 
         fun setTitle(res: Int) = apply { title = context.getString(res) }
@@ -81,10 +87,12 @@ class DashDialog private constructor() {
         fun setMultiChoiceItems(
             list: Array<out CharSequence>,
             checked: BooleanArray?,
+            routerIndex: Int = -1,
             listener: ((DialogInterface, Int, Boolean) -> Unit)?
         ) = apply {
             items = list
             multiChecked = checked ?: BooleanArray(list.size)
+            multiRouter = routerIndex
             multiListener = listener
             choiceMode = CHOICE_MULTI
         }
@@ -212,11 +220,17 @@ class DashDialog private constructor() {
                             itemsListener?.invoke(dialog, index)
                         }
                     }
-                    CHOICE_MULTI -> CheckBox(context).apply {
-                        isChecked = multiChecked!![index]
-                        setOnCheckedChangeListener { _, on ->
-                            multiChecked!![index] = on
-                            multiListener?.invoke(dialog, index, on)
+                    CHOICE_MULTI -> if (index == multiRouter) {
+                        TextView(context).apply {
+                            setOnClickListener { multiListener?.invoke(dialog, index, true) }
+                        }
+                    } else {
+                        CheckBox(context).apply {
+                            isChecked = multiChecked!![index]
+                            setOnCheckedChangeListener { _, on ->
+                                multiChecked!![index] = on
+                                multiListener?.invoke(dialog, index, on)
+                            }
                         }
                     }
                     else -> TextView(context).apply {

@@ -220,6 +220,28 @@ class TripTrackerTest {
     }
 
     @Test
+    fun journal_pruneByKeepDays() {
+        val now = 1_700_000_000_000L
+        val day = 24L * 3600_000L
+        // Свежие записи идут первыми; копим по одному дню назад.
+        val list = listOf(
+            TripTracker.TripEntry(now - day, now - day + 600_000L, 5f, 600_000L, null),
+            TripTracker.TripEntry(now - 6 * day, now - 6 * day + 600_000L, 5f, 600_000L, null),
+            TripTracker.TripEntry(now - 24 * day, now - 24 * day + 600_000L, 5f, 600_000L, null)
+        )
+        // Неделя: граница (ровно 7 дней) остаётся, старше — уходит.
+        val pruned = TripTracker.pruneJournal(list, 7, now)
+        assertEquals(2, pruned.size)
+        assertEquals(list.take(2), pruned)
+        // Пустой журнал и «всегда» трогать нельзя.
+        assertEquals(list, TripTracker.pruneJournal(list, 0, now))
+        assertEquals(
+            listOf(list[0]),
+            TripTracker.pruneJournal(list, 1, now)
+        )
+    }
+
+    @Test
     fun journal_toleratesGarbage() {
         assertEquals(emptyList<TripTracker.TripEntry>(), TripTracker.decodeJournal(""))
         assertEquals(

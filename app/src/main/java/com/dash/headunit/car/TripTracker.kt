@@ -106,10 +106,16 @@ object TripTracker {
         data: CarData?,
         tankLiters: Int,
         cluster: ClusterTrip? = null,
-        now: Long = System.currentTimeMillis()
+        now: Long = System.currentTimeMillis(),
+        keepDays: Int = 0
     ): TripView {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         migrate(prefs)
+        if (keepDays > 0) {
+            // Смена настройки / новый день: старые записи уходят сразу,
+            // ещё до любых переходов поездок.
+            prunePrefs(prefs, keepDays, now)
+        }
         val t = load(prefs, PREFIX)
 
         val on = engineOn(data)
@@ -344,6 +350,36 @@ object TripTracker {
             .edit().remove(KEY_JOURNAL).apply()
     }
 
+    /**
+     * Удалить из журнала записи старше [keepDays] дней (0 — ничего не трогать,
+     * журнал хранится целиком). Вызывается из цикла опроса и сразу после
+     * смены настройки.
+     */
+    fun applyJournalKeep(
+        context: Context,
+        keepDays: Int,
+        now: Long = System.currentTimeMillis()
+    ) {
+        if (keepDays <= 0) return
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        prunePrefs(prefs, keepDays, now)
+    }
+
+    /** Обрезка журнала под [keepDays] дней, если записи уже есть. */
+    private fun prunePrefs(
+        prefs: android.content.SharedPreferences,
+        keepDays: Int,
+        now: Long
+    ) {
+        val raw = prefs.getString(KEY_JOURNAL, "").takeUnless { it.isNullOrBlank() }
+            ?: return
+        val list = decodeJournal(raw)
+        val pruned = pruneJournal(list, keepDays, now)
+        if (pruned.size != list.size) {
+            prefs.edit().putString(KEY_JOURNAL, encodeJournal(pruned)).apply()
+        }
+    }
+
     private fun pushEntry(
         prefs: android.content.SharedPreferences,
         e: TripEntry
@@ -362,6 +398,23 @@ object TripTracker {
         list.joinToString(";") {
             "${it.startTs},${it.endTs},${it.distKm},${it.driveMillis}," +
                 "${it.avgCons ?: ""},${it.avgSpeedKmh ?: ""}"
+        }
+
+    /**
+     * Оставить в [list] только поездки не старше [keepDays] дней от [now]
+     * (0 — не ограничивать). Свежие записи идут первыми, порядок сохраняется.
+     * Записи считаются по времени завершения. Тестируется.
+     */
+    internal fun pruneJournal(
+        list: List<TripEntry>,
+        keepDays: Int,
+        now: Long
+    ): List<TripEntry> =
+        if (keepDays <= 0) {
+            list
+        } else {
+            val cutoff = now - keepDays * DAY_MS
+            list.filter { it.endTs >= cutoff }
         }
 
     /** Разбор [encodeJournal]; битые записи пропускаются. Тестируется. */
@@ -504,6 +557,8 @@ object TripTracker {
     /** Префикс единственного (автоматического) счётчика. */
     private const val PREFIX = "t"
     private const val KEY_JOURNAL = "journal"
+    /** Сутки в мс — для обрезки журнала по сроку хранения. */
+    private const val DAY_MS = 24L * 3600_000L
     /** Сколько завершённых поездок храним. */
     private const val MAX_JOURNAL = 30
     private const val MAX_DT_MS = 24 * 3600_000L

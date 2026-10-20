@@ -35,6 +35,7 @@ import com.dash.headunit.dashboard.WidgetType
 import com.dash.headunit.elm.ElmHub
 import com.dash.headunit.car.CarDebugActivity
 import com.dash.headunit.car.DesayPushProbe
+import com.dash.headunit.car.TripTracker
 import com.dash.headunit.navi.HoleBackground
 import com.dash.headunit.navi.NaviUnderlay
 import com.dash.headunit.ui.DashDialog
@@ -239,22 +240,34 @@ class MainActivity : AppCompatActivity() {
             .showFullScreen()
     }
 
-    /** Настройки приложения: автозапуск и сторона вертикальной колонки. */
+    /** Настройки приложения: автозапуск, сторона колонки, приборка, журнал поездок. */
     private fun showSettingsDialog() {
+        val journalKeepRow = 3
         val items = arrayOf(
             getString(R.string.settings_autostart),
             getString(R.string.settings_bar_left),
-            getString(R.string.settings_cluster_navi)
+            getString(R.string.settings_cluster_navi),
+            getString(
+                R.string.settings_trip_journal_keep,
+                journalKeepLabel(AppSettings.journalKeepDays(this))
+            )
         )
         val checked = booleanArrayOf(
             AppSettings.autostart(this),
             AppSettings.barSideLeft(this),
-            AppSettings.clusterNavi(this)
+            AppSettings.clusterNavi(this),
+            false
         )
         DashDialog.Builder(this)
             .setTitle(R.string.settings_title)
-            .setMultiChoiceItems(items, checked) { _, which, isChecked ->
-                checked[which] = isChecked
+            .setMultiChoiceItems(items, checked, routerIndex = journalKeepRow) { dlg, which, isChecked ->
+                if (which == journalKeepRow) {
+                    checked[which] = false
+                    dlg.dismiss()
+                    showJournalKeepDialog()
+                } else {
+                    checked[which] = isChecked
+                }
             }
             .setPositiveButton(R.string.edit_done) { _, _ ->
                 applyAutostart(checked[0])
@@ -265,6 +278,49 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton(R.string.dialog_cancel, null)
             .showFullScreen()
     }
+
+    /**
+     * Срок хранения журнала поездок ([AppSettings.journalKeepDays]);
+     * «всегда» — тоже легитимный выбор. По «Готово» сразу обрезаем журнал
+     * под новый срок ([TripTracker.applyJournalKeep]) и возвращаемся
+     * в настройки.
+     */
+    private fun showJournalKeepDialog() {
+        val options = intArrayOf(7, 14, 30, 0)
+        val labels = arrayOf(
+            getString(R.string.journal_keep_week),
+            getString(R.string.journal_keep_two_weeks),
+            getString(R.string.journal_keep_month),
+            getString(R.string.journal_keep_always)
+        )
+        var selected = options.indexOf(AppSettings.journalKeepDays(this))
+            .takeIf { it >= 0 }
+            ?: (options.size - 1)
+        DashDialog.Builder(this)
+            .setTitle(R.string.journal_keep_title)
+            .setSingleChoiceItems(labels, selected) { _, which ->
+                selected = which
+            }
+            .setPositiveButton(R.string.edit_done) { _, _ ->
+                AppSettings.setJournalKeepDays(this, options[selected])
+                if (options[selected] > 0) {
+                    TripTracker.applyJournalKeep(applicationContext, options[selected])
+                }
+                showSettingsDialog()
+            }
+            .setNegativeButton(R.string.dialog_cancel) { _, _ -> showSettingsDialog() }
+            .showFullScreen()
+    }
+
+    /** «неделю / 2 недели / месяц / всегда» — для строки настроек. */
+    private fun journalKeepLabel(days: Int): String = getString(
+        when (days) {
+            7 -> R.string.journal_keep_week
+            14 -> R.string.journal_keep_two_weeks
+            30 -> R.string.journal_keep_month
+            else -> R.string.journal_keep_always
+        }
+    )
 
     /**
      * Автозапуск держится на слушателе уведомлений: система привязывает его

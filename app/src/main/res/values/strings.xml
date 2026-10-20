@@ -27,6 +27,12 @@
     <string name="speed_style_retro">Стрелочный (ретро)</string>
     <string name="speed_style_digital">Цифровой: обороты и передача</string>
     <string name="settings_cluster_navi">Маршрут навигатора на приборке</string>
+    <string name="settings_trip_journal_keep">Журнал поездок: хранить %s</string>
+    <string name="journal_keep_title">Сколько хранить журнал поездок</string>
+    <string name="journal_keep_week">неделю (7 дней)</string>
+    <string name="journal_keep_two_weeks">2 недели (14 дней)</string>
+    <string name="journal_keep_month">месяц (30 дней)</string>
+    <string name="journal_keep_always">всегда (не удалять)</string>
     <string name="cluster_navi_a11y_description">Dash читает экран Яндекс Навигатора (ограничение скорости, камеры, манёвр), чтобы показать маршрут на приборной панели. Ничего не нажимает и никуда не отправляет.</string>
     <string name="msg_reset">Раскладка сброшена</string>
     <string name="msg_cleared">Дашборд очищен</string>

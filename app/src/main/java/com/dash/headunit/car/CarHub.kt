@@ -1,6 +1,7 @@
 package com.dash.headunit.car
 
 import android.content.Context
+import com.dash.headunit.settings.AppSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -147,9 +148,24 @@ object CarHub {
             pollJob = scope.launch {
                 while (true) {
                     refresh()
+                    pruneTripJournal()
                     delay(POLL_MS)
                 }
             }
+        }
+    }
+
+    /**
+     * Срок хранения журнала поездок применяется в цикле опроса — независимо
+     * от того, привязались ли провайдеры машины (на эмуляторе их нет,
+     * а журнал всё равно должен стареть).
+     */
+    private fun pruneTripJournal() {
+        val ctx = appContext ?: return
+        runCatching {
+            TripTracker.applyJournalKeep(ctx, AppSettings.journalKeepDays(ctx))
+        }.onFailure {
+            android.util.Log.w(TAG, "journal prune", it)
         }
     }
 
@@ -193,7 +209,8 @@ object CarHub {
                 ctx,
                 freshSnapshot,
                 tankLiters(),
-                ClusterPps.trip()
+                ClusterPps.trip(),
+                keepDays = AppSettings.journalKeepDays(ctx)
             )
         } catch (e: Exception) {
             android.util.Log.w(TAG, "trip tick", e)

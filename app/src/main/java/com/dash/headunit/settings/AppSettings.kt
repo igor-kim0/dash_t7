@@ -37,6 +37,18 @@ object AppSettings {
         prefs(context).edit().putInt(KEY_CLUSTER_WIDTH, px).apply()
     }
 
+    /**
+     * Сколько дней хранить журнал поездок ([TripTracker]):
+     * записи старше срока удаляются. 0 — хранить без ограничения.
+     * По умолчанию 7 дней (неделя).
+     */
+    fun journalKeepDays(context: Context): Int =
+        prefs(context).getInt(KEY_JOURNAL_KEEP_DAYS, JOURNAL_KEEP_DEFAULT)
+
+    fun setJournalKeepDays(context: Context, days: Int) {
+        prefs(context).edit().putInt(KEY_JOURNAL_KEEP_DAYS, days).apply()
+    }
+
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
 
@@ -44,4 +56,8 @@ object AppSettings {
     private const val KEY_BAR_LEFT = "bar_side_left"
     private const val KEY_CLUSTER_NAVI = "cluster_navi"
     private const val KEY_CLUSTER_WIDTH = "cluster_width"
+    private const val KEY_JOURNAL_KEEP_DAYS = "journal_keep_days"
+
+    /** Срок хранения журнала поездок по умолчанию, дней. */
+    private const val JOURNAL_KEEP_DEFAULT = 7
 }
