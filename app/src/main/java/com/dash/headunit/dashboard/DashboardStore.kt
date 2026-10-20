@@ -20,8 +20,9 @@ class DashboardStore(context: Context) {
         val raw = prefs.getString(KEY_LAYOUT, null) ?: return defaultLayout()
         return try {
             val arr = JSONArray(raw)
-            List(arr.length()) { i ->
-                val o = arr.getJSONObject(i)
+            (0 until arr.length()).map { arr.getJSONObject(it) }.filter {
+                it.getString("type") !in WidgetType.REMOVED_IDS
+            }.map { o ->
                 WidgetSpec(
                     widgetId = o.getString("id"),
                     type = WidgetType.byId(o.getString("type")),

@@ -91,13 +91,12 @@ class DashboardGridLayout @JvmOverloads constructor(
     /** Вызывается фреймом после драга/ресайза: обновить параметры и пересчитать. */
     fun updateChild(child: View, cellX: Int, cellY: Int, cellW: Int, cellH: Int) {
         val lp = child.layoutParams as LayoutParams
-        lp.cellX = cellX.coerceIn(0, COLS - cellW)
-        lp.cellY = cellY.coerceIn(0, ROWS - cellH)
+        // Сначала размер (иначе масштабная арифметика позиций возможна
+        // с пустым диапазоном: ROWS - cellH < 0 при перетаскивании края).
         lp.cellW = cellW.coerceIn(MIN_W, COLS)
         lp.cellH = cellH.coerceIn(MIN_H, ROWS)
-        // Повторно клампим позицию под итоговый размер.
-        lp.cellX = lp.cellX.coerceIn(0, COLS - lp.cellW)
-        lp.cellY = lp.cellY.coerceIn(0, ROWS - lp.cellH)
+        lp.cellX = cellX.coerceIn(0, COLS - lp.cellW)
+        lp.cellY = cellY.coerceIn(0, ROWS - lp.cellH)
         child.layoutParams = lp
         requestLayout()
         onLayoutChanged?.invoke()

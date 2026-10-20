@@ -126,12 +126,27 @@ class SpeedWidgetView(
             TypedValue.COMPLEX_UNIT_DIP, value.toFloat(), resources.displayMetrics
         ).toInt()
 
+    /** Последнее показанное — живой канал зовёт render() до 10 раз в секунду. */
+    private var shownSpeed: String? = null
+    private var shownRpm: String? = null
+    private var shownGear = Int.MIN_VALUE
+
     private fun render() {
         val d = CarHub.data ?: DemoData.car()
-        speedValue.text = d.speedKmh?.let { "%.0f".format(locale, it) } ?: "—"
-        rpmValue.text = d.rpm?.let { "%.1f".format(locale, it / 1000f) } ?: "—"
+        val speed = d.speedKmh?.let { "%.0f".format(locale, it) } ?: "—"
+        if (speed != shownSpeed) {
+            shownSpeed = speed
+            speedValue.text = speed
+        }
+        val rpm = d.rpm?.let { "%.1f".format(locale, it / 1000f) } ?: "—"
+        if (rpm != shownRpm) {
+            shownRpm = rpm
+            rpmValue.text = rpm
+        }
 
         val current = gearIndex(d.gearRaw)
+        if (current == shownGear) return
+        shownGear = current
         gearCells.forEachIndexed { i, cell ->
             if (i == current) {
                 cell.setTextSize(TypedValue.COMPLEX_UNIT_SP, GEAR_BIG_SP)
@@ -153,12 +168,13 @@ class SpeedWidgetView(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         CarHub.init(context)
-        CarHub.addListener(hubListener)
+        // Живой канал: скорость/обороты с каждого кадра приборки, передача — часто.
+        CarHub.addLiveListener(hubListener)
         CarHub.ensurePolling()
     }
 
     override fun onDetachedFromWindow() {
-        CarHub.removeListener(hubListener)
+        CarHub.removeLiveListener(hubListener)
         super.onDetachedFromWindow()
     }
 

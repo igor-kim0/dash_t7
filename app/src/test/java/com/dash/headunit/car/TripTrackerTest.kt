@@ -134,10 +134,16 @@ class TripTrackerTest {
     }
 
     @Test
-    fun engineOn_prefersRpm() {
-        // Обороты Desay (4,62/4) — самый прямой признак: выше 400 = работает.
+    fun engineOn_prefersReliableOffSignals() {
+        // Обороты Desay (4,62/4) — прямой признак: выше 400 = работает.
         assertEquals(true, TripTracker.engineOn(data(0, 0f).copy(rpm = 750)))
         assertEquals(false, TripTracker.engineOn(data(0, 0f).copy(rpm = 0)))
+        // Флаг Desay (0,27) честно падает в 0 при глушении, обороты
+        // могут висеть >0 — «заглушено» приоритетнее «работает».
+        assertEquals(
+            false,
+            TripTracker.engineOn(data(0, 0f).copy(rpm = 750, charging = false))
+        )
         // Без оборотов — старый путь по флагу/напряжению.
         assertEquals(true, TripTracker.engineOn(data(0, 0f).copy(rpm = null, charging = true)))
         assertEquals(false, TripTracker.engineOn(data(0, 0f).copy(rpm = null, charging = null, voltageV = 12.4f)))
@@ -181,10 +187,33 @@ class TripTrackerTest {
     }
 
     @Test
+    fun finalizeEntry_tripTimeFromEngineStart_ownAvgSpeed() {
+        // Поездка 20 мин, из них в движении 10 мин. Время в журнале —
+        // от пуска двигателя; средняя скорость — своя (не с приборки).
+        val e = TripTracker.finalizeEntry(
+            0L, 1_200_000L,
+            TripTracker.TripView(12.6f, 7.4f, null, 600_000L)
+        )!!
+        assertEquals(1_200_000L, e.driveMillis)
+        assertEquals(37.8f, e.avgSpeedKmh!!, 0.5f)
+    }
+
+    @Test
+    fun finalizeEntry_clusterAvgSpeedKept() {
+        // Приборка дала свою среднюю скорость — сохраняем её.
+        val e = TripTracker.finalizeEntry(
+            0L, 600_000L,
+            TripTracker.TripView(5.1f, 9.4f, 20.8f, 300_000L)
+        )!!
+        assertEquals(600_000L, e.driveMillis)
+        assertEquals(20.8f, e.avgSpeedKmh!!, 0.001f)
+    }
+
+    @Test
     fun journal_roundTrip() {
         val list = listOf(
-            TripTracker.TripEntry(1000L, 2000L, 12.6f, 4_320_000L, 7.4f),
-            TripTracker.TripEntry(3000L, 4000L, 3.0f, 600_000L, null)
+            TripTracker.TripEntry(1000L, 2000L, 12.6f, 4_320_000L, 7.4f, 46f),
+            TripTracker.TripEntry(3000L, 4000L, 3.0f, 600_000L, null, null)
         )
         val decoded = TripTracker.decodeJournal(TripTracker.encodeJournal(list))
         assertEquals(list, decoded)
@@ -205,6 +234,16 @@ class TripTrackerTest {
         )
         assertEquals(1, decoded.size)
         assertEquals(5f, decoded[0].distKm, 0.001f)
+    }
+
+    @Test
+    fun journal_readsLegacyFiveFieldRecords() {
+        // Записи до появления средней скорости (5 полей) читаются.
+        val decoded = TripTracker.decodeJournal("1,2,3.5,600000,7.8")
+        assertEquals(1, decoded.size)
+        assertEquals(3.5f, decoded[0].distKm, 0.001f)
+        assertEquals(7.8f, decoded[0].avgCons!!, 0.001f)
+        assertNull(decoded[0].avgSpeedKmh)
     }
 
     private fun cluster(trip: Float?, fuel: Float?, speed: Float?) =

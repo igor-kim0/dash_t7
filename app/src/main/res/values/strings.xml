@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Dash ГУ</string>
+    <string name="app_name">Tenet t7 dash</string>
     <string name="tab_hours">3 часа</string>
     <string name="tab_days">3 дня</string>
     <string name="today">Сегодня</string>
@@ -17,9 +17,17 @@
     <string name="cd_app_settings">Настройки</string>
     <string name="dialog_ok">OK</string>
     <string name="dialog_cancel">Отмена</string>
+    <string name="dialog_close">Закрыть</string>
     <string name="settings_title">Настройки</string>
     <string name="settings_autostart">Запускать при старте ГУ</string>
     <string name="settings_bar_left">Вертикальный bar слева (иначе справа)</string>
+    <string name="autostart_ready">Автозапуск включён (доступ к уведомлениям: %1$s)</string>
+    <string name="autostart_no_listener">Автозапуск не сработает без доступа к уведомлениям: %1$s</string>
+    <string name="speed_style_title">Вид спидометра</string>
+    <string name="speed_style_retro">Стрелочный (ретро)</string>
+    <string name="speed_style_digital">Цифровой: обороты и передача</string>
+    <string name="settings_cluster_navi">Маршрут навигатора на приборке</string>
+    <string name="cluster_navi_a11y_description">Dash читает экран Яндекс Навигатора (ограничение скорости, камеры, манёвр), чтобы показать маршрут на приборной панели. Ничего не нажимает и никуда не отправляет.</string>
     <string name="msg_reset">Раскладка сброшена</string>
     <string name="msg_cleared">Дашборд очищен</string>
     <string name="msg_added">Блок добавлен</string>
@@ -53,6 +61,17 @@
     <string name="trip_journal_empty">Поездок пока нет</string>
     <string name="trip_journal_clear">Очистить</string>
     <string name="trip_journal_cleared">Журнал очищен</string>
+    <string name="trip_journal_today">Сегодня</string>
+    <string name="trip_journal_yesterday">Вчера</string>
+    <string name="trip_journal_time">Время</string>
+    <string name="trip_journal_speed">Скорость</string>
+    <string name="trip_journal_cons">Расход</string>
+    <string name="trip_journal_h">ч</string>
+    <string name="trip_journal_min">мин</string>
+    <string name="trip_journal_km_fmt">%.1f км</string>
+    <!-- Склонение «поездка/поездки/поездок» руками: в приложении русский
+         текст независимо от локали системы, а plurals выбирает по ней. -->
+    <string name="trip_journal_rides_fmt">%d поездка|поездки|поездок</string>
     <string name="set_app_title">Навигатор для блока</string>
     <string name="app_none">Блок «Навигатор»:\nвыберите приложение в настройках (шестерёнка)</string>
     <string name="app_none_selected">— Не выбрано —</string>
@@ -103,7 +122,10 @@
     <string name="no_location">Координаты недоступны — показан fallback</string>
     <string name="widget_climate">Климат</string>
     <string name="widget_reference">Справочник</string>
-    <string name="widget_claude_test">Test claude</string>
+    <string name="widget_learn">Обучение кнопкам</string>
+    <string name="learn_pick">Какое действие выучить</string>
+    <string name="learn_try_title">Попробовать выполнить</string>
+    <string name="learn_try_go">Выполнить</string>
     <string name="widget_heat">Подогрев</string>
     <string name="widget_outside">За бортом</string>
     <string name="widget_elm">OBD (ELM)</string>
@@ -112,6 +134,11 @@
     <string name="elm_connecting">подключаюсь…</string>
     <string name="elm_no_link">нет связи</string>
     <string name="elm_no_adapter">адаптер не выбран</string>
+    <string name="elm_coolant">ОЖ</string>
+    <string name="elm_voltage">АКБ</string>
+    <string name="elm_rpm">обороты</string>
+    <string name="elm_load">нагрузка</string>
+    <string name="elm_diag_title">OBD: Bluetooth-адаптер</string>
     <string name="set_elm_title">ELM: спаренные устройства</string>
     <string name="elm_current">ELM: спаренные (текущий: %1$s, %2$s)</string>
     <string name="elm_no_name">без имени</string>
@@ -160,4 +187,33 @@
     <string name="cl_outside">за бортом</string>
     <string name="cl_seat_heat_driver">Подогрев водителя</string>
     <string name="cl_level_off">Выкл</string>
+    <string name="widget_wifi">Wi-Fi</string>
+    <string name="wifi_title">Wi-Fi</string>
+    <string name="wifi_state_off">Выключен</string>
+    <string name="wifi_state_disconnected">Не подключено</string>
+    <string name="cd_wifi_widget">Управление Wi-Fi</string>
+    <string name="wifi_toggle_row">Wi-Fi</string>
+    <string name="wifi_on">вкл</string>
+    <string name="wifi_off">выкл</string>
+    <string name="wifi_ip_note">IP %1$s</string>
+    <string name="wifi_saved_title">Сохранённые сети</string>
+    <string name="wifi_visible_title">Рядом (%1$d)</string>
+    <string name="wifi_connected_note">подключено</string>
+    <string name="wifi_saved_note">сохранена</string>
+    <string name="wifi_rssi_note">%1$d dBm</string>
+    <string name="wifi_open_note">открытая</string>
+    <string name="wifi_note_no_loc">Сети рядом скрыты: нужно разрешение геолокации</string>
+    <string name="wifi_note_no_visible">Сети рядом не найдены</string>
+    <string name="wifi_note_off">Wi-Fi выключен — коснитесь, чтобы включить, и выберите сеть</string>
+    <string name="wifi_add_row">Добавить сеть</string>
+    <string name="wifi_add_title">Добавить сеть</string>
+    <string name="wifi_add_ssid">Имя сети (SSID)</string>
+    <string name="wifi_add_pass">Пароль (пусто — открытая сеть)</string>
+    <string name="wifi_add_connect">Подключить</string>
+    <string name="wifi_added">Сеть добавлена, подключаюсь…</string>
+    <string name="wifi_add_fail">Не удалось добавить сеть</string>
+    <string name="wifi_connecting">Подключаюсь к %1$s…</string>
+    <string name="wifi_forget_title">Забыть сеть?</string>
+    <string name="wifi_forget_text">%1$s будет удалена из сохранённых.</string>
+    <string name="wifi_forget">Забыть</string>
 </resources>

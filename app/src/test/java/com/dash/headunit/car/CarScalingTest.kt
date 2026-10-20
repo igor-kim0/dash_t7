@@ -69,12 +69,13 @@ class CarScalingTest {
     }
 
     @Test
-    fun rpmDesay_dividesByFour() {
-        // Приборка/PPS: сырое 1000→250, 900→225, 788→197 об/мин.
-        assertEquals(250, CarScaling.rpmDesay(1000))
-        assertEquals(225, CarScaling.rpmDesay(900))
-        assertEquals(197, CarScaling.rpmDesay(788))
+    fun rpmDesay_timesFour() {
+        // Срезы шины на T18FL3 против приборки (PPS): холостые 184 → 736,
+        // 432 → 1728 (приборка 1628–1684), после глушения 50 → 200.
+        assertEquals(736, CarScaling.rpmDesay(184))
+        assertEquals(1728, CarScaling.rpmDesay(432))
+        assertEquals(200, CarScaling.rpmDesay(50))
         assertNull(CarScaling.rpmDesay(-1))
-        assertNull(CarScaling.rpmDesay(40001))
+        assertNull(CarScaling.rpmDesay(2501))
     }
 }

@@ -38,16 +38,19 @@ import com.dash.headunit.car.DesayPushProbe
 import com.dash.headunit.navi.HoleBackground
 import com.dash.headunit.navi.NaviUnderlay
 import com.dash.headunit.ui.DashDialog
+import com.dash.headunit.navi.cluster.ClusterOverlay
+import com.dash.headunit.navi.cluster.ClusterSetup
+import com.dash.headunit.navi.cluster.GuidanceHub
 import com.dash.headunit.settings.AppSettings
 import com.dash.headunit.theme.DashTheme
 import com.dash.headunit.theme.ThemeCard
 import com.dash.headunit.theme.ThemeStore
 import com.dash.headunit.widgets.CarWidgetView
-import com.dash.headunit.widgets.ClaudeTestWidgetView
 import com.dash.headunit.widgets.ClockWidgetView
 import com.dash.headunit.widgets.ComboWidgetView
 import com.dash.headunit.widgets.ForecastStripView
 import com.dash.headunit.widgets.MusicWidgetView
+import com.dash.headunit.widgets.WifiWidgetView
 import com.dash.headunit.widgets.ReferenceWidgetView
 import com.dash.headunit.widgets.AppWidgetView
 import com.dash.headunit.widgets.NavApps
@@ -56,6 +59,8 @@ import com.dash.headunit.widgets.ClimateWidgetView
 import com.dash.headunit.widgets.HeatWidgetView
 import com.dash.headunit.widgets.OutsideWidgetView
 import com.dash.headunit.widgets.ElmWidgetView
+import com.dash.headunit.widgets.LearnWidgetView
+import com.dash.headunit.widgets.RetroSpeedometerView
 import com.dash.headunit.widgets.SpeedWidgetView
 import com.dash.headunit.widgets.DesayPushTestWidgetView
 
@@ -87,6 +92,7 @@ class MainActivity : AppCompatActivity() {
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        ClusterOverlay.init(this)
 
         // Не гаснуть на ГУ + во весь экран.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -113,6 +119,10 @@ class MainActivity : AppCompatActivity() {
         btnEdit = findViewById(R.id.btn_edit)
         iconWifi = findViewById(R.id.icon_wifi)
         iconBluetooth = findViewById(R.id.icon_bluetooth)
+        // Диалог управления Wi-Fi: сохранённые/видимые сети, добавление сети.
+        findViewById<View>(R.id.icon_wifi).setOnClickListener {
+            com.dash.headunit.ui.WifiConnectionDialog.show(this)
+        }
         applyBarSide()
 
         dashboard.onLayoutChanged = { persistLayout() }
@@ -233,11 +243,13 @@ class MainActivity : AppCompatActivity() {
     private fun showSettingsDialog() {
         val items = arrayOf(
             getString(R.string.settings_autostart),
-            getString(R.string.settings_bar_left)
+            getString(R.string.settings_bar_left),
+            getString(R.string.settings_cluster_navi)
         )
         val checked = booleanArrayOf(
             AppSettings.autostart(this),
-            AppSettings.barSideLeft(this)
+            AppSettings.barSideLeft(this),
+            AppSettings.clusterNavi(this)
         )
         DashDialog.Builder(this)
             .setTitle(R.string.settings_title)
@@ -245,12 +257,59 @@ class MainActivity : AppCompatActivity() {
                 checked[which] = isChecked
             }
             .setPositiveButton(R.string.edit_done) { _, _ ->
-                AppSettings.setAutostart(this, checked[0])
+                applyAutostart(checked[0])
                 AppSettings.setBarSideLeft(this, checked[1])
                 applyBarSide()
+                applyClusterNavi(checked[2])
             }
             .setNegativeButton(R.string.dialog_cancel, null)
             .showFullScreen()
+    }
+
+    /**
+     * Автозапуск держится на слушателе уведомлений: система привязывает его
+     * при загрузке и поднимает наш процесс ([com.dash.headunit.settings.Autostart]).
+     * При включении настройки включаем слушатель через adb-канал, если он выключен.
+     */
+    private fun applyAutostart(enabled: Boolean) {
+        val was = AppSettings.autostart(this)
+        AppSettings.setAutostart(this, enabled)
+        if (!enabled || was || ClusterSetup.isListenerEnabled(this)) return
+        val app = applicationContext
+        Thread {
+            val report = ClusterSetup.enableListener(app)
+            val ok = ClusterSetup.isListenerEnabled(app)
+            runOnUiThread {
+                Toast.makeText(
+                    app,
+                    getString(if (ok) R.string.autostart_ready else R.string.autostart_no_listener, report),
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }.start()
+    }
+
+    /**
+     * Маршрут на приборке: при включении выдаём себе права через adb-канал
+     * (оверлей, спец. возможности, уведомления) и, если маршрут уже идёт,
+     * сразу показываем; при выключении — убираем с приборки.
+     */
+    private fun applyClusterNavi(enabled: Boolean) {
+        val was = AppSettings.clusterNavi(this)
+        AppSettings.setClusterNavi(this, enabled)
+        if (enabled == was) return
+        if (!enabled) {
+            ClusterOverlay.hide(announce = true)
+            return
+        }
+        val app = applicationContext
+        Thread {
+            val report = ClusterSetup.ensureAll(app)
+            runOnUiThread {
+                Toast.makeText(app, report, Toast.LENGTH_LONG).show()
+                if (GuidanceHub.current != null) ClusterOverlay.show(announce = true)
+            }
+        }.start()
     }
 
     /** Перенести вертикальную колонку иконок влево или вправо по настройке. */
@@ -394,9 +453,13 @@ class MainActivity : AppCompatActivity() {
     private fun kickNaviResume(pkg: String) {
         if (!resumeKickPending || underlayPkg != pkg || !isResumedNow()) return
         resumeKickPending = false
-        // Наш onPause/onStop на это время — не уход с экрана.
-        underlayLaunchedAt = System.currentTimeMillis()
-        NaviUnderlay.resumeInBlock(this, pkg)
+        // Пинок до готовности процесса навигатора пропадает впустую.
+        NaviUnderlay.whenDrawn(this, pkg) {
+            if (underlayPkg != pkg || !isResumedNow()) return@whenDrawn
+            // Наш onPause/onStop на это время — не уход с экрана.
+            underlayLaunchedAt = System.currentTimeMillis()
+            NaviUnderlay.resumeInBlock(this, pkg)
+        }
     }
 
     /** Вырезать [hole] (координаты окна) из фона и из зоны касаний дашборда. */
@@ -469,6 +532,7 @@ class MainActivity : AppCompatActivity() {
                 WidgetType.WEATHER -> ForecastStripView(this, spec.widgetId, theme, settingsStore)
                 WidgetType.CAR -> CarWidgetView(this, theme, spec.widgetId, settingsStore)
                 WidgetType.MUSIC -> MusicWidgetView(this, theme)
+                WidgetType.WIFI -> WifiWidgetView(this, theme)
                 WidgetType.APP -> AppWidgetView(this, spec.widgetId, theme, settingsStore).apply {
                     onTapIdle = { if (!editMode) connectShell() }
                     onExpand = { openNaviFull() }
@@ -479,9 +543,14 @@ class MainActivity : AppCompatActivity() {
                 WidgetType.HEAT -> HeatWidgetView(this, theme)
                 WidgetType.OUTSIDE -> OutsideWidgetView(this, theme)
                 WidgetType.ELM -> ElmWidgetView(this, theme)
-                WidgetType.SPEED -> SpeedWidgetView(this, theme)
+                WidgetType.SPEED ->
+                    if (settingsStore.getOption(spec.widgetId, OPT_SPEED_STYLE, SPEED_RETRO) == SPEED_DIGITAL) {
+                        SpeedWidgetView(this, theme)
+                    } else {
+                        RetroSpeedometerView(this)
+                    }
                 WidgetType.PUSH_TEST -> DesayPushTestWidgetView(this, theme)
-                WidgetType.CLAUDE_TEST -> ClaudeTestWidgetView(this, theme)
+                WidgetType.LEARN -> LearnWidgetView(this, theme)
             }
             val frame = WidgetFrame(
                 context = this,
@@ -504,6 +573,9 @@ class MainActivity : AppCompatActivity() {
                     }
                     WidgetType.ELM -> {
                         { showElmSettings() }
+                    }
+                    WidgetType.SPEED -> {
+                        { showSpeedSettings(spec.widgetId) }
                     }
                     WidgetType.PUSH_TEST -> {
                         { showPushSettings() }
@@ -573,6 +645,7 @@ class MainActivity : AppCompatActivity() {
         PickerItem(WidgetType.WEATHER, R.string.widget_weather, R.drawable.ic_cloud),
         PickerItem(WidgetType.CAR, R.string.widget_car, R.drawable.ic_fuel),
         PickerItem(WidgetType.MUSIC, R.string.widget_music, R.drawable.ic_play),
+        PickerItem(WidgetType.WIFI, R.string.widget_wifi, R.drawable.ic_wifi),
         PickerItem(WidgetType.APP, R.string.widget_app, R.drawable.ic_nav),
         PickerItem(WidgetType.TRIP, R.string.widget_trip, R.drawable.ic_journal),
         PickerItem(WidgetType.CLIMATE, R.string.widget_climate, R.drawable.ic_fan),
@@ -582,7 +655,7 @@ class MainActivity : AppCompatActivity() {
         PickerItem(WidgetType.ELM, R.string.widget_elm, R.drawable.ic_obd),
         PickerItem(WidgetType.SPEED, R.string.widget_speed, R.drawable.ic_gauge),
         PickerItem(WidgetType.PUSH_TEST, R.string.widget_push_test, R.drawable.ic_broadcast),
-        PickerItem(WidgetType.CLAUDE_TEST, R.string.widget_claude_test, R.drawable.ic_flask),
+        PickerItem(WidgetType.LEARN, R.string.widget_learn, R.drawable.ic_sync),
     ).filter { WidgetAvailability.isEnabled(it.type) }
 
     /**
@@ -711,11 +784,12 @@ class MainActivity : AppCompatActivity() {
             WidgetType.TRIP -> 92 to 24
             WidgetType.CLIMATE -> 92 to 40
             WidgetType.REFERENCE -> 56 to 40
-            WidgetType.CLAUDE_TEST -> 56 to 40
+            WidgetType.LEARN -> 56 to 48
             WidgetType.HEAT -> 60 to 32
             WidgetType.OUTSIDE -> 40 to 20
+            WidgetType.WIFI -> 40 to 18
             WidgetType.ELM -> 56 to 44
-            WidgetType.SPEED -> 36 to 30
+            WidgetType.SPEED -> 48 to 26
             WidgetType.PUSH_TEST -> 56 to 40
             WidgetType.CLOCK -> 40 to 24
         }
@@ -844,6 +918,27 @@ class MainActivity : AppCompatActivity() {
      * Видимость — [CarWidgetView.OPT_ITEMS] (пусто = все),
      * порядок всех метрик — [CarWidgetView.OPT_ORDER].
      */
+    /** Вид «Спидометра»: стрелочный ретро или цифровой (обороты и передача). */
+    private fun showSpeedSettings(widgetId: String) {
+        val styles = listOf(SPEED_RETRO, SPEED_DIGITAL)
+        var selected = styles.indexOf(settingsStore.getOption(widgetId, OPT_SPEED_STYLE, SPEED_RETRO))
+            .coerceAtLeast(0)
+        DashDialog.Builder(this)
+            .setTitle(R.string.speed_style_title)
+            .setSingleChoiceItems(
+                arrayOf(getString(R.string.speed_style_retro), getString(R.string.speed_style_digital)),
+                selected
+            ) { _, which ->
+                selected = which
+            }
+            .setPositiveButton(R.string.edit_done) { _, _ ->
+                settingsStore.setOption(widgetId, OPT_SPEED_STYLE, styles[selected])
+                buildWidgets(readSpecs())
+            }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .showFullScreen()
+    }
+
     private fun showCarSettings(widgetId: String) {
         val labelIds = mapOf(
             "fuel" to R.string.car_item_fuel,
@@ -1123,8 +1218,13 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         /** onStop в этот срок после запуска навигатора под себя — не уход с экрана. */
-        private const val UNDERLAY_GRACE_MS = 3000L
+        private const val UNDERLAY_GRACE_MS = 5000L
 
         private const val REQ_LOCATION = 1001
+
+        /** Опция «Спидометра»: вид (см. [showSpeedSettings]). */
+        private const val OPT_SPEED_STYLE = "style"
+        private const val SPEED_RETRO = "retro"
+        private const val SPEED_DIGITAL = "digital"
     }
 }

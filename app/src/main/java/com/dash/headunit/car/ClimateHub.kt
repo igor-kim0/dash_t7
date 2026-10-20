@@ -290,15 +290,20 @@ object ClimateHub {
 
     // ---------- окна/двери (группа 0/4) ----------
 
-    /** Открыть/закрыть окно водителя (0,100: 2 закрыто / 4 открыто). */
+    /**
+     * Открыть/закрыть окно водителя. Команда — VR-ячейка (3,120), как у
+     * штатного исполнителя голосовых команд (см. ActionLearner.Known):
+     * 1/2 водитель, 3/4 пассажир. Состояние читается из 0,100/0,101
+     * (2 закрыто, 6 едет, 3 приоткрыто, 4 открыто) — туда не пишем.
+     */
     fun setWindowDriver(open: Boolean): Boolean {
         val d = desay ?: return false
-        return withWriteGuard { d.write(0, 100, if (open) 4 else 2) }
+        return withWriteGuard { d.write(3, 120, if (open) 1 else 2) }
     }
 
     fun setWindowPass(open: Boolean): Boolean {
         val d = desay ?: return false
-        return withWriteGuard { d.write(0, 101, if (open) 4 else 2) }
+        return withWriteGuard { d.write(3, 120, if (open) 3 else 4) }
     }
 
     fun setHazard(on: Boolean): Boolean {

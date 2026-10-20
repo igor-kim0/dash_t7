@@ -16,6 +16,11 @@ import kotlinx.coroutines.withContext
  * каждое поле берётся из первого провайдера, где оно есть.
  *
  * Объём бака — настройка (по умолчанию 51 л, как в Jarvis для Chery).
+ *
+ * Полный опрос — раз в [POLL_MS]. Для спидометра есть «живой» канал
+ * ([addLiveListener]): скорость и обороты приходят с приборки на каждом
+ * кадре PPS (~10 раз в секунду), передача — опросом шины раз в [LIVE_POLL_MS],
+ * пока есть живые подписчики. Подписчикам — не чаще раза в [LIVE_UI_MS].
  */
 object CarHub {
 
@@ -35,6 +40,14 @@ object CarHub {
         private set
 
     private val listeners = mutableSetOf<() -> Unit>()
+    private val liveListeners = mutableSetOf<() -> Unit>()
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+    private var livePosted = false
+    private var lastLiveUi = 0L
+    private var liveJob: Job? = null
+    /** Есть ли сервис шины Desay (проверяем один раз — опрос частый). */
+    @Volatile
+    private var desayAvailable: Boolean? = null
     private var scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var pollJob: Job? = null
 
@@ -58,10 +71,77 @@ object CarHub {
 
     private fun notifyListeners() {
         listeners.toList().forEach { it() }
+        liveListeners.toList().forEach { it() }
+    }
+
+    /**
+     * Подписка на быстрые обновления скорости/оборотов/передачи (и на
+     * обычные тоже). Пока подписчики есть — передача опрашивается часто.
+     */
+    fun addLiveListener(listener: () -> Unit) {
+        liveListeners.add(listener)
+        listener()
+        if (liveJob == null) {
+            liveJob = scope.launch {
+                while (true) {
+                    pollLive()
+                    delay(LIVE_POLL_MS)
+                }
+            }
+        }
+    }
+
+    fun removeLiveListener(listener: () -> Unit) {
+        liveListeners.remove(listener)
+        if (liveListeners.isEmpty()) {
+            liveJob?.cancel()
+            liveJob = null
+        }
+    }
+
+    /** Кадр приборки (поток чтения PPS) → скорость/обороты в главный поток. */
+    private val onClusterLive: () -> Unit = {
+        synchronized(main) {
+            if (!livePosted) {
+                livePosted = true
+                val wait = (lastLiveUi + LIVE_UI_MS - android.os.SystemClock.uptimeMillis()).coerceAtLeast(0)
+                main.postDelayed(applyClusterLive, wait)
+            }
+        }
+    }
+
+    private val applyClusterLive = Runnable {
+        synchronized(main) { livePosted = false }
+        lastLiveUi = android.os.SystemClock.uptimeMillis()
+        val d = data ?: return@Runnable
+        val speed = ClusterPps.speedKmh()?.toFloat() ?: d.speedKmh
+        val rpm = ClusterPps.rpm() ?: d.rpm
+        if (speed == d.speedKmh && rpm == d.rpm) return@Runnable
+        data = d.copy(speedKmh = speed, rpm = rpm)
+        liveListeners.toList().forEach { it() }
+    }
+
+    /** Передача (и обороты, если приборка молчит) — короткое чтение шины. */
+    private suspend fun pollLive() {
+        val desay = desay ?: return
+        val (gear, rpm) = withContext(Dispatchers.IO) {
+            val available = desayAvailable ?: desay.isAvailable().also { desayAvailable = it }
+            if (!available) return@withContext null to null
+            val g = desay.readInt(4, 26).takeIf { it >= 0 }
+            val r = if (ClusterPps.rpm() == null) CarScaling.rpmDesay(desay.readInt(4, 62)) else null
+            g to r
+        }
+        val d = data ?: return
+        val newGear = gear ?: d.gearRaw
+        val newRpm = ClusterPps.rpm() ?: rpm ?: d.rpm
+        if (newGear == d.gearRaw && newRpm == d.rpm) return
+        data = d.copy(gearRaw = newGear, rpm = newRpm)
+        liveListeners.toList().forEach { it() }
     }
 
     fun ensurePolling() {
         // ОЖ есть только на приборке — читаем её отдельным потоком.
+        ClusterPps.onLive = onClusterLive
         ClusterPps.start()
         if (pollJob == null) {
             pollJob = scope.launch {
@@ -163,8 +243,10 @@ object CarHub {
             // VHAL в приложении без прав (CAR_VENDOR_EXTENSION denied),
             // а Desay-ячейка может не читаться: дублируем с приборки (PPS),
             // которая на ГУ proven working (скорость/обороты в логах).
-            speedKmh = merged.speedKmh ?: ClusterPps.speedKmh()?.toFloat(),
-            rpm = merged.rpm ?: ClusterPps.rpm()
+            // Приборка — первой: она же идёт в «живой» канал, иначе раз в
+            // POLL_MS значения прыгали бы между источниками.
+            speedKmh = ClusterPps.speedKmh()?.toFloat() ?: merged.speedKmh,
+            rpm = ClusterPps.rpm() ?: merged.rpm
         )
     }
 
@@ -188,6 +270,8 @@ object CarHub {
         scope.cancel()
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
         listeners.clear()
+        liveListeners.clear()
+        liveJob = null
         data = null
         lastFreshTs = 0L
         tripView = null
@@ -198,6 +282,10 @@ object CarHub {
     }
 
     private const val POLL_MS = 5000L
+    /** Опрос передачи для живых подписчиков. */
+    private const val LIVE_POLL_MS = 300L
+    /** Не чаще — обновление живых подписчиков (10 кадров/с). */
+    private const val LIVE_UI_MS = 100L
     /** Данные устарели: шина спит/сервис отвалился — двигателю не верим. */
     private const val FRESH_MS = 25_000L
     private const val TAG = "CarHub"

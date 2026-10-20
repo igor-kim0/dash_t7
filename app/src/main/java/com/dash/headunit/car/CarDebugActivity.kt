@@ -69,7 +69,7 @@ class CarDebugActivity : AppCompatActivity() {
             addView(btnMark)
         }
         output = TextView(this).apply {
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
             setTextIsSelectable(true)
         }
         val scroll = ScrollView(this).apply { addView(output) }
@@ -154,6 +154,11 @@ class CarDebugActivity : AppCompatActivity() {
                     scanDesay()
                 } catch (e: Exception) {
                     emit("Desay: ОШИБКА ${e.javaClass.simpleName}: ${e.message}")
+                }
+                try {
+                    scanDesayReadonly()
+                } catch (e: Exception) {
+                    emit("Desay READONLY: ОШИБКА ${e.javaClass.simpleName}: ${e.message}")
                 }
                 try {
                     dumpVhal()
@@ -260,6 +265,49 @@ class CarDebugActivity : AppCompatActivity() {
             }
         }
         emit("Desay: готово, ненулевых: $hits")
+    }
+
+    /**
+     * Desay READONLY-группа 327684 — по TiggoBridge (Chery Pro, та же
+     * Desay-поставка, binder тот же CarInfoService): id 100 = температура
+     * ОЖ, id 62 = обороты. Обычный скан ходит по группам 0..8 и эту
+     * группу не трогает. Формат TiggoBridge.tempName: в диапазоне
+     * [-80..80] — °C как есть, иначе десятые °C.
+     */
+    private suspend fun scanDesayReadonly() {
+        emit("=== Desay SV: READONLY-группа 327684 (100=ОЖ, 62=об/мин) ===")
+        val reader = DesayCarReader(applicationContext)
+        if (!reader.isAvailable()) {
+            emit("Desay: сервис com.desaysv.svcarinfo НЕ НАЙДЕН")
+            return
+        }
+        val group = 327684
+        var hits = 0
+        for (id in 0..255) {
+            val raw = try {
+                reader.readRaw(group, id, logErrors = false)
+            } catch (e: Exception) {
+                emit("Desay READONLY: исключение на ($group,$id): ${e.message}")
+                return
+            }
+            if (raw == null || raw.isEmpty() || raw.all { it == 0 }) continue
+            hits++
+            val assembled = CarScaling.bytesToInt(raw)
+            val bytes = raw.joinToString(",") { (it and 0xFF).toString() }
+            val hint = when (id) {
+                100 -> if (assembled > 80 || assembled < -80) {
+                    " °C=%.1f".format(java.util.Locale.US, assembled / 10.0)
+                } else " °C=$assembled"
+                62 -> " rpm=$assembled"
+                else -> ""
+            }
+            emit("desay($group,$id) = [$bytes] int=$assembled$hint")
+            if (hits > 200) {
+                emit("Desay READONLY: лимит 200 строк, стоп")
+                return
+            }
+        }
+        emit("Desay READONLY: готово, ненулевых: $hits")
     }
 
     // ---------- VHAL ----------

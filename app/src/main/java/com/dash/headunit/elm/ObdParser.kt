@@ -23,6 +23,32 @@ object ObdParser {
         return (value - 40).toFloat()
     }
 
+    /** Обороты из ответа на 010C: (A·256 + B) / 4, об/мин. */
+    fun rpm(text: String): Float? {
+        val bytes = scanResponse(text, "410C") ?: return null
+        val a = bytes.getOrNull(2) ?: return null
+        val b = bytes.getOrNull(3) ?: return null
+        return (a * 256 + b) / 4f
+    }
+
+    /** Расчётная нагрузка двигателя из ответа на 0104: A · 100 / 255, %. */
+    fun engineLoad(text: String): Float? {
+        val bytes = scanResponse(text, "4104") ?: return null
+        val a = bytes.getOrNull(2) ?: return null
+        return a * 100f / 255f
+    }
+
+    /**
+     * Напряжение бортовой сети из ответа ELM на ATRV («12.6V»), В.
+     * Меряет сам адаптер на 16-м пине OBD — работает на любой машине.
+     */
+    fun voltage(text: String): Float? {
+        val m = VOLTAGE.find(text) ?: return null
+        return m.groupValues[1].replace(',', '.').toFloatOrNull()?.takeIf { it in 5f..20f }
+    }
+
+    private val VOLTAGE = Regex("""(\d{1,2}(?:[.,]\d{1,2})?)\s*V""")
+
     /**
      * Первый найденный в тексте hex-ответ на команду [cmdId] (например,
      * «4105» — ответ ELM на запрос 0105). Ответ ищется внутри одной строки

@@ -301,6 +301,39 @@ object NaviUnderlay {
     }
 
     /**
+     * Дождаться, пока окно навигатора [pkg] будет нарисовано (`mDrawState=HAS_DRAWN`),
+     * и вызвать [then] в UI-потоке (аргумент — дождались ли). На холодном
+     * старте процесс навигатора секунды занят инициализацией: система уже
+     * считает его RESUMED, а сам он получает onResume/onPause пачкой позже
+     * (`am_failed_to_pause`) — «пинок» до готовности окна навигатор не видит.
+     */
+    fun whenDrawn(context: Context, pkg: String, then: (Boolean) -> Unit) {
+        val app = context.applicationContext
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
+        worker.execute {
+            val deadline = System.currentTimeMillis() + DRAWN_TIMEOUT_MS
+            var drawn = false
+            while (!drawn && System.currentTimeMillis() < deadline) {
+                val out = AdbShell.exec(app, "dumpsys window windows | grep -E 'Window #|mDrawState'")
+                drawn = out != null && isDrawn(out, pkg)
+                if (!drawn) Thread.sleep(DRAWN_POLL_MS)
+            }
+            lastStatus = if (drawn) "окно $pkg нарисовано" else "окно $pkg не нарисовано за ${DRAWN_TIMEOUT_MS} мс"
+            main.post { then(drawn) }
+        }
+    }
+
+    /** Разбор `dumpsys window windows`: у окна пакета [pkg] mDrawState=HAS_DRAWN. */
+    internal fun isDrawn(dump: String, pkg: String): Boolean {
+        var inPkg = false
+        for (line in dump.lineSequence()) {
+            if (line.trimStart().startsWith("Window #")) inPkg = line.contains(" $pkg/")
+            else if (inPkg && line.contains("mDrawState=HAS_DRAWN")) return true
+        }
+        return false
+    }
+
+    /**
      * Дать навигатору [pkg], уже ужатому до блока, один раз стать RESUMED и
      * вернуть дашборд наверх. После [launchUnder] навигатор только создан и
      * сразу PAUSED: Yandex Navi включает GPS/слежение в onResume, без этого
@@ -414,7 +447,9 @@ object NaviUnderlay {
     private const val CRASH_RESET_WAIT_MS = 3000L
     private const val STACK_ATTEMPTS = 5
     private const val STACK_RETRY_MS = 300L
-    private const val RESUME_KICK_MS = 1000L
+    private const val RESUME_KICK_MS = 2000L
+    private const val DRAWN_TIMEOUT_MS = 20_000L
+    private const val DRAWN_POLL_MS = 500L
     private val STACK_RE =
         Regex("""^Stack id=(\d+) bounds=\[(\d+),(\d+)]\[(\d+),(\d+)] displayId=(\d+)""")
     private const val PREF_AUTHORIZED = "adb_authorized"

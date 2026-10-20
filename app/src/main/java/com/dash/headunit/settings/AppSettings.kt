@@ -21,9 +21,27 @@ object AppSettings {
         prefs(context).edit().putBoolean(KEY_BAR_LEFT, left).apply()
     }
 
+    /** Показывать маршрут Яндекс Навигатора на приборке ([com.dash.headunit.navi.cluster.ClusterOverlay]). */
+    fun clusterNavi(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_CLUSTER_NAVI, false)
+
+    fun setClusterNavi(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_CLUSTER_NAVI, enabled).apply()
+    }
+
+    /** Ширина центральной полосы картинки на приборке, px (по бокам — шкалы приборки). */
+    fun clusterWidth(context: Context): Int =
+        prefs(context).getInt(KEY_CLUSTER_WIDTH, 1100)
+
+    fun setClusterWidth(context: Context, px: Int) {
+        prefs(context).edit().putInt(KEY_CLUSTER_WIDTH, px).apply()
+    }
+
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
 
     private const val KEY_AUTOSTART = "autostart"
     private const val KEY_BAR_LEFT = "bar_side_left"
+    private const val KEY_CLUSTER_NAVI = "cluster_navi"
+    private const val KEY_CLUSTER_WIDTH = "cluster_width"
 }

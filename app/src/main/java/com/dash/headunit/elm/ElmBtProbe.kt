@@ -344,6 +344,7 @@ object ElmBtProbe {
         PAIRING_VARIANT_CONSENT -> "подтвердить пару"
         PAIRING_VARIANT_DISPLAY_PASSKEY -> "код на экране"
         PAIRING_VARIANT_DISPLAY_PIN -> "PIN на экране"
+        PAIRING_VARIANT_PIN_16_DIGITS -> "нужен PIN (до 16 цифр)"
         else -> "вариант $variant"
     } + " ($variant)"
 
@@ -408,7 +409,7 @@ object ElmBtProbe {
     @SuppressLint("MissingPermission")
     private fun answerPairing(device: BluetoothDevice, variant: Int, key: Int): Boolean =
         when (variant) {
-            PAIRING_VARIANT_PIN -> {
+            PAIRING_VARIANT_PIN, PAIRING_VARIANT_PIN_16_DIGITS -> {
                 val ok = callBoolean(device, "setPin", ByteArray::class.java, pin.toByteArray(Charsets.UTF_8))
                 log("setPin(\"$pin\") -> $ok")
                 ok
@@ -487,4 +488,9 @@ object ElmBtProbe {
     private const val PAIRING_VARIANT_CONSENT = 3
     private const val PAIRING_VARIANT_DISPLAY_PASSKEY = 4
     private const val PAIRING_VARIANT_DISPLAY_PIN = 5
+
+    /** Скрытая константа AOSP (frameworks/base BluetoothDevice): тот же PIN,
+     *  но до 16 цифр. ELM327-адаптеры часто просят именно её — обрабатываем
+     *  как обычный PIN (setPin принимает 4..16 символов). */
+    private const val PAIRING_VARIANT_PIN_16_DIGITS = 7
 }

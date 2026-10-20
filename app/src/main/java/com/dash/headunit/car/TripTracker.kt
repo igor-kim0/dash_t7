@@ -30,16 +30,18 @@ object TripTracker {
 
     /** Одна завершённая поездка в журнале. */
     data class TripEntry(
-        /** Старт поездки, wall ms. */
+        /** Старт поездки (пуск двигателя или запуск приложения), wall ms. */
         val startTs: Long,
         /** Финиш (глушение двигателя), wall ms. */
         val endTs: Long,
         /** Пройдено, км. */
         val distKm: Float,
-        /** Время в движении, мс. */
+        /** Время поездки (от пуска двигателя до глушения), мс. */
         val driveMillis: Long,
         /** Средний расход, л/100 км (может отсутствовать). */
-        val avgCons: Float?
+        val avgCons: Float?,
+        /** Средняя скорость, км/ч (может отсутствовать). */
+        val avgSpeedKmh: Float? = null
     )
 
     data class Period(
@@ -65,12 +67,17 @@ object TripTracker {
     private var blindSince: Long = 0L
 
     /**
-     * Двигатель работает: точнее всего — обороты Desay (4,62/4) выше
-     * холостых; затем достоверный флаг Desay (0,27) через
-     * [CarData.charging]; без него — бортсеть >= 13 В (альтернатор).
+     * Двигатель работает. Любой надёжный сигнал «заглушен» сильнее любого
+     * «работает»: обороты Desay (4,62/4) ниже холостых ИЛИ честный флаг
+     * Desay (0,27) через [CarData.charging] → «заглушено» — контраглэнды
+     * (например 4,62 может висеть >0 после глушения) не порывают финал поездки.
+     * Если «заглушено» не видно, а есть обороты выше холостых / флаг / бортсеть
+     * >= 13 В (альтернатор) — работаем.
      */
     fun engineOn(data: CarData?): Boolean {
         if (data == null) return false
+        data.rpm?.let { if (it <= 400) return false }
+        data.charging?.let { if (!it) return false }
         data.rpm?.let { return it > 400 }
         data.charging?.let { return it }
         return (data.voltageV ?: 0f) >= 13.0f
@@ -118,6 +125,11 @@ object TripTracker {
         }
         if (lastClusterOn == null && prevEngineOn == true) {
             lastClusterOn = loadCluster(prefs)
+        }
+        // Поездка началась до запуска процесса (ГУ проснулось в движении):
+        // время поездки — от запуска приложения, момент пуска не знаем.
+        if (prevEngineOn == true && t.startTs <= 0L) {
+            t.startTs = now
         }
 
         // ГУ засыпает вместе с зажиганием: процесс замирает (или его
@@ -304,14 +316,21 @@ object TripTracker {
     }
 
     /**
-     * Запись в журнал по итогам поездки; пустые «поездки»
-     * (меньше 100 м и меньше минуты в движении) отбрасываются.
+     * Запись в журнал по итогам поездки. Время поездки — от пуска
+     * двигателя (или от запуска приложения, если пуск не заметили):
+     * интервал между [startTs] и [endTs]. Если приборка не дала свою
+     * среднюю скорость — считаем пробег за время поездки.
      * Чистая — тестируется.
      */
     internal fun finalizeEntry(startTs: Long, endTs: Long, v: TripView): TripEntry? {
         val dist = v.distKm ?: 0f
         if (dist < 0.1f && v.driveMillis < 60_000L) return null
-        return TripEntry(startTs, endTs, dist, v.driveMillis, v.avgCons)
+        val duration = (endTs - startTs).coerceAtLeast(0L)
+        val tripMillis = maxOf(v.driveMillis, duration).coerceAtMost(MAX_DT_MS)
+        val hours = tripMillis / 3600000.0f
+        val avgSpeed = v.avgSpeedKmh
+            ?: (dist / hours).takeIf { hours > 1.0f / 60 && dist > 0 }
+        return TripEntry(startTs, endTs, dist, tripMillis, v.avgCons, avgSpeed)
     }
 
     /** Журнал завершённых поездок, свежие сверху. */
@@ -334,10 +353,15 @@ object TripTracker {
         prefs.edit().putString(KEY_JOURNAL, encodeJournal(list)).apply()
     }
 
-    /** Сериализация журнала: «s,e,d,m,c;…», расход может быть пустым. Тестируется. */
+    /**
+     * Сериализация журнала: «s,e,d,m,c,sp;…», расход и скорость могут
+     * быть пустыми. Старые записи из 5 полей читаются (без скорости).
+     * Тестируется.
+     */
     internal fun encodeJournal(list: List<TripEntry>): String =
         list.joinToString(";") {
-            "${it.startTs},${it.endTs},${it.distKm},${it.driveMillis},${it.avgCons ?: ""}"
+            "${it.startTs},${it.endTs},${it.distKm},${it.driveMillis}," +
+                "${it.avgCons ?: ""},${it.avgSpeedKmh ?: ""}"
         }
 
     /** Разбор [encodeJournal]; битые записи пропускаются. Тестируется. */
@@ -346,14 +370,15 @@ object TripTracker {
         return raw.split(';').mapNotNull { rec ->
             try {
                 val p = rec.split(',')
-                if (p.size != 5) return@mapNotNull null
+                if (p.size !in 5..6) return@mapNotNull null
                 val s = p[0].toLong()
                 val e = p[1].toLong()
                 val d = p[2].toFloat()
                 val m = p[3].toLong()
                 if (s <= 0 || e < s || d < 0 || m < 0) return@mapNotNull null
                 val c = p[4].ifBlank { null }?.toFloat()
-                TripEntry(s, e, d, m, c)
+                val sp = p.getOrNull(5)?.ifBlank { null }?.toFloat()
+                TripEntry(s, e, d, m, c, sp)
             } catch (ex: Exception) {
                 null
             }

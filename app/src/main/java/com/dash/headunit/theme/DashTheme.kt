@@ -70,8 +70,26 @@ data class DashTheme(
             glow = 0xFF0D4F96.toInt()
         )
 
+        /**
+         * Карбон + янтарь: тёмный графит и тёплый белый текст, акцент —
+         * оранжево-янтарный, как подсветка стрелок спортивного щитка;
+         * лёгкое янтарное свечение в центре фона.
+         */
+        val CARBON = DashTheme(
+            id = "carbon",
+            name = "Карбон",
+            background = 0xFF16181A.toInt(),
+            cardBackground = 0xFF212528.toInt(),
+            cardBorder = 0xFF3B4248.toInt(),
+            primaryText = 0xFFF3F1EC.toInt(),
+            secondaryText = 0xFFA6A29A.toInt(),
+            accent = 0xFFFFA629.toInt(),
+            success = 0xFF9CCC65.toInt(),
+            glow = 0xFF4D3203.toInt()
+        )
+
         /** Все доступные темы. */
-        val ALL: List<DashTheme> = listOf(DARK, VIOLET, NAVY)
+        val ALL: List<DashTheme> = listOf(DARK, VIOLET, NAVY, CARBON)
     }
 }
 

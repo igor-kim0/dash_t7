@@ -22,8 +22,6 @@ enum class WidgetType(val id: String) {
     CLIMATE("climate"),
     /** Справочник: свойства VHAL (AOSP + вендор) с ID и живыми значениями. */
     REFERENCE("reference"),
-    /** «Test claude»: пульт сессии поиска величин (запись шины/VHAL/приборки + метки). */
-    CLAUDE_TEST("claude_test"),
     /** За бортом: крупная забортная температура (была в «Часах»). */
     OUTSIDE("outside"),
     /** OBD (ELM): связь с ELM327 по Bluetooth, температура ОЖ (PID 0105). */
@@ -34,13 +32,22 @@ enum class WidgetType(val id: String) {
     SPEED("speed"),
 
     /** Тест push: проверка событийной подписки на шину Desay (DesayPushProbe). */
-    PUSH_TEST("push_test");
+    PUSH_TEST("push_test"),
+
+    /** Обучение кнопкам: поиск ячеек шины для стёкол/люка/замков и их запись (ActionLearner). */
+    LEARN("learn"),
+
+    /** Wi-Fi: статус подключения ГУ, вкл/выкл, выбор сети (WifiHub). */
+    WIFI("wifi");
 
     companion object {
         fun byId(id: String): WidgetType =
             values().firstOrNull { it.id == id }
                 // Удалённый «Тестовый» в сохранённой раскладке → «Справочник».
                 ?: if (id == "test") REFERENCE else CLOCK
+
+        /** Удалённые виджеты: их плитки из сохранённой раскладки выбрасываем. */
+        val REMOVED_IDS = setOf("claude_test")
     }
 }
 

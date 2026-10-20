@@ -1,6 +1,8 @@
 package com.dash.headunit.elm
 
 import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothSocket
 import android.content.Context
 import android.os.SystemClock
 import android.util.Log
@@ -12,15 +14,20 @@ import java.util.UUID
 
 /**
  * Связь с адаптером ELM327 по Bluetooth (классический SPP/RFCOMM)
- * и опрос OBD-II PID 0105 — источник честной температуры ОЖ,
- * которой нет ни на Desay-шине, ни у приборки, ни в VHAL ГУ.
+ * и опрос OBD-II: температура ОЖ (0105 — её нет ни на Desay-шине,
+ * ни у приборки, ни в VHAL ГУ), обороты (010C), нагрузка (0104)
+ * и напряжение бортовой сети (ATRV, меряет сам адаптер).
  *
  * Работает как [com.dash.headunit.car.ClusterPps]: один фоновый поток
  * на весь процесс, статусы для debug-экрана. Адрес адаптера выбирается
  * в CarDebugActivity (список спаренных устройств) и хранится в prefs.
  *
- * Если данных с ELM нет — [coolantC] возвращает null, и виджет
- * показывает «—»: на остальные виджеты ELM не влияет.
+ * Сокет: перебираем secure SPP, insecure SPP и скрытый RFCOMM-канал 1
+ * (на части ГУ штатный SPP не открывается); удачный способ запоминаем
+ * и в следующий раз пробуем первым.
+ *
+ * Если данных с ELM нет — значения null, и виджет показывает «—»:
+ * на остальные виджеты ELM не влияет.
  */
 object ElmHub {
 
@@ -48,13 +55,17 @@ object ElmHub {
     private var savedAddress: String? = null
     @Volatile
     private var savedName: String? = null
+    @Volatile
+    private var savedMethod: String? = null
     private var appCtx: Context? = null
 
     fun address(): String? = savedAddress
     fun name(): String? = savedName
 
     fun setDevice(context: Context, address: String, name: String?) {
+        if (appCtx == null) appCtx = context.applicationContext
         synchronized(lock) {
+            if (savedAddress != address) savedMethod = null
             savedAddress = address
             savedName = name
             save()
@@ -63,9 +74,11 @@ object ElmHub {
     }
 
     fun clearDevice(context: Context) {
+        if (appCtx == null) appCtx = context.applicationContext
         synchronized(lock) {
             savedAddress = null
             savedName = null
+            savedMethod = null
             save()
         }
         lastStatus = "адаптер сброшен"
@@ -73,17 +86,54 @@ object ElmHub {
 
     // ---------- данные ----------
 
-    private val dataLock = Any()
-    private var coolant: Float? = null
-    private var coolantAt = 0L
+    /** Показания OBD; null — нет связи / величина не отвечает / давно не было ответа. */
+    data class Readings(
+        val coolantC: Float?,
+        val rpm: Float?,
+        val loadPct: Float?,
+        val voltage: Float?
+    )
 
-    /**
-     * Температура ОЖ по ELM (PID 0105), °C, или null — нет связи /
-     * давно не было ответа.
-     */
-    fun coolantC(now: Long = SystemClock.uptimeMillis()): Float? = synchronized(dataLock) {
-        coolant?.takeIf { now - coolantAt < STALE_MS }
+    /** Опрашиваемые величины: команда ELM, разбор ответа, срок годности значения. */
+    private enum class Pid(val cmd: String, val staleMs: Long, val slow: Boolean) {
+        RPM("010C", LIVE_STALE_MS, slow = false),
+        LOAD("0104", LIVE_STALE_MS, slow = false),
+        COOLANT("0105", COOLANT_STALE_MS, slow = true),
+        VOLTAGE("ATRV", LIVE_STALE_MS, slow = true);
+
+        fun parse(reply: String): Float? = when (this) {
+            RPM -> ObdParser.rpm(reply)
+            LOAD -> ObdParser.engineLoad(reply)
+            COOLANT -> ObdParser.coolant(reply)
+            VOLTAGE -> ObdParser.voltage(reply)
+        }
     }
+
+    private class Value(val v: Float, val at: Long)
+
+    private val values = HashMap<Pid, Value>()
+
+    private fun value(pid: Pid, now: Long): Float? = synchronized(values) {
+        values[pid]?.takeIf { now - it.at < pid.staleMs }?.v
+    }
+
+    fun readings(now: Long = SystemClock.uptimeMillis()) = Readings(
+        coolantC = value(Pid.COOLANT, now),
+        rpm = value(Pid.RPM, now),
+        loadPct = value(Pid.LOAD, now),
+        voltage = value(Pid.VOLTAGE, now)
+    )
+
+    /** Температура ОЖ по ELM (PID 0105), °C, или null. */
+    fun coolantC(now: Long = SystemClock.uptimeMillis()): Float? = value(Pid.COOLANT, now)
+
+    /** Есть ли сейчас открытая сессия с адаптером. */
+    @Volatile
+    var connected: Boolean = false
+        private set
+
+    /** Каким способом открылся сокет в последний раз (для диагностики). */
+    fun method(): String? = savedMethod
 
     // ---------- поток ----------
 
@@ -128,8 +178,12 @@ object ElmHub {
     }
 
     /**
-     * Одна сессия: connect SPP → инициализация (ATZ, ATE0, ATSP0) →
-     * опрос «0105» раз в [POLL_MS]. true — получен хоть один ответ ОЖ.
+     * Одна сессия: connect (перебор способов) → инициализация (ATZ, ATE0,
+     * ATSP0) → цикл опроса. Быстрые величины (обороты, нагрузка) — каждый
+     * круг, медленные (ОЖ, напряжение) — каждый [SLOW_EVERY]-й. Величина,
+     * не ответившая [MISS_LIMIT] раз подряд (ЭБУ её не отдаёт), дальше
+     * спрашивается лишь раз в [RETRY_UNSUPPORTED] кругов.
+     * true — получен хоть один ответ.
      */
     private fun session(address: String): Boolean {
         val adapter = BluetoothAdapter.getDefaultAdapter()
@@ -138,43 +192,93 @@ object ElmHub {
             return false
         }
         val remote = adapter.getRemoteDevice(address) // IllegalArgumentException → в [loop]
-        lastStatus = "подключаюсь к ELM ${remote.name ?: "?"}…"
-        val socket = remote.createRfcommSocketToServiceRecord(SPP_UUID)
+        if (adapter.isDiscovering) adapter.cancelDiscovery()
+        val socket = open(remote) ?: return false
         var answers = 0
         socket.use { sock ->
+            connected = true
+            try {
+                lastStatus = "подключился к ELM ($savedMethod), инициализация…"
+                val input = sock.getInputStream()
+                val output = sock.getOutputStream()
+                // ATZ сбрасывает адаптер (может отвечать до секунды), затем
+                // выключаем эхо и ставим авто-протокол.
+                command(input, output, "ATZ")
+                sleep(INIT_DELAY_MS)
+                if (command(input, output, "ATE0") == null) return false
+                if (command(input, output, "ATSP0") == null) return false
+                lastStatus = "ELM настроен, читаю данные…"
+                val misses = HashMap<Pid, Int>()
+                var round = 0L
+                var lastAnswerAt = SystemClock.uptimeMillis()
+                while (true) {
+                    for (pid in Pid.values()) {
+                        if (pid.slow && round % SLOW_EVERY != 0L) continue
+                        val miss = misses[pid] ?: 0
+                        if (miss >= MISS_LIMIT && round % RETRY_UNSUPPORTED != 0L) continue
+                        val reply = command(input, output, pid.cmd) ?: return answers > 0 // сокет умер
+                        val v = pid.parse(reply)
+                        if (v == null) {
+                            misses[pid] = miss + 1
+                            Log.d(TAG, "${pid.cmd}: нет ответа «${reply.trim().takeLast(60)}»")
+                        } else {
+                            misses[pid] = 0
+                            val now = SystemClock.uptimeMillis()
+                            synchronized(values) { values[pid] = Value(v, now) }
+                            lastAnswerAt = now
+                            answers++
+                        }
+                    }
+                    if (SystemClock.uptimeMillis() - lastAnswerAt > NO_ANSWER_RECONNECT_MS) {
+                        lastStatus = "ELM молчит ${NO_ANSWER_RECONNECT_MS / 1000} с — переподключаюсь"
+                        return answers > 0
+                    }
+                    lastStatus = if (answers > 0) "ELM: данные идут" else "ELM: ЭБУ не отвечает (зажигание?)"
+                    round++
+                    sleep(POLL_MS)
+                }
+            } finally {
+                connected = false
+            }
+        }
+        @Suppress("UNREACHABLE_CODE")
+        return answers > 0
+    }
+
+    /** Открыть сокет: сначала удачный в прошлый раз способ, затем остальные. */
+    @Suppress("MissingPermission")
+    private fun open(device: BluetoothDevice): BluetoothSocket? {
+        val order = METHODS.sortedBy { if (it == savedMethod) 0 else 1 }
+        val errors = mutableListOf<String>()
+        for (m in order) {
+            lastStatus = "подключаюсь к ELM ${device.name ?: "?"} ($m)…"
+            val sock = try {
+                when (m) {
+                    M_SECURE -> device.createRfcommSocketToServiceRecord(SPP_UUID)
+                    M_INSECURE -> device.createInsecureRfcommSocketToServiceRecord(SPP_UUID)
+                    else -> device.javaClass
+                        .getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
+                        .invoke(device, 1) as BluetoothSocket
+                }
+            } catch (e: Exception) {
+                errors += "$m: ${e.javaClass.simpleName}"
+                continue
+            }
             try {
                 sock.connect()
             } catch (e: IOException) {
-                lastStatus = "ELM-сокет: ${e.message}"
-                return false
+                runCatching { sock.close() }
+                errors += "$m: ${e.message}"
+                continue
             }
-            lastStatus = "подключился к ELM, инициализация…"
-            val input = sock.getInputStream()
-            val output = sock.getOutputStream()
-            // ATZ сбрасывает адаптер (может отвечать до секунды), затем
-            // выключаем эхо и ставим авто-протокол.
-            command(input, output, "ATZ")
-            sleep(INIT_DELAY_MS)
-            if (command(input, output, "ATE0") == null) return false
-            if (command(input, output, "ATSP0") == null) return false
-            lastStatus = "ELM настроен, читаю ОЖ…"
-            while (true) {
-                val reply = command(input, output, "0105") ?: break // сокет умер/нет ответа
-                val coolant = ObdParser.coolant(reply)
-                if (coolant == null) {
-                    lastStatus = "0105: ответа нет («${reply.trim().takeLast(60)}»)"
-                } else {
-                    synchronized(dataLock) {
-                        this.coolant = coolant
-                        coolantAt = SystemClock.uptimeMillis()
-                    }
-                    lastStatus = "ELM: ОЖ %.1f°C".format(coolant)
-                    answers++
-                }
-                sleep(POLL_MS)
+            if (savedMethod != m) {
+                savedMethod = m
+                save()
             }
+            return sock
         }
-        return answers > 0
+        lastStatus = "ELM-сокет: " + errors.joinToString("; ")
+        return null
     }
 
     /**
@@ -219,12 +323,13 @@ object ElmHub {
         val ctx = appCtx ?: return
         val addr = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(KEY_ADDRESS, null) ?: return
+        val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         synchronized(lock) {
             if (savedAddress == null) {
                 savedAddress = addr
-                savedName = appCtx?.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                    ?.getString(KEY_NAME, null)
+                savedName = prefs.getString(KEY_NAME, null)
             }
+            if (savedMethod == null) savedMethod = prefs.getString(KEY_METHOD, null)
         }
     }
 
@@ -233,6 +338,7 @@ object ElmHub {
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(KEY_ADDRESS, savedAddress)
             .putString(KEY_NAME, savedName)
+            .putString(KEY_METHOD, savedMethod)
             .apply()
     }
 
@@ -240,12 +346,28 @@ object ElmHub {
     private const val PREFS = "elm_settings"
     private const val KEY_ADDRESS = "address"
     private const val KEY_NAME = "name"
+    private const val KEY_METHOD = "method"
+
+    private const val M_SECURE = "SPP secure"
+    private const val M_INSECURE = "SPP insecure"
+    private const val M_CH1 = "RFCOMM ch1"
+    private val METHODS = listOf(M_SECURE, M_INSECURE, M_CH1)
     private const val HISTORY_MAX = 50
 
-    /** Столько нет ответов — данные считаются устаревшими. */
-    private const val STALE_MS = 15 * 60_000L
-    /** Период опроса ОЖ — BT-радио и аккумулятор не прожигаем. */
-    private const val POLL_MS = 2_000L
+    /** ОЖ меняется медленно — последнее значение показываем долго. */
+    private const val COOLANT_STALE_MS = 15 * 60_000L
+    /** Обороты/нагрузка/напряжение — только свежие. */
+    private const val LIVE_STALE_MS = 10_000L
+    /** Пауза между кругами опроса. */
+    private const val POLL_MS = 500L
+    /** ОЖ и напряжение — раз в столько кругов. */
+    private const val SLOW_EVERY = 5L
+    /** Столько промахов подряд — величину считаем неподдерживаемой. */
+    private const val MISS_LIMIT = 3
+    /** Неподдерживаемую величину перепроверяем раз в столько кругов. */
+    private const val RETRY_UNSUPPORTED = 60L
+    /** Ни одного ответа столько времени — переподключение. */
+    private const val NO_ANSWER_RECONNECT_MS = 60_000L
     /** Ожидание ответа на один запрос. */
     private const val RESPONSE_TIMEOUT_MS = 5_000
     /** Таймаут одного chunked read — SocketTimeoutException. */

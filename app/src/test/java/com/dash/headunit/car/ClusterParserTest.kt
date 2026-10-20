@@ -51,7 +51,6 @@ class ClusterParserTest {
     @Test
     fun a5a5IsNotCoolantButGivesSpeedRpm() {
         val p = ClusterParser()
-        p.onFrame("a000", a000, 0)
         p.onFrame("a5a5", a5a5, 0)
         assertNull(p.coolant(0))
         assertEquals(29, p.speedKmh(0))
@@ -59,14 +58,29 @@ class ClusterParserTest {
     }
 
     @Test
-    fun a5a5HasPriorityOverA000WhileFresh() {
+    fun a000HasPriorityA5a5IsFallback() {
         val p = ClusterParser()
-        p.onFrame("a5a5", a5a5, 0)
-        p.onFrame("a000", a000, 10_000)
-        assertEquals(29, p.speedKmh(10_000))
-        // a5a5 пропал — берём a000.
-        p.onFrame("a000", a000, 40_000)
-        assertEquals(38, p.speedKmh(40_000))
+        p.onFrame("a000", a000, 0)
+        p.onFrame("a5a5", a5a5, 1_000)
+        // a000 свежий (идёт ~10 раз в секунду) — a5a5 не перебивает.
+        assertEquals(38, p.speedKmh(1_000))
+        assertEquals(1268, p.rpm(1_000))
+        // a000 замолчал — берём a5a5.
+        p.onFrame("a5a5", a5a5, 5_000)
+        assertEquals(29, p.speedKmh(5_000))
+        assertEquals(2044, p.rpm(5_000))
+        // a000 вернулся — снова он.
+        p.onFrame("a000", a000, 6_000)
+        assertEquals(38, p.speedKmh(6_000))
+    }
+
+    @Test
+    fun ppsObjectHeaders() {
+        assertEquals("a000", ClusterPps.objectHeader("@a000"))
+        assertEquals("a000", ClusterPps.objectHeader("[n]@a000"))
+        assertEquals("a5a5", ClusterPps.objectHeader("+@a5a5"))
+        assertNull(ClusterPps.objectHeader("data:json:{\"data\":[1]}"))
+        assertNull(ClusterPps.objectHeader("n=0; while ..."))
     }
 
     @Test

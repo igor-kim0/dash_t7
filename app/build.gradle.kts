@@ -98,6 +98,11 @@ android {
     }
 }
 
+// Имя APK: tenet_t7_dash-<flavor>-<buildType>.apk вместо app-….apk.
+base {
+    archivesName = "tenet_t7_dash"
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity)

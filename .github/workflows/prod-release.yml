@@ -1,0 +1,42 @@
+name: Prod release
+
+# Продовая сборка (flavor prod — только утверждённые виджеты) собирается
+# по тегу вида v1.3 и публикуется как GitHub Release с подписанным APK.
+# Подпись — debug-ключом из keystore/debug.keystore (см. app/build.gradle.kts),
+# поэтому локальная и CI-сборки взаимозаменяемы и обновляются поверх установленной.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  prod-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit tests
+        run: ./gradlew :app:testProdDebugUnitTest
+
+      - name: Build prod release APK
+        run: ./gradlew :app:assembleProdRelease
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app/build/outputs/apk/prod/release/*.apk
+          generate_release_notes: true

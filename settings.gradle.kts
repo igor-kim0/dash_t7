@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "DashHeadUnit"
+rootProject.name = "TenetT7Dash"
 include(":app")

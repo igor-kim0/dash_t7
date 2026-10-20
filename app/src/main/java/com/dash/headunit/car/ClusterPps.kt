@@ -15,7 +15,10 @@ import java.util.Locale
  * Ни VHAL ГУ (ENGINE_COOLANT_TEMP нет, ENGINE_OIL_TEMP без данных,
  * SV_SEND_TEMP_INFO — температура самого ГУ), ни шина Desay ОЖ не отдают.
  * Её знает приборка: объекты /var/pps/spi_service/a000, a001, a0ff, a5a5
- * читаются через [QnxLauncher] раз в 10 с одним долгим sh-процессом.
+ * читаются через [QnxLauncher] одним долгим sh-процессом — потоком
+ * изменений «.all?wait,delta» (a000 со скоростью/оборотами приходит
+ * ~10 раз в секунду, запись ГУ 2026-10-14); если поток не пошёл —
+ * опросом раз в секунду. Скорость и обороты сразу уходят в [onLive].
  * На T18FL3 градусов ОЖ в них пока не нашли — только стрелку.
  *
  * Разбор кадров — [ClusterParser]. Поток стартует из [CarHub].
@@ -86,8 +89,19 @@ object ClusterPps {
     /** Разобранное состояние одной строкой — для диагностики. */
     fun describe(): String = synchronized(parser) { parser.describe(SystemClock.uptimeMillis()) }
 
+    /**
+     * Свежие скорость/обороты (a000/a5a5) — вызывается из потока чтения
+     * на каждом кадре. Подписчик ([CarHub]) сам переносит в главный поток.
+     */
+    @Volatile
+    var onLive: (() -> Unit)? = null
+
     @Volatile
     private var thread: Thread? = null
+
+    /** Поток .all на этой приборке не работает — сразу опрос. */
+    @Volatile
+    private var streamFailed = false
 
     /** Запустить чтение приборки (повторный вызов ничего не делает). */
     @Synchronized
@@ -134,48 +148,85 @@ object ClusterPps {
             lastStatus = "на приборке нет утилит: sh=$sh cat=$cat sleep=$sleep"
             return false
         }
+        if (!streamFailed) {
+            // Поток изменений всего каталога: сначала все объекты целиком,
+            // дальше — каждое изменение («@объект» + строки атрибутов).
+            val r = read(sh, "$cat $DIR/.all?wait,delta; exit\n", "поток")
+            if (r != null) return r
+            streamFailed = true
+            lastStatus = "поток .all не дал данных — опрос раз в секунду"
+        }
+        // ~1 ч (3600 × 1 с), затем процесс выходит и сессия переоткрывается.
+        val script = "n=0; while [ \$n -lt 3600 ]; do for f in ${OBJECTS.joinToString(" ")}; do " +
+            "if [ -f $DIR/\$f ]; then echo \"@\$f\"; $cat $DIR/\$f; fi; done; " +
+            "$sleep 1 || exit; n=\$((n+1)); done; exit\n"
+        return read(sh, script, "опрос") == true
+    }
+
+    /**
+     * Читает вывод [script] до обрыва/тишины. true — были кадры, false — нет,
+     * null — соединение живо, но данных нет дольше [NO_DATA_MS] (скрипт не работает).
+     */
+    private fun read(sh: String, script: String, label: String): Boolean? {
         var frames = 0
         Socket().use { socket ->
             val out = QnxLauncher.start(socket, sh, listOf("sh"))
-            socket.soTimeout = READ_TIMEOUT_MS
+            socket.soTimeout = READ_SLICE_MS
             Thread.sleep(STDIN_DELAY_MS)
-            // ~1 ч (360 × 10 с), затем процесс выходит и сессия переоткрывается.
-            val script = "n=0; while [ \$n -lt 360 ]; do for f in ${OBJECTS.joinToString(" ")}; do " +
-                "if [ -f $DIR/\$f ]; then echo \"@@\$f\"; $cat $DIR/\$f; fi; done; " +
-                "echo \"@@.\"; $sleep 10 || exit; n=\$((n+1)); done; exit\n"
             out.write(script.toByteArray(Charsets.US_ASCII))
             out.flush()
-            lastStatus = "подключился к приборке, жду данные"
+            lastStatus = "подключился к приборке ($label), жду данные"
             val input = socket.getInputStream()
+            val partial = StringBuilder()
             var current: String? = null
+            val started = SystemClock.uptimeMillis()
+            var lastData = started
+            var lastCycle = 0L
             while (true) {
+                val now = SystemClock.uptimeMillis()
                 val line = try {
-                    QnxLauncher.readLine(input)
+                    QnxLauncher.readLine(input, partial)
                 } catch (e: SocketTimeoutException) {
-                    lastStatus = "приборка молчит ${READ_TIMEOUT_MS / 1000} с"
-                    break
-                } ?: break
-                when {
-                    line.startsWith("@@") -> {
-                        current = line.substring(2).trim()
-                        if (current == ".") {
-                            lastStatus = "данные приборки: ${describe()}"
-                            recordCycle()
-                            current = null
-                        }
+                    if (frames == 0 && now - started > NO_DATA_MS) return null
+                    if (now - lastData > SILENT_MS) {
+                        lastStatus = "приборка молчит ${SILENT_MS / 1000} с"
+                        break
                     }
+                    continue
+                } ?: break
+                val header = objectHeader(line)
+                when {
+                    header != null -> current = header
                     line.startsWith(DATA_PREFIX) && current != null -> {
+                        val obj = current
                         val body = line.substring(DATA_PREFIX.length)
-                        synchronized(lastRaw) { lastRaw[current] = body }
-                        cycleBytes[current] = ClusterParser.parseData(body)?.joinToString(",") ?: body
-                        synchronized(parser) { parser.onFrame(current, body, SystemClock.uptimeMillis()) }
+                        synchronized(lastRaw) { lastRaw[obj] = body }
+                        cycleBytes[obj] = ClusterParser.parseData(body)?.joinToString(",") ?: body
+                        synchronized(parser) { parser.onFrame(obj, body, now) }
                         frames++
+                        lastData = now
+                        if (obj == "a000" || obj == "a5a5") onLive?.invoke()
+                        // История и статус — не чаще раза в CYCLE_MS (кадры идут ~10/с).
+                        if (now - lastCycle >= CYCLE_MS) {
+                            lastCycle = now
+                            lastStatus = "данные приборки ($label): ${describe()}"
+                            recordCycle()
+                        }
                     }
                 }
             }
         }
         return frames > 0
     }
+
+    /**
+     * Заголовок объекта в выводе PPS: «@a000», в потоке .all возможны
+     * квалификаторы и флаги изменения: «[n]@a000», «+@a000». Иначе null.
+     */
+    internal fun objectHeader(line: String): String? =
+        HEADER.matchEntire(line.trim())?.groupValues?.get(1)
+
+    private val HEADER = Regex("""^(?:\[[^\]]*\])?[+\-#*]?@([A-Za-z0-9_.]+)$""")
 
     /**
      * Разовый снимок PPS приборки для «Логи для Claude»: что вообще есть
@@ -204,7 +255,13 @@ object ClusterPps {
     private const val HISTORY_MAX = 50
     private const val FRAME_HISTORY_MAX = 200
     private const val STDIN_DELAY_MS = 1300L
-    private const val READ_TIMEOUT_MS = 90_000
+    /** Тишина дольше — переподключаемся (a000 при живой приборке идёт постоянно). */
+    private const val SILENT_MS = 90_000L
+    private const val READ_SLICE_MS = 1000
+    /** Сколько ждать первых данных, прежде чем признать скрипт нерабочим. */
+    private const val NO_DATA_MS = 20_000L
+    /** Период истории кадров и статуса. */
+    private const val CYCLE_MS = 10_000L
     private const val RETRY_MIN_MS = 15_000L
     private const val RETRY_MAX_MS = 10 * 60_000L
 }
@@ -270,13 +327,10 @@ class ClusterParser {
                     fuelNeedle = it / 1000f
                     fuelNeedleAt = now
                 }
-                // a5a5 точнее (без завышения приборки) — a000 только если его нет.
-                if (speedSource != "a5a5" || now - speedAt >= LIVE_MS) {
-                    u16(bytes, 4).takeIf { it <= MAX_SPEED }?.let { setSpeed(it, "a000", now) }
-                }
-                if (rpmSource != "a5a5" || now - rpmAt >= LIVE_MS) {
-                    u16(bytes, 0).takeIf { it <= MAX_RPM }?.let { setRpm(it, "a000", now) }
-                }
+                // a000 — ровно то, что показывает приборка, и приходит ~10 раз
+                // в секунду (a5a5 ~2 раза, на ~1 км/ч меньше) — он главный.
+                u16(bytes, 4).takeIf { it <= MAX_SPEED }?.let { setSpeed(it, "a000", now) }
+                u16(bytes, 0).takeIf { it <= MAX_RPM }?.let { setRpm(it, "a000", now) }
             }
             "a001" -> if (bytes.size >= 46) {
                 trip = ClusterTrip(
@@ -301,8 +355,13 @@ class ClusterParser {
             }
             "a5a5" -> if (bytes.size >= 50 && u16(bytes, 48) == A5A5_MARKER) {
                 a5a5b2 = bytes[2]
-                u16(bytes, 4).takeIf { it <= MAX_SPEED }?.let { setSpeed(it, "a5a5", now) }
-                u16(bytes, 6).takeIf { it <= MAX_RPM }?.let { setRpm(it, "a5a5", now) }
+                // Запасной источник — только если a000 молчит.
+                if (speedSource != "a000" || now - speedAt >= FALLBACK_MS) {
+                    u16(bytes, 4).takeIf { it <= MAX_SPEED }?.let { setSpeed(it, "a5a5", now) }
+                }
+                if (rpmSource != "a000" || now - rpmAt >= FALLBACK_MS) {
+                    u16(bytes, 6).takeIf { it <= MAX_RPM }?.let { setRpm(it, "a5a5", now) }
+                }
             }
         }
     }
@@ -352,6 +411,8 @@ class ClusterParser {
         private const val STALE_MS = 15 * 60_000L
         /** Скорость/обороты меняются быстро: при опросе раз в 10 с — три пропуска. */
         private const val LIVE_MS = 30_000L
+        /** a000 молчит дольше — скорость/обороты берём из a5a5. */
+        private const val FALLBACK_MS = 3_000L
         private const val MAX_SPEED = 300
         private const val MAX_RPM = 10_000
         private const val A5A5_MARKER = 0x55AA
