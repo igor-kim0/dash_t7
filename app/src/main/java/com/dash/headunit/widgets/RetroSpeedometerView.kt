@@ -15,6 +15,7 @@ import com.dash.headunit.car.ClusterPps
 import com.dash.headunit.car.DemoData
 import kotlin.math.cos
 import kotlin.math.exp
+import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.tan
 
@@ -23,7 +24,9 @@ import kotlin.math.tan
  * цифры 0–160 ровной строкой поверху, риски — отрезки лучей из оси,
  * спрятанной под одометром (поэтому к середине шкалы цифры сжимаются,
  * к краям — разъезжаются), слева указатель топлива 0 · 1/2 · 4/4, справа
- * «ВОДА» (стрелка ОЖ приборки), в центре — одометр, под ним табличка
+ * «ВОДА» (стрелка ОЖ приборки) с подписью в градусах — честные °C из a0ff
+ * ([ClusterPps.coolantC]) в приоритете, без них оценка по стрелке (~40..130 °C),
+ * в центре — одометр, под ним табличка
  * селектора R N P 1–7 (как в цифровом виде): гравированные буквы,
  * включённая подсвечена «лампой», под ней ездит красный указатель.
  *
@@ -40,6 +43,9 @@ class RetroSpeedometerView(context: Context) : View(context) {
     private var speedTarget: Float? = null
     private var fuelTarget: Float? = null
     private var waterTarget: Float? = null
+    /** Градусы ОЖ для подписи у «ВОДА»; [waterEstimated] — это оценка по стрелке. */
+    private var waterC: Float? = null
+    private var waterEstimated = false
     private var odo: Int? = null
     /** Индекс включённой передачи в [GEARS] ([gearIndex]), -1 — неизвестно. */
     private var gear = -1
@@ -120,6 +126,17 @@ class RetroSpeedometerView(context: Context) : View(context) {
         // если её нет, но есть градусы — 40..130 °C на шкалу.
         waterTarget = ClusterPps.needle()
             ?: d.engineTempC?.let { ((it - 40f) / 90f).coerceIn(0f, 1f) }
+        // Подпись у «ВОДА» в градусах: сначала честные (a0ff приборки /
+        // VHAL / Desay), без них — оценка по положению стрелки (шкала
+        // условно 40..130 °C, та же раскладка, что у стрелки выше).
+        waterC = d.engineTempC
+        waterEstimated = false
+        if (waterC == null) {
+            waterC = ClusterPps.needle()?.let {
+                waterEstimated = true
+                40f + it * 90f
+            }
+        }
         odo = d.odoKm ?: ClusterPps.trip()?.odometerKm?.toInt()
         gear = gearIndex(d.gearRaw)
         postInvalidateOnAnimation()
@@ -270,8 +287,17 @@ class RetroSpeedometerView(context: Context) : View(context) {
     private fun drawFuel(c: Canvas) =
         drawSmallGauge(c, 108f, listOf("0", "1/2", "4/4"), null, redAtEnd = false, pos = fuelPos)
 
-    private fun drawWater(c: Canvas) =
+    /** «ВОДА»: стрелка ОЖ приборки + подпись градусов под шкалой. */
+    private fun drawWater(c: Canvas) {
         drawSmallGauge(c, VW - 108f, emptyList(), "ВОДА", redAtEnd = true, pos = waterPos)
+        waterC?.let { t ->
+            val text = (if (waterEstimated) "≈" else "") + "%d°".format(t.roundToInt())
+            label.textSize = 24f
+            // Перегрев — подпись краснеет вместе с меткой в конце шкалы.
+            label.color = if (t >= 110f) red else dimCream
+            c.drawText(text, VW - 108f, LEDGE_Y + 30f, label)
+        }
+    }
 
     private fun drawOdometer(c: Canvas) {
         val digits = odo?.let { "%06d".format(it % 1_000_000) } ?: "------"
