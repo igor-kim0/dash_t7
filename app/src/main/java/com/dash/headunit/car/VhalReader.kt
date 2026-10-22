@@ -109,6 +109,30 @@ class VhalReader(private val appContext: Context) {
     }
 
     /**
+     * Чтение в общей форме через getProperty + статус CarPropertyValue.
+     * Старые getInt/Float/BooleanProperty на Android 9 при отсутствии
+     * свойства не бросают, а тихо возвращают 0 — из-за этого «Справочник»
+     * показывал нули вместо «—». Здесь null: нет VHAL, свойства нет,
+     * статус не AVAILABLE. Численно различает «0 настоящий» от «0 мусор».
+     */
+    fun propertyValue(propId: Int, areaId: Int = 0): Any? {
+        val mgr = ensureManager() ?: return null
+        return try {
+            val cpv = mgr.javaClass.getMethod(
+                "getProperty",
+                Int::class.javaPrimitiveType,
+                Int::class.javaPrimitiveType
+            ).invoke(mgr, propId, areaId) ?: return null
+            // CarPropertyValue.STATUS_AVAILABLE = 2 (ERROR=0, UNAVAILABLE=1).
+            val status = cpv.javaClass.getMethod("getStatus").invoke(cpv) as? Int ?: return null
+            if (status != 2) return null
+            cpv.javaClass.getMethod("getValue").invoke(cpv)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
      * Пошаговая диагностика для debug-экрана: где именно рвётся VHAL-путь.
      * Вызывать с фонового потока.
      */
@@ -232,9 +256,13 @@ class VhalReader(private val appContext: Context) {
      * рециркуляции — похоже на температуру самого ГУ) за ОЖ не выдаём.
      */
     private fun readEngineTemp(): Float? {
-        CarScaling.coolantTemp(getFloatProperty(PROP_COOLANT))
+        // Ноль — флаг «свойство не публикуется» (иначе на ГУ висели бы 0°,
+        // см. RetroSpeedometerView): студенные градусы мимо нуля не бывают.
+        CarScaling.coolantTemp(getFloatProperty(PROP_COOLANT)
+            ?: getIntProperty(PROP_COOLANT)?.toFloat())
+            ?.takeIf { it > 0f }
             ?.let { return it }
-        return CarScaling.coolantTemp(getIntProperty(PROP_COOLANT)?.toFloat())
+        return null
     }
 
     fun snapshot(): CarData? {

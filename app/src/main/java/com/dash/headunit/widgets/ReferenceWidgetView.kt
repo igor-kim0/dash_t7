@@ -129,13 +129,9 @@ class ReferenceWidgetView(
     private fun read(r: VhalReader, prop: Prop): String {
         val id = prop.id ?: return "—"
         val parts = prop.areas.map { (label, area) ->
-            val raw: Any? = when (id and TYPE_MASK) {
-                TYPE_BOOLEAN -> r.getBooleanProperty(id, area)
-                TYPE_INT32 -> r.getIntProperty(id, area)
-                TYPE_FLOAT -> r.getFloatProperty(id, area)
-                else -> null
-            }
-            val v = raw?.let { prop.format(it) } ?: "—"
+            // getProperty со статусом: иначе неподдерживаемое читается как 0
+            // (см. [VhalReader.propertyValue]).
+            val v = r.propertyValue(id, area)?.let { prop.format(it) } ?: "—"
             if (label.isEmpty()) v else "$label $v"
         }
         return parts.joinToString(" · ")
@@ -168,12 +164,6 @@ class ReferenceWidgetView(
 
     companion object {
         private const val POLL_MS = 3000L
-
-        // Биты типа значения в ID свойства (VehiclePropertyType).
-        private const val TYPE_MASK = 0x00FF0000
-        private const val TYPE_BOOLEAN = 0x00200000
-        private const val TYPE_INT32 = 0x00400000
-        private const val TYPE_FLOAT = 0x00600000
 
         private val GLOBAL = listOf("" to 0)
         // VehicleAreaSeat / Door / Window / Wheel.

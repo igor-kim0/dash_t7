@@ -23,7 +23,8 @@ import android.view.View
  *              ул. Ленина         знак
  *        12 км · 18 мин · 14:35   камера 60 · 350 м
  *
- * Чёрный фон: на приборке он сливается с рамкой.
+ * Чёрный фон: на приборке он сливается с рамкой. Без маршрута окно
+ * остаётся пустым чёрным — иначе на дисплей 1 вернётся зеркало главного экрана.
  */
 class ClusterGuidanceView(context: Context) : View(context) {
 
@@ -83,10 +84,14 @@ class ClusterGuidanceView(context: Context) : View(context) {
         val cw = contentWidth.coerceAtMost(width).toFloat()
         val left = (width - cw) / 2f
 
+        // Компактный блок по центру полосы (≈ 0,6 от первой версии —
+        // крупный перекрывал шкалы приборки).
+        val cy = h * 0.44f
+
         // Стрелка манёвра: квадрат слева.
-        val arrow = 300f * s
+        val arrow = 170f * s
         val ax = left
-        val ay = h * 0.42f - arrow / 2f
+        val ay = cy - arrow / 2f
         val icon = g.maneuverIcon
         if (icon != null) {
             src.set(0, 0, icon.width, icon.height)
@@ -100,23 +105,22 @@ class ClusterGuidanceView(context: Context) : View(context) {
         }
 
         // Знак ограничения скорости — справа.
-        val signR = 90f * s
+        val signR = 56f * s
         val signCx = left + cw - signR
-        val signCy = h * 0.42f
-        g.speedLimit?.let { drawSign(canvas, it, signCx, signCy, signR) }
+        g.speedLimit?.let { drawSign(canvas, it, signCx, cy, signR) }
 
         // Тексты между стрелкой и знаком.
-        val tx = ax + arrow + 50f * s
-        val tw = (signCx - signR - 40f * s) - tx
-        bigText.textSize = 130f * s
-        midText.textSize = 52f * s
-        g.distance?.let { canvas.drawText(fit(it, bigText, tw), tx, h * 0.42f, bigText) }
-        g.street?.let { canvas.drawText(fit(it, midText, tw), tx, h * 0.42f + 85f * s, midText) }
+        val tx = ax + arrow + 36f * s
+        val tw = (signCx - signR - 30f * s) - tx
+        bigText.textSize = 78f * s
+        midText.textSize = 36f * s
+        g.distance?.let { canvas.drawText(fit(it, bigText, tw), tx, cy + 8f * s, bigText) }
+        g.street?.let { canvas.drawText(fit(it, midText, tw), tx, cy + 60f * s, midText) }
 
         // Нижняя строка: остаток маршрута и камера.
-        smallText.textSize = 44f * s
+        smallText.textSize = 32f * s
         val eta = listOfNotNull(g.remainingDistance, g.remainingTime, g.arrival).joinToString("  ·  ")
-        val by = h * 0.86f
+        val by = cy + arrow / 2f + 70f * s
         if (eta.isNotEmpty()) canvas.drawText(fit(eta, smallText, cw * 0.6f), left, by, smallText)
         if (g.cameraDistance != null) {
             val cam = listOfNotNull("Камера", g.cameraLimit?.toString(), g.cameraDistance).joinToString(" · ")

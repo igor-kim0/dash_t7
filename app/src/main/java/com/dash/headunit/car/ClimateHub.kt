@@ -21,9 +21,11 @@ import kotlinx.coroutines.withContext
  *   16,4   AUTO               1=вкл
  *   16,6   режим обдува       1=лицо, 2=ноги, 5=лобовое
  *   16,8   рециркуляция       инверсия: 0=рецирк.вкл, 1=улица
- *   16,10  уставка темп вод.  шаги (9→10→11…), 0.5°C?
+ *   16,10  уставка темп вод.  raw/2 + 17.5 (raw 9=22°, 1°=0.5°HvacID)
  *   16,12  скорость вентилят. 0..7 (5 = авто, 0 = выкл)
  *   16,13  уставка темп пасс. синхронна с водителем
+ *   16,22  SET уставка вод.   Request-ячейка svhvac (сюда пишем)
+ *   16,23  SET уставка пасс.  Request-ячейка svhvac
  *   16,18  климат активен     1=работает
  *   16,24  обдув лобового     1=вкл (вместе с 16,6→5 и 16,1→1)
  *   16,65  обогрев лобового   1=вкл (электрообогрев, как в Jarvis)
@@ -183,15 +185,14 @@ object ClimateHub {
     }
 
     /**
-     * Сырое значение уставки → °C. В конфиге VHAL HVAC_TEMPERATURE_SET
-     * 16..32 °C, в дампе raw 9→10→11 за один тап «+0.5°» штатного
-     * климата → °C = 16 + raw/2 (шаг 0.5, raw 0 = 16 °C).
-     * Калибровка подтверждается на ГУ: «Климат: состояние» + тап «+»
-     * на штатном пульте — raw должен расти на 1 при +0.5 °C.
+     * Сырое значение уставки → °C. Калибровка Jarvis (режим
+     * «климат-контроль», x9): °C = (raw + 35) / 2, шаг 0.5, raw 0 = LO
+     * (17.5), raw ≥ 30 = HI; снапшоты 16,10: 9→10→11 за тапы «+0.5°»
+     * (22.0→22.5→23.0), дефолт Jarvis 9 = 22 °C.
      */
-    private fun scaleTemp(raw: Int): Float? {
-        if (raw < 0 || raw > 32) return null
-        return 16f + raw / 2f
+    internal fun scaleTemp(raw: Int): Float? {
+        if (raw < 0) return null
+        return (raw.coerceIn(0, 29) + 35f) / 2f
     }
 
     private fun boolOr(raw: Int): Boolean? = if (raw < 0) null else raw != 0
@@ -210,21 +211,27 @@ object ClimateHub {
      * Возвращает true, если write ушёл; фактическое значение сверяется
      * следующим опросом (write-back).
      */
-    fun setTempDriver(celsius: Float): Boolean = writeTemp(celsius)
-
-    private fun writeTemp(celsius: Float): Boolean {
+    /**
+     * Записать уставку температуры водителя [celsius] (17.5..32.5).
+     * Команда — Request-ячейки штатного svhvac (HvacID.Request из дампа
+     * SVCarInfoService): 16,22 AC_DRIVER_TEMP_SET / 16,23 пассажир.
+     * Читаем Response-ячейки 16,10/16,13 — они подтверждённо меняются.
+     * Возвращает true, если write ушёл; фактическое значение сверяется
+     * следующим опросом (write-back).
+     */
+    fun setTempDriver(celsius: Float): Boolean {
         val raw = tempToRaw(celsius)
         val d = desay ?: return false
-        val ok = withWriteGuard { d.write(G, 10, raw) }
+        val ok = withWriteGuard { d.write(G, 22, raw) }
         if (ok) {
             // Пассажирская зона синхронизируется — пишем и её.
-            d.write(G, 13, raw)
+            d.write(G, 23, raw)
         }
         return ok
     }
 
-    private fun tempToRaw(celsius: Float): Int =
-        ((celsius - 16f) * 2f).toInt().coerceIn(0, 32)
+    internal fun tempToRaw(celsius: Float): Int =
+        ((celsius - 17.5f) * 2f).toInt().coerceIn(0, 29)
 
     /** Вентилятор 0..7. */
     fun setFanSpeed(speed: Int): Boolean {

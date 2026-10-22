@@ -1,6 +1,7 @@
 package com.dash.headunit.car
 
 import android.content.Context
+import com.dash.headunit.elm.ElmHub
 import com.dash.headunit.settings.AppSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -244,8 +245,9 @@ object CarHub {
                 source = if (merged == null) p.source else CarData.SOURCE_MERGED
             )
         }
-        // ОЖ с приборки точнее всего остального — приоритет над провайдерами.
-        val coolant = ClusterPps.coolantC()
+        // Прямые градусы ОЖ — приоритет над провайдерами: приборка (a0ff),
+        // затем OBD-адаптер (PID 0105).
+        val coolant = ClusterPps.coolantC() ?: ElmHub.coolantC()
         if (merged == null) {
             if (coolant == null) return null
             return CarData(

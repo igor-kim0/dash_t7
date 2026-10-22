@@ -143,7 +143,7 @@ class MusicWidgetView(
         btnPlay.setOnClickListener { MusicHub.toggle() }
         btnNext.setOnClickListener { MusicHub.next() }
         controls.addView(btnPrev)
-        controls.addView(btnPlay.apply { setPadding(0, 0, dp(6), 0) })
+        controls.addView(btnPlay)
         controls.addView(btnNext)
         addView(controls, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
 
@@ -169,7 +169,7 @@ class MusicWidgetView(
             scaleType = ImageView.ScaleType.CENTER
             setPadding(dp(10), dp(10), dp(10), dp(10))
             layoutParams = LayoutParams(s, s).apply {
-                marginEnd = dp(6)
+                marginEnd = dp(12)
             }
         }
     }

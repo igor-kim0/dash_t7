@@ -10,6 +10,7 @@ import android.content.pm.PackageManager
 import android.graphics.Rect
 import android.graphics.Region
 import android.net.wifi.WifiManager
+import android.widget.ScrollView
 import android.os.Bundle
 import android.util.TypedValue
 import android.view.Gravity
@@ -36,6 +37,7 @@ import com.dash.headunit.elm.ElmHub
 import com.dash.headunit.car.CarDebugActivity
 import com.dash.headunit.car.DesayPushProbe
 import com.dash.headunit.car.TripTracker
+import com.dash.headunit.navi.AdbShell
 import com.dash.headunit.navi.HoleBackground
 import com.dash.headunit.navi.NaviUnderlay
 import com.dash.headunit.ui.DashDialog
@@ -54,6 +56,7 @@ import com.dash.headunit.widgets.MusicWidgetView
 import com.dash.headunit.widgets.WifiWidgetView
 import com.dash.headunit.widgets.ReferenceWidgetView
 import com.dash.headunit.widgets.AppWidgetView
+import com.dash.headunit.widgets.ButtonsWidgetView
 import com.dash.headunit.widgets.NavApps
 import com.dash.headunit.widgets.TripWidgetView
 import com.dash.headunit.widgets.ClimateWidgetView
@@ -94,6 +97,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         ClusterOverlay.init(this)
+        ClusterSetup.restoreOnStart(this)
 
         // Не гаснуть на ГУ + во весь экран.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -136,6 +140,10 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btn_debug).setOnClickListener {
             startActivity(android.content.Intent(this, CarDebugActivity::class.java))
         }
+        // Демо-маршрут на приборке — тоже dev (prod-сборке иконка не нужна).
+        val naviDemo = findViewById<View>(R.id.btn_navi_demo)
+        naviDemo.visibility = if (BuildConfig.PROD_BUILD) View.GONE else View.VISIBLE
+        naviDemo.setOnClickListener { startNaviDemo() }
         findViewById<View>(R.id.btn_night).setOnClickListener {
             showThemeDialog()
         }
@@ -204,6 +212,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btn_home).background = ThemeCard.card(this, theme)
         findViewById<View>(R.id.btn_settings).background = ThemeCard.card(this, theme)
         findViewById<View>(R.id.btn_edit).background = ThemeCard.card(this, theme)
+        findViewById<View>(R.id.btn_navi_demo).background = ThemeCard.card(this, theme)
         findViewById<View>(R.id.btn_debug).background = ThemeCard.card(this, theme)
         findViewById<View>(R.id.btn_clear).background = ThemeCard.card(this, theme)
         findViewById<View>(R.id.btn_add).background = ThemeCard.card(this, theme)
@@ -355,7 +364,7 @@ class MainActivity : AppCompatActivity() {
         AppSettings.setClusterNavi(this, enabled)
         if (enabled == was) return
         if (!enabled) {
-            ClusterOverlay.hide(announce = true)
+            ClusterOverlay.remove()
             return
         }
         val app = applicationContext
@@ -363,7 +372,39 @@ class MainActivity : AppCompatActivity() {
             val report = ClusterSetup.ensureAll(app)
             runOnUiThread {
                 Toast.makeText(app, report, Toast.LENGTH_LONG).show()
-                if (GuidanceHub.current != null) ClusterOverlay.show(announce = true)
+                ClusterOverlay.show(announce = GuidanceHub.current != null)
+            }
+        }.start()
+    }
+
+    /**
+     * Демо-маршрут на приборке (dev): та же команда, что и с ПК —
+     * `am broadcast -a com.dash.headunit.NAVI_CLUSTER -n
+     * com.dash.headunit/.diag.NaviClusterReceiver --es cmd demo`
+     * (diag/NaviClusterReceiver демонстрирует маршрут 30 секунд и убирает).
+     * Идёт через adb-канал ([AdbShell]), потому что приёмник защищён правом DUMP.
+     */
+    private fun startNaviDemo() {
+        val app = applicationContext
+        Thread {
+            val out = AdbShell.exec(
+                app,
+                "am broadcast -a com.dash.headunit.NAVI_CLUSTER " +
+                    "-n com.dash.headunit/.diag.NaviClusterReceiver --es cmd demo"
+            )?.trim()
+            runOnUiThread {
+                val failed = out == null ||
+                    out.contains("Error", ignoreCase = true) ||
+                    out.contains("Exception", ignoreCase = true)
+                if (failed) {
+                    Toast.makeText(
+                        app,
+                        getString(R.string.navi_demo_failed, out ?: AdbShell.lastStatus),
+                        Toast.LENGTH_LONG
+                    ).show()
+                } else {
+                    Toast.makeText(app, R.string.navi_demo_started, Toast.LENGTH_SHORT).show()
+                }
             }
         }.start()
     }
@@ -584,7 +625,7 @@ class MainActivity : AppCompatActivity() {
             if (!WidgetAvailability.isEnabled(spec.type)) return@forEach
             val content: View = when (spec.type) {
                 WidgetType.CLOCK -> ClockWidgetView(this, theme)
-                WidgetType.COMBO -> ComboWidgetView(this, theme)
+                WidgetType.COMBO -> ComboWidgetView(this, spec.widgetId, theme, settingsStore)
                 WidgetType.WEATHER -> ForecastStripView(this, spec.widgetId, theme, settingsStore)
                 WidgetType.CAR -> CarWidgetView(this, theme, spec.widgetId, settingsStore)
                 WidgetType.MUSIC -> MusicWidgetView(this, theme)
@@ -607,6 +648,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 WidgetType.PUSH_TEST -> DesayPushTestWidgetView(this, theme)
                 WidgetType.LEARN -> LearnWidgetView(this, theme)
+                WidgetType.BUTTONS -> ButtonsWidgetView(this, theme)
             }
             val frame = WidgetFrame(
                 context = this,
@@ -632,6 +674,9 @@ class MainActivity : AppCompatActivity() {
                     }
                     WidgetType.SPEED -> {
                         { showSpeedSettings(spec.widgetId) }
+                    }
+                    WidgetType.COMBO -> {
+                        { showClockSettings(spec.widgetId) }
                     }
                     WidgetType.PUSH_TEST -> {
                         { showPushSettings() }
@@ -693,8 +738,13 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, R.string.msg_cleared, Toast.LENGTH_SHORT).show()
     }
 
-    /** Один пункт выбора виджета: тип, подпись и иконка. */
-    private class PickerItem(val type: WidgetType, val labelRes: Int, val iconRes: Int)
+    /** Один пункт выбора виджета: тип, подпись, иконка; [debug] — секция «Отладка». */
+    private class PickerItem(
+        val type: WidgetType,
+        val labelRes: Int,
+        val iconRes: Int,
+        val debug: Boolean = false
+    )
 
     private fun pickerItems(): List<PickerItem> = listOf(
         PickerItem(WidgetType.COMBO, R.string.widget_clock, R.drawable.ic_clock),
@@ -704,14 +754,16 @@ class MainActivity : AppCompatActivity() {
         PickerItem(WidgetType.WIFI, R.string.widget_wifi, R.drawable.ic_wifi),
         PickerItem(WidgetType.APP, R.string.widget_app, R.drawable.ic_nav),
         PickerItem(WidgetType.TRIP, R.string.widget_trip, R.drawable.ic_journal),
-        PickerItem(WidgetType.CLIMATE, R.string.widget_climate, R.drawable.ic_fan),
-        PickerItem(WidgetType.REFERENCE, R.string.widget_reference, R.drawable.ic_book),
-        PickerItem(WidgetType.HEAT, R.string.widget_heat, R.drawable.ic_seat_heat),
-        PickerItem(WidgetType.OUTSIDE, R.string.widget_outside, R.drawable.ic_thermo),
-        PickerItem(WidgetType.ELM, R.string.widget_elm, R.drawable.ic_obd),
         PickerItem(WidgetType.SPEED, R.string.widget_speed, R.drawable.ic_gauge),
-        PickerItem(WidgetType.PUSH_TEST, R.string.widget_push_test, R.drawable.ic_broadcast),
-        PickerItem(WidgetType.LEARN, R.string.widget_learn, R.drawable.ic_sync),
+        PickerItem(WidgetType.OUTSIDE, R.string.widget_outside, R.drawable.ic_thermo),
+        // Отладочная секция: в prod не попадают (WidgetAvailability).
+        PickerItem(WidgetType.CLIMATE, R.string.widget_climate, R.drawable.ic_fan, debug = true),
+        PickerItem(WidgetType.REFERENCE, R.string.widget_reference, R.drawable.ic_book, debug = true),
+        PickerItem(WidgetType.HEAT, R.string.widget_heat, R.drawable.ic_seat_heat, debug = true),
+        PickerItem(WidgetType.ELM, R.string.widget_elm, R.drawable.ic_obd, debug = true),
+        PickerItem(WidgetType.PUSH_TEST, R.string.widget_push_test, R.drawable.ic_broadcast, debug = true),
+        PickerItem(WidgetType.LEARN, R.string.widget_learn, R.drawable.ic_sync, debug = true),
+        PickerItem(WidgetType.BUTTONS, R.string.widget_buttons, R.drawable.ic_grid, debug = true),
     ).filter { WidgetAvailability.isEnabled(it.type) }
 
     /**
@@ -732,7 +784,11 @@ class MainActivity : AppCompatActivity() {
             .showFullScreen()
     }
 
-    /** Сетка карточек; [onPick] вызывается по тапу. Уже добавленные — отмечены. */
+    /**
+     * Сетка карточек; [onPick] вызывается по тапу. Уже добавленные — отмечены.
+     * Отладочные виджеты идут отдельной секцией «Отладка» после «Основных»
+     * (в prod их нет — тогда и заголовки секций не рисуем).
+     */
     private fun buildPickerGrid(
         items: List<PickerItem>,
         added: Set<WidgetType>,
@@ -744,34 +800,61 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(24), 0, dp(24), dp(4))
         }
-        items.chunked(columns).forEach { rowItems ->
-            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            rowItems.forEach { item ->
-                row.addView(
-                    pickerCard(item, item.type in added, onPick),
-                    LinearLayout.LayoutParams(0, dp(130), 1f).apply {
-                        marginStart = if (row.childCount > 0) gap else 0
-                    }
+        val rows: (List<PickerItem>) -> Unit = { list ->
+            list.chunked(columns).forEach { rowItems ->
+                val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                rowItems.forEach { item ->
+                    row.addView(
+                        pickerCard(item, item.type in added, onPick),
+                        LinearLayout.LayoutParams(0, dp(130), 1f).apply {
+                            marginStart = if (row.childCount > 0) gap else 0
+                        }
+                    )
+                }
+                // Пустышки, чтобы карточки не растягивались на всю строку.
+                for (i in rowItems.size until columns) {
+                    row.addView(
+                        Space(this),
+                        LinearLayout.LayoutParams(0, 1, 1f).apply {
+                            marginStart = if (row.childCount > 0) gap else 0
+                        }
+                    )
+                }
+                container.addView(
+                    row,
+                    LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply { topMargin = gap }
                 )
             }
-            // Пустышки, чтобы карточки не растягивались на всю строку.
-            for (i in rowItems.size until columns) {
-                row.addView(
-                    Space(this),
-                    LinearLayout.LayoutParams(0, 1, 1f).apply {
-                        marginStart = if (row.childCount > 0) gap else 0
-                    }
-                )
-            }
-            container.addView(
-                row,
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { topMargin = gap }
-            )
         }
-        return container
+        val main = items.filter { !it.debug }
+        val debug = items.filter { it.debug }
+        if (debug.isEmpty()) {
+            // Prod-набор: секций нет — плоская сетка как раньше.
+            rows(items)
+        } else {
+            container.addView(sectionTitle(R.string.picker_main))
+            rows(main)
+            container.addView(sectionTitle(R.string.picker_debug), LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(12) })
+            rows(debug)
+        }
+        // Вертикальная прокрутка: пунктов больше, чем влезает на экран.
+        return ScrollView(this).apply {
+            isVerticalScrollBarEnabled = true
+            addView(container)
+        }
+    }
+
+    /** Небольшой заголовок секции пикера («Основные» / «Отладка»). */
+    private fun sectionTitle(res: Int) = TextView(this).apply {
+        text = getString(res)
+        setTextColor(theme.secondaryText)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
     }
 
     /** Карточка виджета: иконка сверху, подпись, отметка «Уже на главной». */
@@ -847,6 +930,7 @@ class MainActivity : AppCompatActivity() {
             WidgetType.ELM -> 56 to 44
             WidgetType.SPEED -> 48 to 26
             WidgetType.PUSH_TEST -> 56 to 40
+            WidgetType.BUTTONS -> 56 to 40
             WidgetType.CLOCK -> 40 to 24
         }
         // Каскадом от левого верхнего угла, кламп — в границы сетки.
@@ -989,6 +1073,63 @@ class MainActivity : AppCompatActivity() {
             }
             .setPositiveButton(R.string.edit_done) { _, _ ->
                 settingsStore.setOption(widgetId, OPT_SPEED_STYLE, styles[selected])
+                buildWidgets(readSpecs())
+            }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .showFullScreen()
+    }
+
+    /**
+     * Настройки «Часов»: масштаб текста (×0.5 … ×2.0)
+     * и жирный шрифт времени (см. [ComboWidgetView.OPT_SCALE]).
+     */
+    private fun showClockSettings(widgetId: String) {
+        val scales = ComboWidgetView.SCALES
+        var selected = scales.indexOf(
+            settingsStore.getOption(widgetId, ComboWidgetView.OPT_SCALE, ComboWidgetView.DEFAULT_SCALE)
+        ).coerceAtLeast(0)
+        var bold = ComboWidgetView.boldValue(settingsStore, widgetId)
+
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        val root = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(pad, pad / 2, pad, 0)
+        }
+        val radios = scales.mapIndexed { i, value ->
+            android.widget.RadioButton(this).apply {
+                text = "×$value"
+                textSize = 18f
+                setTextColor(theme.primaryText)
+                isChecked = i == selected
+                setOnCheckedChangeListener { _, isCheckedNow ->
+                    if (isCheckedNow) selected = i
+                }
+            }
+        }
+        root.addView(
+            android.widget.RadioGroup(this).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                radios.forEach { addView(it) }
+            }
+        )
+        root.addView(
+            android.widget.CheckBox(this).apply {
+                text = getString(R.string.clock_bold)
+                textSize = 18f
+                setTextColor(theme.primaryText)
+                isChecked = bold
+                setOnCheckedChangeListener { _, isCheckedNow -> bold = isCheckedNow }
+            }
+        )
+
+        DashDialog.Builder(this)
+            .setTitle(R.string.set_clock_title)
+            .setView(root)
+            .setPositiveButton(R.string.edit_done) { _, _ ->
+                settingsStore.setOption(widgetId, ComboWidgetView.OPT_SCALE, scales[selected])
+                settingsStore.setOption(
+                    widgetId, ComboWidgetView.OPT_BOLD, if (bold) "1" else "0"
+                )
                 buildWidgets(readSpecs())
             }
             .setNegativeButton(R.string.dialog_cancel, null)

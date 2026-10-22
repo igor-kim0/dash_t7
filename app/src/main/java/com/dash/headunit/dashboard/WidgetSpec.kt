@@ -38,7 +38,10 @@ enum class WidgetType(val id: String) {
     LEARN("learn"),
 
     /** Wi-Fi: статус подключения ГУ, вкл/выкл, выбор сети (WifiHub). */
-    WIFI("wifi");
+    WIFI("wifi"),
+
+    /** Кнопки: пульт стёкол/люка/шторки записью команд VrControlMgr в шину Desay. */
+    BUTTONS("buttons");
 
     companion object {
         fun byId(id: String): WidgetType =

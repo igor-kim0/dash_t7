@@ -61,11 +61,24 @@ class CarScalingTest {
     @Test
     fun outsideTemp_minus120() {
         // При погоде 4–9 °C ячейка даёт 125–128; Oct12 134→14.
+        // Формула TiggoBridge (raw × 0.5 − 40) дала бы тут +22…+27.
         assertEquals(5f, CarScaling.outsideTemp(125)!!, 0.001f)
-        assertEquals(7f, CarScaling.outsideTemp(127)!!, 0.001f)
+        assertEquals(8f, CarScaling.outsideTemp(128)!!, 0.001f)
         assertEquals(14f, CarScaling.outsideTemp(134)!!, 0.001f)
         assertNull(CarScaling.outsideTemp(69))
         assertNull(CarScaling.outsideTemp(171))
+    }
+
+    @Test
+    fun desayCoolant_readonly100() {
+        // Реф. TiggoBridge (formatCoolant): ≤200 целые °C, >200 десятые.
+        assertEquals(90f, CarScaling.desayCoolant(90)!!, 0.001f)
+        assertEquals(-10f, CarScaling.desayCoolant(-10)!!, 0.001f)
+        assertEquals(92.5f, CarScaling.desayCoolant(925)!!, 0.001f)
+        // 0 — ячейка не в шине, а не «ноль градусов».
+        assertNull(CarScaling.desayCoolant(0))
+        assertNull(CarScaling.desayCoolant(null))
+        assertNull(CarScaling.desayCoolant(2000))
     }
 
     @Test
@@ -77,5 +90,17 @@ class CarScalingTest {
         assertEquals(200, CarScaling.rpmDesay(50))
         assertNull(CarScaling.rpmDesay(-1))
         assertNull(CarScaling.rpmDesay(2501))
+    }
+
+    @Test
+    fun needleToCoolant_midIs98() {
+        assertEquals(98f, CarScaling.needleToCoolant(0.5f), 0.001f)
+        assertEquals(40f, CarScaling.needleToCoolant(0f), 0.001f)
+        assertEquals(130f, CarScaling.needleToCoolant(1f), 0.001f)
+        assertEquals(69f, CarScaling.needleToCoolant(0.25f), 0.001f)
+        for (c in listOf(40f, 69f, 98f, 110f, 130f)) {
+            assertEquals(c, CarScaling.needleToCoolant(CarScaling.coolantToNeedle(c)), 0.01f)
+        }
+        assertEquals(1f, CarScaling.coolantToNeedle(150f), 0.001f)
     }
 }

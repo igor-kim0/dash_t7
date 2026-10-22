@@ -151,7 +151,9 @@ class ElmWidgetView(
         val s = ElmHub.lastStatus
         statusView.text = when {
             ElmHub.address() == null -> context.getString(R.string.elm_no_adapter)
-            ElmHub.connected && snapshot.isNotEmpty() -> context.getString(R.string.elm_link_ok)
+            // Напряжение (ATRV) меряет сам адаптер — связь с ЭБУ это не доказывает.
+            ElmHub.connected && snapshot.keys.any { it != "volt" } -> context.getString(R.string.elm_link_ok)
+            ElmHub.connected && snapshot.isNotEmpty() -> context.getString(R.string.elm_adapter_only)
             ElmHub.connected || s.startsWith("подключа") -> context.getString(R.string.elm_connecting)
             else -> context.getString(R.string.elm_no_link)
         }

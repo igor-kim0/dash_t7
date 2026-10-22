@@ -10,6 +10,7 @@ import android.provider.Settings
 import android.util.Log
 import com.dash.headunit.navi.cluster.ClusterOverlay
 import com.dash.headunit.navi.cluster.ClusterSetup
+import com.dash.headunit.navi.cluster.ClusterTbt
 import com.dash.headunit.navi.cluster.Guidance
 import com.dash.headunit.navi.cluster.GuidanceHub
 import com.dash.headunit.navi.cluster.Maneuver
@@ -34,6 +35,10 @@ import java.util.Locale
  *  - setup — выдать права (оверлей, спец. возможности, уведомления);
  *  - demo [--ei sec 30] — демо-маршрут на приборке (без навигатора);
  *  - show / hide — окно на приборке + переключение вида (10019);
+ *    hide оставляет пустое чёрное окно, remove убирает его совсем
+ *    (на дисплее 1 вернётся зеркало главного экрана);
+ *  - tbt --ez on true|false — родные подсказки приборки [ClusterTbt]
+ *    (по умолчанию выключены, до перезапуска процесса);
  *  - width --ei px 1100 — ширина центральной полосы картинки.
  *
  * Защищён правом DUMP: отправить может только adb shell/система.
@@ -46,6 +51,12 @@ class NaviClusterReceiver : BroadcastReceiver() {
         when (val cmd = intent.getStringExtra("cmd") ?: "dump") {
             "show" -> ClusterOverlay.show(announce = true)
             "hide" -> ClusterOverlay.hide(announce = true)
+            "remove" -> ClusterOverlay.remove()
+            "tbt" -> {
+                ClusterTbt.enabled = intent.getBooleanExtra("on", true)
+                if (!ClusterTbt.enabled) ClusterTbt.stop(app)
+                Log.i(TAG, "родные подсказки приборки: ${ClusterTbt.enabled}")
+            }
             "width" -> ClusterOverlay.setContentWidth(app, intent.getIntExtra("px", 1100))
             "demo" -> {
                 GuidanceHub.setDemo(DEMO)

@@ -40,6 +40,13 @@ data class Guidance(
     val hasManeuver: Boolean
         get() = maneuverIcon != null || maneuver != null || !distance.isNullOrBlank()
 
+    /**
+     * Идёт ведение по маршруту: есть манёвр или остаток пути. Манёвр бывает
+     * не виден (Яндекс рисует его в карте), а остаток — виден всегда.
+     */
+    val onRoute: Boolean
+        get() = hasManeuver || remainingDistance != null || remainingTime != null
+
     /** Поля [this], а пустые — из [other]. */
     fun orElse(other: Guidance?): Guidance {
         if (other == null) return this
@@ -134,6 +141,26 @@ object GuidanceText {
         }
     }
 
+    /** Расстояние навигатора в метрах: «300 м», «1,2 км», «800 m». */
+    fun meters(text: String?): Int? {
+        val m = METERS.find(text?.replace('\u00A0', ' ') ?: return null) ?: return null
+        val n = m.groupValues[1].replace(',', '.').toDoubleOrNull() ?: return null
+        val unit = m.groupValues[2].lowercase()
+        return Math.round(if (unit == "км" || unit == "km") n * 1000 else n).toInt()
+    }
+
+    /** Время навигатора в секундах: «18 мин», «1 ч 5 мин», «2 min», «1 h». */
+    fun seconds(text: String?): Int? {
+        val t = text?.lowercase() ?: return null
+        val h = HOURS.find(t)?.groupValues?.get(1)?.toIntOrNull()
+        val min = MINUTES.find(t)?.groupValues?.get(1)?.toIntOrNull()
+        if (h == null && min == null) return null
+        return ((h ?: 0) * 60 + (min ?: 0)) * 60
+    }
+
+    private val METERS = Regex("""(\d+(?:[.,]\d+)?)\s*(км|km|м|m)(?![a-zа-я])""", RegexOption.IGNORE_CASE)
+    private val HOURS = Regex("""(\d+)\s*(ч|h)""")
+    private val MINUTES = Regex("""(\d+)\s*(мин|min)""")
     private val DISTANCE = Regex("""^\d+([.,]\d+)?\s*(м|км|m|km|ft|mi)\.?$""", RegexOption.IGNORE_CASE)
     private val CLOCK = Regex("""^\d{1,2}:\d{2}$""")
     private val NUMBER = Regex("""\d{1,3}""")

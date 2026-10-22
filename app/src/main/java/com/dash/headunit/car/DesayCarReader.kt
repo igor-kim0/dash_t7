@@ -183,6 +183,10 @@ class DesayCarReader(private val appContext: Context) {
         // стабильно 81.0–81.1). Как в Jarvis: температуру двигателя берём
         // только с прямых источников — a0ff или VHAL, иначе «нет данных».
         val rpm = CarScaling.rpmDesay(readInt(4, 62))
+        // ОЖ: READONLY 4,100 (реф. TiggoBridge ID_COOLANT=100: ≤200 целые °C,
+        // >200 десятые). Прежний кандидат 4,69 НЕ ОЖ (OBD ECT 98–99,
+        // а 4,69 стабильно 81.0–81.1) — не используется.
+        val engineTemp = CarScaling.desayCoolant(readInt(4, 100))
         // Тормоз (15,17, гипотеза: 1 при нажатой педали — сходится везде,
         // кроме возможно пропущенного тапа в снапшотах; нужен 5-сек. тест).
         val brake = readInt(15, 17).takeIf { it >= 0 }?.let { it == 1 }
@@ -197,7 +201,7 @@ class DesayCarReader(private val appContext: Context) {
             rangeKm = range,
             voltageV = volts,
             charging = engineRunning,
-            engineTempC = null, // ОЖ в Desay-шине нет (см. KDoc про 4,69)
+            engineTempC = engineTemp, // 4,100, см. выше про 4,69
             gearboxTempC = null,
             outsideTempC = outside,
             odoKm = odo,

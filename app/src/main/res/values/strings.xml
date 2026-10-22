@@ -24,6 +24,8 @@
     <string name="autostart_ready">Автозапуск включён (доступ к уведомлениям: %1$s)</string>
     <string name="autostart_no_listener">Автозапуск не сработает без доступа к уведомлениям: %1$s</string>
     <string name="speed_style_title">Вид спидометра</string>
+    <string name="set_clock_title">Настройки часов</string>
+    <string name="clock_bold">Время жирным шрифтом</string>
     <string name="speed_style_retro">Стрелочный (ретро)</string>
     <string name="speed_style_digital">Цифровой: обороты и передача</string>
     <string name="settings_cluster_navi">Маршрут навигатора на приборке</string>
@@ -46,6 +48,9 @@
     <string name="clear_confirm_text">Дашборд останется пустым — блоки придётся добавить заново.</string>
     <string name="clear_confirm_ok">Убрать</string>
     <string name="cd_debug">Диагностика</string>
+    <string name="cd_navi_demo">Демо-маршрут на приборке (30 сек)</string>
+    <string name="navi_demo_started">Демо-маршрут подан на приборку</string>
+    <string name="navi_demo_failed">Демо не запустилось: %1$s</string>
     <string name="add_title">Добавить блок</string>
     <string name="add_on_dashboard">Уже на главной</string>
     <string name="widget_clock">Часы</string>
@@ -125,10 +130,16 @@
     <string name="loading">Загрузка…</string>
     <string name="weather_error">Нет данных. Проверьте интернет и геолокацию.</string>
     <string name="weather_error_short">Нет данных</string>
+    <string name="weather_updated">Погода обновлена</string>
+    <string name="weather_update_failed">Не удалось обновить погоду</string>
     <string name="no_location">Координаты недоступны — показан fallback</string>
     <string name="widget_climate">Климат</string>
     <string name="widget_reference">Справочник</string>
     <string name="widget_learn">Обучение кнопкам</string>
+    <string name="widget_buttons">Кнопки</string>
+    <string name="buttons_send_title">Записать команду в CAN</string>
+    <string name="picker_main">Основные</string>
+    <string name="picker_debug">Отладка</string>
     <string name="learn_pick">Какое действие выучить</string>
     <string name="learn_try_title">Попробовать выполнить</string>
     <string name="learn_try_go">Выполнить</string>
@@ -137,6 +148,7 @@
     <string name="widget_elm">OBD (ELM)</string>
     <string name="elm_title">OBD · ELM</string>
     <string name="elm_link_ok">связь есть</string>
+    <string name="elm_adapter_only">адаптер есть, ЭБУ молчит</string>
     <string name="elm_connecting">подключаюсь…</string>
     <string name="elm_no_link">нет связи</string>
     <string name="elm_no_adapter">адаптер не выбран</string>

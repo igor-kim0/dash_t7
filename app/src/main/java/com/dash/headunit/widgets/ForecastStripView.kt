@@ -6,6 +6,7 @@ import android.view.Gravity
 import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.annotation.DrawableRes
 import com.dash.headunit.R
 import com.dash.headunit.dashboard.WidgetSettingsStore
@@ -22,7 +23,8 @@ import java.util.Locale
  * часы — три ближайшие часовые точки (время, иконка, температура),
  * календарь — сегодня + два следующих дня (день, иконка, день/ночь).
  *
- * Данные — из общего [WeatherHub]. Тап вне переключателя — обновить.
+ * Данные — из общего [WeatherHub]. Тап вне переключателя — обновить:
+ * пока идёт загрузка, прогноз приглушён, итог — коротким сообщением.
  */
 class ForecastStripView(
     context: Context,
@@ -41,8 +43,20 @@ class ForecastStripView(
     init {
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        setOnClickListener { WeatherHub.refresh() }
+        setOnClickListener { refreshByTap() }
         render()
+    }
+
+    private fun refreshByTap() {
+        if (WeatherHub.loading) return
+        WeatherHub.refresh { ok ->
+            if (!isAttachedToWindow) return@refresh
+            Toast.makeText(
+                context,
+                if (ok) R.string.weather_updated else R.string.weather_update_failed,
+                Toast.LENGTH_SHORT
+            ).show()
+        }
     }
 
     private fun selectTab(next: Tab) {
@@ -60,7 +74,10 @@ class ForecastStripView(
     private fun render() {
         removeAllViews()
         addView(rail(), LayoutParams(dp(56), LayoutParams.MATCH_PARENT))
-        addView(contentView(), LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
+        addView(contentView().apply {
+            // Обновление поверх старых данных — приглушаем их.
+            alpha = if (WeatherHub.loading && WeatherHub.data != null) LOADING_ALPHA else 1f
+        }, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
     }
 
     // ---------- рейка-переключатель ----------
@@ -208,5 +225,9 @@ class ForecastStripView(
     override fun onDetachedFromWindow() {
         WeatherHub.removeListener(hubListener)
         super.onDetachedFromWindow()
+    }
+
+    private companion object {
+        const val LOADING_ALPHA = 0.4f
     }
 }

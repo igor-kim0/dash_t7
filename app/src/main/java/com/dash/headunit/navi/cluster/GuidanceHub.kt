@@ -64,6 +64,9 @@ object GuidanceHub {
         if (g != null) main.postDelayed(expire, A11Y_FRESH_MS + 100)
     }
 
+    /** Идёт демо-маршрут (на приборку — даже при выключенной настройке). */
+    val isDemo: Boolean get() = demo != null
+
     /** Демо-маршрут для проверки картинки на приборке (null — выключить). */
     fun setDemo(g: Guidance?) {
         demo = g
@@ -77,9 +80,13 @@ object GuidanceHub {
         val notif = fromNotification
         val merged = demo ?: when {
             notif != null -> notif.orElse(a11y)
-            a11y != null && a11y.hasManeuver -> a11y
+            a11y != null && a11y.onRoute -> a11y
             else -> null
         }
+        // Служба спец. возможностей опрашивает окно и без маршрута —
+        // повторное «нет маршрута» не рассылаем (иначе ClusterOverlay
+        // каждый раз откладывал бы конец маршрута).
+        if (merged == null && current == null) return
         current = merged
         main.post { listeners.toList().forEach { it.onGuidance(merged) } }
     }

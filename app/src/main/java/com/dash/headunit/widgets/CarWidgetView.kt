@@ -12,6 +12,7 @@ import android.widget.TextView
 import com.dash.headunit.R
 import com.dash.headunit.car.CarData
 import com.dash.headunit.car.CarHub
+import com.dash.headunit.car.CarScaling
 import com.dash.headunit.car.ClusterPps
 import com.dash.headunit.car.DemoData
 import com.dash.headunit.dashboard.WidgetSettingsStore
@@ -93,17 +94,6 @@ internal fun engineTempColor(t: Float, green: Int): Int = when {
     t < 35f -> TEMP_BLUE
     t < 80f -> FUEL_YELLOW
     t < 110f -> green
-    else -> FUEL_RED
-}
-
-/**
- * Цвет по стрелке ОЖ (0..1) и пороги состояния — как у Jarvis
- * (<0,2 холодный, <0,4 прогревается, <0,75 прогрет, иначе горячий/перегрев).
- */
-internal fun needleStateColor(n: Float, green: Int): Int = when {
-    n < 0.2f -> TEMP_BLUE
-    n < 0.4f -> FUEL_YELLOW
-    n < 0.75f -> green
     else -> FUEL_RED
 }
 
@@ -361,11 +351,13 @@ class CarWidgetView(
             battSub.text = context.getString(R.string.car_no_data)
             battIcon.setColorFilter(theme.secondaryText)
         }
-        // Двигатель. Прямой ОЖ (a0ff/VHAL) почти никогда нет — как у Jarvis,
-        // состояние показываем по стрелке ОЖ (Процент + подпись-состояние), иначе «—».
-        val eng = d?.engineTempC
+        // Двигатель: прямые градусы (a0ff приборки / OBD / VHAL / Desay),
+        // без них — оценка по стрелке ОЖ приборки, как у ретро-спидометра
+        // ([CarScaling.needleToCoolant], со знаком «≈»), иначе «—».
+        val engExact = d?.engineTempC
+        val eng = engExact ?: ClusterPps.needle()?.let { CarScaling.needleToCoolant(it) }
         if (eng != null) {
-            engValue.text = "%.0f".format(locale, eng)
+            engValue.text = (if (engExact == null) "≈" else "") + "%.0f".format(locale, eng)
             engUnit.text = "°"
             engIcon.setColorFilter(engineTempColor(eng, theme.success))
             // Те же пороги, что у цвета иконки ([engineTempColor]).
@@ -376,23 +368,10 @@ class CarWidgetView(
                 else -> context.getString(R.string.car_overheat)
             }
         } else {
-            val needle = ClusterPps.needle()
-            if (needle != null) {
-                engValue.text = Math.round(needle * 100f).toString()
-                engUnit.text = "%"
-                engIcon.setColorFilter(needleStateColor(needle, theme.success))
-                engSub.text = when {
-                    needle < 0.2f -> context.getString(R.string.car_cold)
-                    needle < 0.4f -> context.getString(R.string.car_warming)
-                    needle < 0.75f -> context.getString(R.string.car_warm)
-                    else -> context.getString(R.string.car_overheat)
-                }
-            } else {
-                engValue.text = "—"
-                engUnit.text = ""
-                engSub.text = context.getString(R.string.car_no_data)
-                engIcon.setColorFilter(theme.secondaryText)
-            }
+            engValue.text = "—"
+            engUnit.text = ""
+            engSub.text = context.getString(R.string.car_no_data)
+            engIcon.setColorFilter(theme.secondaryText)
         }
         // Запас хода.
         if (d?.rangeKm != null && d.rangeKm > 0) {

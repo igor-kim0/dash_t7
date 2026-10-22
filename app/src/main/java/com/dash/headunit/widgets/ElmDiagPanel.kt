@@ -108,6 +108,8 @@ class ElmDiagPanel(
             append(if (addr == null) "не выбран" else "${ElmHub.name() ?: "?"} ($addr)")
             ElmHub.method()?.let { append(" · ").append(it) }
             append('\n').append("ELM: ").append(ElmHub.lastStatus)
+            // Сырой обмен с адаптером: видно, что отвечает ЭБУ (NO DATA, CAN ERROR…).
+            ElmHub.trace().takeLast(TRACE_ROWS).forEach { append('\n').append("  ").append(it) }
         }
         scanBtn.text = if (ElmBtProbe.scanning) "Стоп" else "Скан"
         pinBtn.text = "PIN ${ElmBtProbe.pin}"
@@ -195,5 +197,6 @@ class ElmDiagPanel(
     private companion object {
         const val REFRESH_MS = 1_000L
         const val LOG_ROWS = 14
+        const val TRACE_ROWS = 8
     }
 }

@@ -12,9 +12,15 @@ import com.dash.headunit.settings.Autostart
 /**
  * Читает окно Яндекс Навигатора (только чтение, ничего не нажимает):
  * ограничение скорости (layout_map_speedlimit → text_speedlimit), камеры
- * (view_notification_speedcamera_*) и плашку манёвра (layout_maneuverballoon:
- * text_maneuverballoon_distance/metrics, text_nextstreet). Так есть данные,
- * даже когда навигатор на экране и фонового уведомления ведения нет.
+ * (view_notification_speedcamera_*), остаток маршрута (textview_eta_*) и
+ * карточку манёвра (contextmaneuverview: text_maneuverballoon_distance/metrics,
+ * text_nextstreet). Так есть данные, даже когда навигатор на экране и
+ * фонового уведомления ведения нет.
+ *
+ * Яндекс 14.8 (эмулятор, 2026-10-21): карточка-view видна не всегда — часто
+ * манёвр (с полосами) рисуется прямо в карте, тогда его тут нет; у картинки
+ * стрелки нет описания, так что тип манёвра обычно неизвестен — стрелка
+ * есть только из фонового уведомления.
  *
  * Включается в enabled_accessibility_services — см. [ClusterSetup].
  * Окно навигатора не обязательно активное (он под дашбордом в блоке),
@@ -29,6 +35,7 @@ class NaviAccessibilityService : AccessibilityService() {
         scheduled = false
         scanNow()
     }
+    private val poll = Runnable { scanNow() }
 
     override fun onServiceConnected() {
         instance = this
@@ -51,6 +58,7 @@ class NaviAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         main.removeCallbacks(scan)
+        main.removeCallbacks(poll)
         scheduled = false
         if (instance === this) instance = null
         GuidanceHub.setFromA11y(null)
@@ -59,16 +67,24 @@ class NaviAccessibilityService : AccessibilityService() {
 
     private fun scanNow() {
         lastScan = SystemClock.uptimeMillis()
+        // Перечитываем и без событий: пока тексты навигатора не меняются
+        // (стоим в пробке, навигатор под дашбордом), событий нет, а данные
+        // в [GuidanceHub] через A11Y_FRESH_MS протухают — маршрут пропадал.
+        main.removeCallbacks(poll)
         val root = naviRoot()
         if (root == null) {
             GuidanceHub.setFromA11y(null)
+            main.postDelayed(poll, IDLE_POLL_MS)
             return
         }
-        try {
-            GuidanceHub.setFromA11y(read(root))
+        val g = try {
+            read(root)
         } catch (e: Exception) {
             Log.w(TAG, "scan", e)
+            null
         }
+        GuidanceHub.setFromA11y(g)
+        main.postDelayed(poll, if (g != null) ROUTE_POLL_MS else IDLE_POLL_MS)
     }
 
     private fun naviRoot(): AccessibilityNodeInfo? {
@@ -99,6 +115,9 @@ class NaviAccessibilityService : AccessibilityService() {
         val camDist = text("view_notification_speedcamera_distance")
         val camLabel = text("view_notification_speedcamera_distance_label")
         val g = Guidance(
+            remainingDistance = text("textview_eta_distance"),
+            remainingTime = text("textview_eta_time"),
+            arrival = text("textview_eta_arrival"),
             maneuver = GuidanceText.classify(arrowDesc),
             distance = dist?.let { if (metrics != null) "$it $metrics" else it },
             street = street,
@@ -106,7 +125,7 @@ class NaviAccessibilityService : AccessibilityService() {
             cameraDistance = camDist?.let { if (camLabel != null) "$it $camLabel" else it },
             cameraLimit = GuidanceText.speedLimit(text("view_notification_speedcamera_limit")),
         )
-        return g.takeIf { it.hasManeuver || it.speedLimit != null || it.cameraDistance != null }
+        return g.takeIf { it.onRoute || it.speedLimit != null || it.cameraDistance != null }
     }
 
     /** Дерево окна навигатора текстом — для диагностики. */
@@ -137,6 +156,9 @@ class NaviAccessibilityService : AccessibilityService() {
             "text_speedlimit", "speedlimitview_guidance", "view_projected_speed_limit", "speed_limit_text",
         )
         private const val SCAN_MS = 500L
+        /** Перечитывание окна без событий: идёт ведение / навигатора нет или стоит без маршрута. */
+        private const val ROUTE_POLL_MS = 1_000L
+        private const val IDLE_POLL_MS = 3_000L
         private const val MAX_DUMP_NODES = 600
         private const val TAG = "NaviA11y"
     }

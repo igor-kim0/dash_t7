@@ -3,8 +3,11 @@ package com.dash.headunit.navi.cluster
 import android.content.ComponentName
 import android.content.Context
 import android.provider.Settings
+import android.util.Log
 import com.dash.headunit.music.MediaListenerService
 import com.dash.headunit.navi.AdbShell
+import com.dash.headunit.settings.AppSettings
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Права для маршрута на приборке — выдаём сами через свой adb-канал
@@ -15,6 +18,28 @@ import com.dash.headunit.navi.AdbShell
  * Все вызовы блокирующие — только из фонового потока.
  */
 object ClusterSetup {
+
+    private val restoring = AtomicBoolean(false)
+
+    /**
+     * При запуске (дашборд, привязка слушателя уведомлений при загрузке):
+     * если настройка «на приборке» включена, а система сбросила какое-то
+     * право (обновление приложения, перезагрузка ГУ) — выдать заново в
+     * фоновом потоке. Всё на месте — ничего не делает.
+     */
+    fun restoreOnStart(context: Context) {
+        val ctx = context.applicationContext
+        if (!AppSettings.clusterNavi(ctx)) return
+        if (Settings.canDrawOverlays(ctx) && isA11yEnabled(ctx) && isListenerEnabled(ctx)) return
+        if (!restoring.compareAndSet(false, true)) return
+        Thread({
+            try {
+                Log.i(TAG, "права при запуске: " + ensureAll(ctx))
+            } finally {
+                restoring.set(false)
+            }
+        }, "dash-cluster-setup").start()
+    }
 
     /** Выдать всё, что ещё не выдано; возвращает отчёт по пунктам. */
     fun ensureAll(context: Context): String {
@@ -30,7 +55,8 @@ object ClusterSetup {
         shell(context, "appops set ${context.packageName} SYSTEM_ALERT_WINDOW allow")
 
     fun isA11yEnabled(context: Context): Boolean =
-        enabledA11y(context).any { ComponentName.unflattenFromString(it) == a11yComponent(context) }
+        Settings.Secure.getInt(context.contentResolver, Settings.Secure.ACCESSIBILITY_ENABLED, 0) == 1 &&
+            enabledA11y(context).any { ComponentName.unflattenFromString(it) == a11yComponent(context) }
 
     fun enableA11y(context: Context): String {
         val mine = a11yComponent(context).flattenToString()
@@ -63,4 +89,6 @@ object ClusterSetup {
         val r = AdbShell.exec(context, cmd) ?: return "нет adb-канала (${AdbShell.lastStatus})"
         return r.trim().ifEmpty { "выдано" }
     }
+
+    private const val TAG = "ClusterSetup"
 }

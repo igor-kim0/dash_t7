@@ -21,13 +21,16 @@ import com.dash.headunit.settings.AppSettings
  * Приборка T18FL3 получает видео со второго дисплея Android (id 1,
  * «Экран HDMI» 1920×720, FLAG_PRESENTATION) и показывает его в режиме
  * «навигация». Как у Jarvis:
+ *  - родные подсказки приборки (TBT) — [ClusterTbt], по умолчанию
+ *    выключены (adb NAVI_CLUSTER cmd tbt);
  *  - картинку кладём на этот дисплей — у нас это окно-оверлей
  *    (TYPE_APPLICATION_OVERLAY, без фокуса и касаний), а не Activity:
  *    на Android 9 activity на втором дисплее забрала бы фокус и паузу
  *    у главного экрана;
  *  - приборку переключаем в навигацию широковещанием для
- *    com.desaysv.mapservice: AUTONAVI_STANDARD_BROADCAST_SEND,
- *    KEY_TYPE=10019, EXTRA_STATE=1 (показать) / 2 (убрать);
+ *    com.desaysv.mapservice: turbodog.navigation.system.message CODE
+ *    207; плюс, как Jarvis,
+ *    AUTONAVI_STANDARD_BROADCAST_SEND KEY_TYPE=10019 (на этой ГУ не слушается);
  *  - приборка сама просит навигацию (водитель листает виды):
  *    desay.broadcast.map.meter.interaction с RequestNaviAreaDisplay=1/0.
  *    targetSdk 28 — неявные broadcast в манифесте не доходят, поэтому
@@ -36,8 +39,13 @@ import com.dash.headunit.settings.AppSettings
  *
  * Поведение при включённой настройке [AppSettings.clusterNavi]:
  * начался маршрут — показать и переключить приборку; закончился
- * (через [END_DELAY_MS]) — убрать и вернуть приборку; запросы приборки
+ * (через [END_DELAY_MS]) — вернуть приборку; запросы приборки
  * выполняются всегда.
+ *
+ * Окно, раз появившись, с дисплея 1 не убираем (пока настройка включена
+ * или после демо): без своего содержимого HDMI-дисплей зеркалит главный
+ * экран, и в разделе «Карты» приборки оказывается дашборд. Без маршрута
+ * окно просто чёрное. Убираем только при выключении настройки ([remove]).
  */
 @SuppressLint("StaticFieldLeak") // только applicationContext
 object ClusterOverlay {
@@ -79,6 +87,9 @@ object ClusterOverlay {
                 .registerDisplayListener(displayListener, main)
             GuidanceHub.addListener(guidanceListener)
             status = "готов"
+            // Сразу занять дисплей 1 чёрным окном — чтобы в «Картах»
+            // приборки не было зеркала главного экрана.
+            if (AppSettings.clusterNavi(ctx)) show(announce = false)
         }
     }
 
@@ -87,6 +98,7 @@ object ClusterOverlay {
         val ctx = app ?: return@Listener
         if (g != null) {
             main.removeCallbacks(routeEnded)
+            if (ClusterTbt.enabled && (AppSettings.clusterNavi(ctx) || GuidanceHub.isDemo)) ClusterTbt.update(ctx, g)
             if (!routeActive) {
                 routeActive = true
                 if (AppSettings.clusterNavi(ctx)) {
@@ -103,8 +115,9 @@ object ClusterOverlay {
     private val routeEnded = Runnable {
         routeActive = false
         val ctx = app ?: return@Runnable
+        ClusterTbt.stop(ctx)
         if (view != null && AppSettings.clusterNavi(ctx)) {
-            status = "маршрут закончился — убираю с приборки"
+            status = "маршрут закончился — возвращаю приборку"
             hide(announce = true)
         }
     }
@@ -124,7 +137,8 @@ object ClusterOverlay {
             if (!AppSettings.clusterNavi(context)) return
             when (req) {
                 1 -> show(announce = true)
-                0 -> hide(announce = false)
+                0 -> {} // окно остаётся (чёрное без маршрута) — см. описание
+
             }
         }
     }
@@ -132,7 +146,7 @@ object ClusterOverlay {
     private val displayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(displayId: Int) {
             val ctx = app ?: return
-            if (routeActive && view == null && AppSettings.clusterNavi(ctx)) show(announce = true)
+            if (view == null && AppSettings.clusterNavi(ctx)) show(announce = routeActive)
         }
 
         override fun onDisplayRemoved(displayId: Int) {
@@ -163,11 +177,23 @@ object ClusterOverlay {
         }
     }
 
+    /**
+     * Маршрута на приборке больше нет: окно остаётся (пустое чёрное —
+     * не зеркало главного экрана), [announce] — вернуть вид приборки.
+     */
     fun hide(announce: Boolean) {
         main.post {
             val ctx = app ?: return@post
-            removeView()
             if (announce) announce(ctx, false)
+        }
+    }
+
+    /** Совсем убрать окно с дисплея 1 (настройка выключена). */
+    fun remove() {
+        main.post {
+            val ctx = app ?: return@post
+            removeView()
+            announce(ctx, false)
         }
     }
 
@@ -242,8 +268,10 @@ object ClusterOverlay {
     /** Переключение вида приборки через com.desaysv.mapservice (как Jarvis). */
     private fun announce(ctx: Context, on: Boolean) {
         try {
-            // Штатному навигатору TurboDog — отпустить приборку.
-            ctx.sendBroadcast(Intent("turbodog.navigation.system.message").putExtra("CODE", 207).putExtra("DATA", 0))
+            // 207 — как в проверенной на ГУ версии (картинка в «Картах» была).
+            // Пара 205→207 (по разбору SVMapService) на ГУ дала пустые «Карты»
+            // и неработающее демо (2026-10-22) — не шлём.
+            ctx.sendBroadcast(Intent(ACTION_TURBODOG).putExtra("CODE", 207).putExtra("DATA", 0))
         } catch (e: Exception) {
             Log.w(TAG, "turbodog", e)
         }
@@ -272,6 +300,7 @@ object ClusterOverlay {
 
     private const val ACTION_METER = "desay.broadcast.map.meter.interaction"
     private const val ACTION_CARLAN = "SVCarLanManager"
+    private const val ACTION_TURBODOG = "turbodog.navigation.system.message"
     private const val ACTION_AUTONAVI = "AUTONAVI_STANDARD_BROADCAST_SEND"
     private const val MAP_SERVICE = "com.desaysv.mapservice"
     private const val END_DELAY_MS = 8_000L

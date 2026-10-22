@@ -5,7 +5,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.os.Binder
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.Parcel
 import android.util.Log
 import java.util.concurrent.Executors
@@ -95,6 +97,12 @@ object DesayPushProbe {
     @Volatile
     private var binder: IBinder? = null
 
+    /** Сколько раз уже переподключались из-за молчания сервиса. */
+    @Volatile
+    private var retries = 0
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+
     private val worker = Executors.newSingleThreadExecutor { r ->
         Thread(r, "dash-push-probe").apply { isDaemon = true }
     }
@@ -111,6 +119,13 @@ object DesayPushProbe {
      * Не блокирует: вызывается из UI-потока, а [ServiceConnection] приходит
      * в тот же главный поток — ждать его синхронно нельзя (всегда тайм-аут).
      * Регистрация идёт в [onServiceConnected] на фоновом [worker].
+     *
+     * Bind сделан как в справочнике (TiggoBridge CarInfoClient.ensure — он
+     * на ГУ встречается live в dumpsys с подключёнными клиентами):
+     * если сервис за [BIND_TIMEOUT_MS] не позвал коллбек — считаем «не ответил
+     * на bind», отвязываемся и биндимся заново (до [MAX_BIND_RETRIES] раз).
+     * Текст любого исключения bindService (SecurityException и т.п.) попадает
+     * в статус — раньше он жил только в logcat.
      */
     @Synchronized
     fun start(context: Context) {
@@ -122,35 +137,71 @@ object DesayPushProbe {
         }
         this.context = app
         clearData()
+        status = "подключаемся к сервису…"
+        bind()
+    }
+
+    /** Отвязать прежнюю связь (если была) и биндиться заново. */
+    private fun bind() {
+        val app = context ?: return
+        mainHandler.removeCallbacks(bindWatchdog)
+        connection?.let { prev -> runCatching { app.unbindService(prev) } }
+        connection = null
+        binder = null
         val conn = object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
                 if (connection !== this) return
+                retries = 0
+                mainHandler.removeCallbacks(bindWatchdog)
                 binder = service
                 worker.execute { onBound(this, service) }
             }
 
             override fun onServiceDisconnected(name: ComponentName?) {
                 binder = null
-                if (connection === this) status = "сервис отключился, ждём переподключения"
+                if (connection === this) {
+                    status = "сервис отключился, переподключаюсь…"
+                    worker.execute { rebind(this) }
+                }
             }
         }
         connection = conn
-        val bound = try {
-            app.bindService(
-                Intent().setClassName(SERVICE_PKG, SERVICE_CLASS),
-                conn,
-                Context.BIND_AUTO_CREATE
-            )
+        val error = try {
+            if (app.bindService(
+                    Intent().setClassName(SERVICE_PKG, SERVICE_CLASS),
+                    conn,
+                    Context.BIND_AUTO_CREATE
+                )
+            ) null else "bindService вернул false"
         } catch (e: Exception) {
             Log.w(TAG, "bind", e)
-            false
+            e.message ?: e.toString()
         }
-        if (!bound) {
-            status = "bind не удался"
+        if (error != null) {
+            status = "bind не удался: $error"
             stopInternal()
             return
         }
-        status = "подключаемся к сервису…"
+        // Ждём коллбек ограниченное время — иначе сервис «не ответил на bind».
+        mainHandler.postDelayed(bindWatchdog, BIND_TIMEOUT_MS)
+    }
+
+    /** Повторный bind: [old] — связь, которую надо выкинуть. */
+    @Synchronized
+    private fun rebind(old: ServiceConnection) {
+        if (connection !== old) return
+        retries += 1
+        if (retries > MAX_BIND_RETRIES) {
+            status = "сервис не ответил на bind ($MAX_BIND_RETRIES попыток) — сдаюсь"
+            stopInternal()
+            return
+        }
+        status = "bind $retries/$MAX_BIND_RETRIES: сервис не ответил, пробую ещё раз…"
+        bind()
+    }
+
+    private val bindWatchdog = Runnable {
+        connection?.let { rebind(it) }
     }
 
     /** Сервис (пере)подключён — регистрируем подписки (фоновый поток). */
@@ -322,6 +373,7 @@ object DesayPushProbe {
     }
 
     private fun stopInternal() {
+        mainHandler.removeCallbacks(bindWatchdog)
         polling = false
         pollThread?.interrupt()
         pollThread = null
@@ -378,6 +430,9 @@ object DesayPushProbe {
     private const val TRANSACT_READ = 3
     private const val EVENT_MAX = 200
     private const val POLL_MS = 1000L
+    /** Столько ждём onServiceConnected — как в справочнике (waitConnected 6000). */
+    private const val BIND_TIMEOUT_MS = 6000L
+    private const val MAX_BIND_RETRIES = 3
 
     /** Ячейки шины, которые снимаем при событии/по таймеру. */
     private val INTERESTING = listOf(

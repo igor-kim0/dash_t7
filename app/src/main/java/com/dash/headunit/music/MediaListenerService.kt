@@ -4,6 +4,7 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
 import com.dash.headunit.navi.cluster.ClusterOverlay
+import com.dash.headunit.navi.cluster.ClusterSetup
 import com.dash.headunit.navi.cluster.GuidanceHub
 import com.dash.headunit.navi.cluster.YANDEX_NAVI
 import com.dash.headunit.navi.cluster.YandexNotificationParser
@@ -25,6 +26,9 @@ class MediaListenerService : NotificationListenerService() {
     override fun onCreate() {
         super.onCreate()
         ClusterOverlay.init(this)
+        // При загрузке система сама привязывает слушатель — заодно
+        // возвращаем сброшенные права для маршрута на приборке.
+        ClusterSetup.restoreOnStart(this)
         // Система привязывает слушатель при загрузке — это и есть автозапуск
         // (BOOT_COMPLETED на ГУ Desay режется белым списком).
         Autostart.onServiceBound(this, "слушатель уведомлений")

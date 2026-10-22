@@ -158,8 +158,8 @@ class ClimateWidgetView(
     // ---------- действия ----------
 
     private fun bumpTemp(delta: Float) {
-        val cur = currentState().tempDriverC ?: 21f
-        val next = (cur + delta).coerceIn(16f, 32f)
+        val cur = currentState().tempDriverC ?: 22f
+        val next = (cur + delta).coerceIn(17.5f, 32f)
         setTemp(next)
     }
 

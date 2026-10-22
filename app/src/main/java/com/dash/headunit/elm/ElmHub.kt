@@ -9,7 +9,6 @@ import android.util.Log
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
-import java.net.SocketTimeoutException
 import java.util.UUID
 
 /**
@@ -51,6 +50,18 @@ object ElmHub {
     private val history = mutableListOf<String>()
 
     fun statusHistory(): List<String> = synchronized(history) { history.toList() }
+
+    /** Последние обмены «команда → ответ» с адаптером (для панели диагностики без adb). */
+    private val exchanges = ArrayDeque<String>()
+
+    fun trace(): List<String> = synchronized(exchanges) { exchanges.toList() }
+
+    private fun traceExchange(cmd: String, reply: String) {
+        synchronized(exchanges) {
+            exchanges.addLast("$cmd → ${shortReply(reply).ifEmpty { "(тишина)" }}")
+            while (exchanges.size > TRACE_MAX) exchanges.removeFirst()
+        }
+    }
 
     private val lock = Any()
 
@@ -184,10 +195,20 @@ object ElmHub {
 
     /**
      * Одна сессия: connect (перебор способов) → инициализация (ATZ, ATE0,
-     * ATSP0) → цикл опроса. Быстрые величины (обороты, нагрузка) — каждый
-     * круг, медленные (ОЖ, напряжение) — каждый [SLOW_EVERY]-й. Величина,
-     * не ответившая [MISS_LIMIT] раз подряд (ЭБУ её не отдаёт), дальше
-     * спрашивается лишь раз в [RETRY_UNSUPPORTED] кругов.
+     * ATL0, ATS0, ATSP0) → цикл опроса. Быстрые величины (обороты, нагрузка)
+     * — каждый круг, медленные (ОЖ, напряжение) — каждый [SLOW_EVERY]-й.
+     * Величина, не ответившая [MISS_LIMIT] раз подряд (ЭБУ её не отдаёт),
+     * дальше спрашивается лишь раз в [RETRY_UNSUPPORTED] кругов.
+     *
+     * Протокол шины ищется до опроса ([findProtocol]): авто-поиск ELM идёт
+     * дольше обычного таймаута ответа, а любой символ, пришедший во время
+     * поиска, его прерывает («STOPPED») — раньше следующий PID через 5 с
+     * обрывал поиск, и шина не находилась никогда (отвечал только ATRV).
+     *
+     * ATRV (напряжение) отвечает сам адаптер без шины, поэтому успех этого
+     * PID ничего не говорит о связи с ЭБУ: молчание шинных PID считается
+     * отдельно — через [PROTOCOL_SWITCH_MS] протокол ищется заново,
+     * через [NO_ANSWER_RECONNECT_MS] без единого ответа — переподключение.
      * true — получен хоть один ответ.
      */
     private fun session(address: String): Boolean {
@@ -206,16 +227,26 @@ object ElmHub {
                 lastStatus = "подключился к ELM ($savedMethod), инициализация…"
                 val input = sock.getInputStream()
                 val output = sock.getOutputStream()
-                // ATZ сбрасывает адаптер (может отвечать до секунды), затем
-                // выключаем эхо и ставим авто-протокол.
+                // ATZ сбрасывает адаптер (на некоторых клонах banner идёт
+                // до 2 с и может догнать после следующей команды — его
+                // вычистит drain в [command]), затем выключаем эхо, а также
+                // построчные/пробельные вставки (дефолты клонов плавают)
+                // и ставим авто-протокол.
                 command(input, output, "ATZ")
                 sleep(INIT_DELAY_MS)
                 if (command(input, output, "ATE0") == null) return false
-                if (command(input, output, "ATSP0") == null) return false
-                lastStatus = "ELM настроен, читаю данные…"
+                command(input, output, "ATL0")
+                command(input, output, "ATS0")
+                var protocol = findProtocol(input, output) ?: return false
+                lastStatus = if (protocol.isNotEmpty()) "ELM: протокол $protocol, читаю данные…"
+                else noBusStatus()
                 val misses = HashMap<Pid, Int>()
                 var round = 0L
                 var lastAnswerAt = SystemClock.uptimeMillis()
+                /** Последний успешный шинный (не ATRV) PID — признак живой шины. */
+                var lastDataAt = lastAnswerAt
+                /** Статус смены протокола — держится, пока шинные PID не ответят. */
+                var protoBanner: String? = if (protocol.isEmpty()) noBusStatus() else null
                 while (true) {
                     for (pid in Pid.values()) {
                         if (pid.slow && round % SLOW_EVERY != 0L) continue
@@ -225,6 +256,7 @@ object ElmHub {
                         val v = pid.parse(reply)
                         if (v == null) {
                             misses[pid] = miss + 1
+                            if (pid != Pid.VOLTAGE) lastBusReply = shortReply(reply)
                             Log.d(TAG, "${pid.cmd}: нет ответа «${reply.trim().takeLast(60)}»")
                         } else {
                             misses[pid] = 0
@@ -232,13 +264,30 @@ object ElmHub {
                             synchronized(values) { values[pid] = Value(v, now) }
                             lastAnswerAt = now
                             answers++
+                            if (pid != Pid.VOLTAGE) lastDataAt = now
+                            protoBanner = null
                         }
                     }
-                    if (SystemClock.uptimeMillis() - lastAnswerAt > NO_ANSWER_RECONNECT_MS) {
+                    val now = SystemClock.uptimeMillis()
+                    if (now - lastDataAt > PROTOCOL_SWITCH_MS) {
+                        // Шина молчит дольше минуты (не нашли протокол,
+                        // зажигание погасили/включили) — ищем заново.
+                        // ATRV сюда не попадает — он шину не трогает.
+                        lastStatus = "ELM: шина молчит — ищу протокол заново…"
+                        protocol = findProtocol(input, output) ?: return answers > 0
+                        misses.clear()
+                        lastDataAt = SystemClock.uptimeMillis()
+                        protoBanner = if (protocol.isEmpty()) noBusStatus() else null
+                        continue
+                    }
+                    if (now - lastAnswerAt > NO_ANSWER_RECONNECT_MS) {
                         lastStatus = "ELM молчит ${NO_ANSWER_RECONNECT_MS / 1000} с — переподключаюсь"
                         return answers > 0
                     }
-                    lastStatus = if (answers > 0) "ELM: данные идут" else "ELM: ЭБУ не отвечает (зажигание?)"
+                    lastStatus = protoBanner ?: if (now - lastDataAt > PROTOCOL_SWITCH_MS / 2) {
+                        "ELM: только напряжение — шина молчит (${lastBusReply.ifEmpty { "нет ответа" }})"
+                    } else if (answers > 0) "ELM: данные идут (протокол ${protocol.ifEmpty { "?" }})"
+                    else "ELM: ЭБУ не отвечает (зажигание?)"
                     round++
                     sleep(POLL_MS)
                 }
@@ -249,6 +298,41 @@ object ElmHub {
         @Suppress("UNREACHABLE_CODE")
         return answers > 0
     }
+
+    /**
+     * Найти протокол шины: сначала авто-поиск ELM (ATSP0 + 0100 с долгим
+     * ожиданием — поиск нельзя прерывать новыми командами), затем явные
+     * [PROTOCOLS]. Возвращает номер протокола по ATDPN («A6», «6»…),
+     * "" — ЭБУ не ответил ни на одном, null — сокет умер.
+     */
+    private fun findProtocol(input: InputStream, output: OutputStream): String? {
+        for (proto in PROTOCOLS) {
+            lastStatus = if (proto == "0") "ELM: ищу протокол шины (авто)…"
+            else "ELM: пробую протокол ATSP$proto…"
+            command(input, output, "ATSP$proto") ?: return null
+            val timeout = if (proto == "0") SEARCH_TIMEOUT_MS else PROBE_TIMEOUT_MS
+            val reply = command(input, output, "0100", timeout) ?: return null
+            if (ObdParser.scanResponse(reply, "4100") != null) {
+                val dpn = command(input, output, "ATDPN") ?: return null
+                val name = dpn.lines().map { it.trim().trimStart(ObdParser.PROMPT).trim() }
+                    .lastOrNull { it.isNotEmpty() && it != "OK" } ?: proto
+                Log.i(TAG, "протокол: ATSP$proto → $name")
+                return name
+            }
+            lastBusReply = shortReply(reply)
+            Log.d(TAG, "ATSP$proto: 0100 → «$lastBusReply»")
+        }
+        // Ничего не нашли — оставляем авто, чтобы ELM сам пробовал при опросе.
+        command(input, output, "ATSP0") ?: return null
+        return ""
+    }
+
+    private fun noBusStatus(): String =
+        "ELM: ЭБУ не отвечает ни на одном протоколе (${lastBusReply.ifEmpty { "нет ответа" }}) — зажигание?"
+
+    private fun shortReply(reply: String): String =
+        reply.replace('\r', ' ').replace('\n', ' ').replace(ObdParser.PROMPT, ' ')
+            .replace(Regex("\\s+"), " ").trim().take(40)
 
     /** Открыть сокет: сначала удачный в прошлый раз способ, затем остальные. */
     @Suppress("MissingPermission")
@@ -289,24 +373,43 @@ object ElmHub {
     /**
      * Отправить команду, прочитать ответ до приглашения «>».
      * Полный текст ответа или null (сбой сокета).
+     * Перед записью входной поток вычищается от опоздавшего мусора
+     * (banner после ATZ, хвост «SEARCHING…»), чтобы он не приклеился
+     * к ответу этой команды.
      */
-    private fun command(input: InputStream, output: OutputStream, cmd: String): String? {
+    private fun command(
+        input: InputStream,
+        output: OutputStream,
+        cmd: String,
+        timeoutMs: Long = RESPONSE_TIMEOUT_MS,
+    ): String? {
         return try {
+            val pending = input.available()
+            if (pending > 0) {
+                val junk = ByteArray(pending)
+                input.read(junk)
+                Log.d(TAG, "буфер: убрано «${String(junk, Charsets.US_ASCII).trim().take(60)}»")
+            }
             output.write((cmd + '\r').toByteArray(Charsets.US_ASCII))
             output.flush()
             val sb = StringBuilder()
             val buffer = ByteArray(512)
-            val deadline = System.currentTimeMillis() + RESPONSE_TIMEOUT_MS
+            val deadline = System.currentTimeMillis() + timeoutMs
+            // У BluetoothSocket нет soTimeout: read() блокируется навсегда,
+            // если адаптер замолчал. Поэтому читаем только когда есть что
+            // читать (available()), между чтениями — короткий сон, а полный
+            // таймаут контролирует deadline.
             while (System.currentTimeMillis() < deadline) {
-                val n = try {
-                    input.read(buffer)
-                } catch (e: SocketTimeoutException) {
-                    -1
+                val n = if (input.available() > 0) input.read(buffer) else 0
+                if (n <= 0) {
+                    if (System.currentTimeMillis() >= deadline) break
+                    sleep(READ_POLL_MS)
+                    continue
                 }
-                if (n <= 0) continue
                 sb.append(String(buffer, 0, n, Charsets.US_ASCII))
                 if (sb.isNotEmpty() && sb.last() == ObdParser.PROMPT) break
             }
+            traceExchange(cmd, sb.toString())
             sb.toString()
         } catch (e: IOException) {
             lastStatus = "ELM сокет: ${e.javaClass.simpleName}"
@@ -358,6 +461,7 @@ object ElmHub {
     private const val M_CH1 = "RFCOMM ch1"
     private val METHODS = listOf(M_SECURE, M_INSECURE, M_CH1)
     private const val HISTORY_MAX = 50
+    private const val TRACE_MAX = 12
 
     /** ОЖ меняется медленно — последнее значение показываем долго. */
     private const val COOLANT_STALE_MS = 15 * 60_000L
@@ -373,9 +477,25 @@ object ElmHub {
     private const val RETRY_UNSUPPORTED = 60L
     /** Ни одного ответа столько времени — переподключение. */
     private const val NO_ANSWER_RECONNECT_MS = 60_000L
+    /** Шина молчит столько — пробуем следующий явный протокол. */
+    private const val PROTOCOL_SWITCH_MS = 60_000L
+    /**
+     * Порядок поиска протокола: 0 — авто, затем явные: 6/7 — CAN 500 кбит
+     * 11/29 бит, 8/9 — CAN 250 кбит, 3/4/5 — K-line, 1/2 — J1850.
+     */
+    private val PROTOCOLS = listOf("0", "6", "7", "8", "9", "3", "4", "5", "1", "2")
+    /** Последний ответ шинного PID, не давший данных (для статуса). */
+    @Volatile
+    private var lastBusReply = ""
     /** Ожидание ответа на один запрос. */
-    private const val RESPONSE_TIMEOUT_MS = 5_000
-    /** Таймаут одного chunked read — SocketTimeoutException. */
+    private const val RESPONSE_TIMEOUT_MS = 5_000L
+    /** Авто-поиск протокола ELM (перебор всех, K-line по 2–3 с). */
+    private const val SEARCH_TIMEOUT_MS = 30_000L
+    /** Проверка одного явного протокола (K-line init до ~5 с). */
+    private const val PROBE_TIMEOUT_MS = 8_000L
+    /** Пауза между проверками available() в ожидании ответа. */
+    private const val READ_POLL_MS = 25L
+    /** Задержка после ATZ — узнаём banner адаптера. */
     private const val INIT_DELAY_MS = 1_000L
     private const val RETRY_MIN_MS = 15_000L
     private const val RETRY_MAX_MS = 10 * 60_000L

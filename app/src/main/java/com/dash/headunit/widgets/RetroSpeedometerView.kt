@@ -11,6 +11,7 @@ import android.graphics.Typeface
 import android.os.SystemClock
 import android.view.View
 import com.dash.headunit.car.CarHub
+import com.dash.headunit.car.CarScaling
 import com.dash.headunit.car.ClusterPps
 import com.dash.headunit.car.DemoData
 import kotlin.math.cos
@@ -25,7 +26,8 @@ import kotlin.math.tan
  * спрятанной под одометром (поэтому к середине шкалы цифры сжимаются,
  * к краям — разъезжаются), слева указатель топлива 0 · 1/2 · 4/4, справа
  * «ВОДА» (стрелка ОЖ приборки) с подписью в градусах — честные °C из a0ff
- * ([ClusterPps.coolantC]) в приоритете, без них оценка по стрелке (~40..130 °C),
+ * ([ClusterPps.coolantC]) или OBD в приоритете, без них оценка по стрелке
+ * ([CarScaling.needleToCoolant]),
  * в центре — одометр, под ним табличка
  * селектора R N P 1–7 (как в цифровом виде): гравированные буквы,
  * включённая подсвечена «лампой», под ней ездит красный указатель.
@@ -123,18 +125,18 @@ class RetroSpeedometerView(context: Context) : View(context) {
         speedTarget = d.speedKmh
         fuelTarget = d.fuelPct?.let { (it / 100f).coerceIn(0f, 1f) }
         // Стрелка ОЖ приборки (0..1) — ровно то, что видно на штатной;
-        // если её нет, но есть градусы — 40..130 °C на шкалу.
+        // если её нет, но есть градусы — по той же шкале ([CarScaling.coolantToNeedle]).
         waterTarget = ClusterPps.needle()
-            ?: d.engineTempC?.let { ((it - 40f) / 90f).coerceIn(0f, 1f) }
+            ?: d.engineTempC?.let { CarScaling.coolantToNeedle(it) }
         // Подпись у «ВОДА» в градусах: сначала честные (a0ff приборки /
-        // VHAL / Desay), без них — оценка по положению стрелки (шкала
-        // условно 40..130 °C, та же раскладка, что у стрелки выше).
+        // OBD / VHAL / Desay), без них — оценка по положению стрелки
+        // ([CarScaling.needleToCoolant]).
         waterC = d.engineTempC
         waterEstimated = false
         if (waterC == null) {
             waterC = ClusterPps.needle()?.let {
                 waterEstimated = true
-                40f + it * 90f
+                CarScaling.needleToCoolant(it)
             }
         }
         odo = d.odoKm ?: ClusterPps.trip()?.odometerKm?.toInt()

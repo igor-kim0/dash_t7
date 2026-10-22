@@ -82,7 +82,11 @@ object WeatherHub {
         }
     }
 
-    fun refresh() {
+    /**
+     * Запросить свежие данные. [onDone] — итог (true — данные обновлены);
+     * не вызывается, если загрузка уже идёт.
+     */
+    fun refresh(onDone: ((Boolean) -> Unit)? = null) {
         val repo = repository ?: return
         val loc = locationHelper ?: return
         if (loading) return
@@ -94,17 +98,20 @@ object WeatherHub {
             val lon = fix?.longitude ?: LocationHelper.FALLBACK_LON
             val isFallback = fix == null
             scope.launch {
+                var ok = false
                 try {
                     data = withContext(Dispatchers.IO) {
                         repo.refresh(lat, lon, isFallback)
                     }
                     error = null
+                    ok = true
                 } catch (e: Exception) {
                     data = repo.cached() ?: data
                     if (data == null) error = "error"
                 } finally {
                     loading = false
                     notifyListeners()
+                    onDone?.invoke(ok)
                 }
             }
         }

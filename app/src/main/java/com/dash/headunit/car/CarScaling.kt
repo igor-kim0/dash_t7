@@ -82,9 +82,9 @@ object CarScaling {
      * Забортная температура Desay (16,19): сырое минус 120.
      * Шкала ×10 опровергнута: при реальной погоде 4–9 °C ячейка даёт
      * 125–128 (×10 дало бы 12.5–12.8). Зато raw−120 ложится идеально:
-     * 125→5, 127→7, 128→8; Oct12 134→14 (тёплый вечер, правдоподобно);
-     * утренние 4.5 °C с приборки — того же порядка. Форма drifta
-     * (134→125→127→128) повторяет погоду, а не лаг датчика.
+     * 125→5, 127→7, 128→8; Oct12 134→14 (тёплый вечер, правдоподобно).
+     * Формула TiggoBridge «raw × 0.5 − 40» на этом ГУ НЕ подходит: те же
+     * 125–134 она превращает в +22…+27 в октябре (проверено 2026-10-22).
      */
     fun outsideTemp(raw: Int): Float? {
         if (raw < 70 || raw > 170) return null
@@ -95,6 +95,46 @@ object CarScaling {
     fun coolantTemp(raw: Float?): Float? {
         if (raw == null || raw.isNaN() || raw < -40f || raw > 150f) return null
         return raw
+    }
+
+    /**
+     * Оценка °C ОЖ по стрелке приборки (a000, 0..1), когда прямых градусов
+     * нет. Стрелка T18FL3 нелинейна: на прогретом двигателе стоит ровно
+     * на середине (500/1000, логи 2026-10-13/14) во всём рабочем диапазоне;
+     * по замеру пользователя середина = 98 °C (2026-10-22; линейная
+     * 40..130 давала 85). Кусочно-линейно: 0 → 40, 0,5 → 98, 1 → 130.
+     */
+    fun needleToCoolant(n: Float): Float {
+        val x = n.coerceIn(0f, 1f)
+        return if (x <= NEEDLE_MID) {
+            NEEDLE_COLD_C + x / NEEDLE_MID * (NEEDLE_MID_C - NEEDLE_COLD_C)
+        } else {
+            NEEDLE_MID_C + (x - NEEDLE_MID) / (1f - NEEDLE_MID) * (NEEDLE_HOT_C - NEEDLE_MID_C)
+        }
+    }
+
+    /** Обратное к [needleToCoolant]: °C → положение стрелки 0..1. */
+    fun coolantToNeedle(c: Float): Float = when {
+        c <= NEEDLE_COLD_C -> 0f
+        c <= NEEDLE_MID_C -> (c - NEEDLE_COLD_C) / (NEEDLE_MID_C - NEEDLE_COLD_C) * NEEDLE_MID
+        c <= NEEDLE_HOT_C -> NEEDLE_MID + (c - NEEDLE_MID_C) / (NEEDLE_HOT_C - NEEDLE_MID_C) * (1f - NEEDLE_MID)
+        else -> 1f
+    }
+
+    private const val NEEDLE_MID = 0.5f
+    private const val NEEDLE_COLD_C = 40f
+    private const val NEEDLE_MID_C = 98f
+    private const val NEEDLE_HOT_C = 130f
+
+    /**
+     * ОЖ Desay READONLY (4,100), заводская логика реф. приложения
+     * TiggoBridge (formatCoolant, MainActivity.java:1063): raw ≤ 200 — целые
+     * градусы, raw > 200 — десятые (925 → 92.5). 0 — «не в шине» (на этом ГУ
+     * ячейка часто не заводится: ProbeDiagnose.java:62), не градусы.
+     */
+    fun desayCoolant(raw: Int?): Float? {
+        if (raw == null || raw == 0 || raw > 1500) return null
+        return coolantTemp(if (raw > 200) raw / 10f else raw.toFloat())
     }
 
     /** Обороты Desay (4,62): сырое 16-бит BE × 4 (единица — 4 об/мин).
