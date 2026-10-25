@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.dash.headunit.elm.ElmHub
 import java.io.File
 import java.io.Writer
 import java.net.Socket
@@ -28,7 +29,8 @@ import java.util.Locale
  * поток не пошёл (PPS без .all), опрашиваем объекты раз в секунду.
  *
  * Рядом раз в секунду пишутся эталоны, известные ГУ: скорость GPS и VHAL,
- * обороты, передача, топливо, напряжение. Байт PPS, который меняется
+ * обороты, передача, топливо, напряжение, показания OBD-сканера
+ * (ElmHub: °C ОЖ, обороты), если он подключён. Байт PPS, который меняется
  * вместе с эталоном, — искомый. Метки ([mark]) — то, что видно на
  * приборке и чего ГУ не знает (ОЖ, мгновенный расход).
  *
@@ -302,6 +304,12 @@ object ClusterRecorder {
                         ?.let { sb.append(' ').append(name).append('=').append(it.joinToString(",")) }
                 }
                 ClusterPps.coolantC()?.let { sb.append(" ОЖ(парсер)=").append(it) }
+                ClusterPps.needle()?.let { sb.append(" стрелкаОЖ=").append((it * 1000).toInt()) }
+                // OBD-сканер: точные °C ОЖ (elm_coolant) и обороты — эталон
+                // для поиска байта ОЖ в PPS (tools/coolant_search.py).
+                for ((id, v) in ElmHub.readings().toSortedMap()) {
+                    sb.append(" elm_").append(id).append('=').append(v)
+                }
                 ClusterPps.speedKmh()?.let { sb.append(" скорость(парсер)=").append(it) }
                 ClusterPps.rpm()?.let { sb.append(" обороты(парсер)=").append(it) }
                 write(sb.toString())

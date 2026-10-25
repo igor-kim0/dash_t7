@@ -15,6 +15,7 @@ import com.dash.headunit.car.ActionLearner.Known
 import com.dash.headunit.car.CarHub
 import com.dash.headunit.car.CarScaling
 import com.dash.headunit.car.DesayCarReader
+import com.dash.headunit.car.ShadeResume
 import com.dash.headunit.theme.DashTheme
 import com.dash.headunit.theme.ThemeCard
 import java.util.concurrent.atomic.AtomicBoolean
@@ -27,12 +28,12 @@ import java.util.concurrent.atomic.AtomicBoolean
  * (com.desaysv.vehiclesetting, VrControlMgr): группа 3 = ModuleID.ID_VR,
  * Request 120 — окна (1/2 водитель, 3/4 пассажир, 5/6 зад. левое,
  * 7/8 зад. правое; нечётное — опустить, чётное — поднять), 122 — люк,
- * 124 — шторка (значения 1/2 — гипотеза). Опускание водительского стекла
- * подтверждено обучением (learn/win_drv_down*, 19.10).
+ * 124 — шторка (1 открыть / 2 закрыть — подтверждено). Опускание
+ * водительского стекла подтверждено обучением (learn/win_drv_down*, 19.10).
  *
  * Состояния (только чтение): 0,100..103 окна (подтверждено: 2 закрыто,
  * 4 открыто, прочие — «в движении»), 0,5+0,6 люк (закрыт 2,1 / открыт 1,12),
- * 0,10 шторка.
+ * 0,10 шторка (6 открыто — подтверждено, 1 закрыто).
  *
  * На ходу (скорость > [MAX_SPEED_KMH]) кнопки отказывают тостом,
  * как в [ActionLearner].
@@ -90,8 +91,8 @@ class ButtonsWidgetView(
                 addView(windowRow("Пассажир", Known(3, 120, 3, listOf(101)), Known(3, 120, 4, listOf(101)), listOf(101)))
                 addView(windowRow("Зад. левое", Known(3, 120, 5, listOf(102)), Known(3, 120, 6, listOf(102)), listOf(102)))
                 addView(windowRow("Зад. правое", Known(3, 120, 7, listOf(103)), Known(3, 120, 8, listOf(103)), listOf(103)))
-                addView(windowRow("Люк (гипотеза)", Known(3, 122, 1, listOf(5, 6), sure = false), Known(3, 122, 2, listOf(5, 6), sure = false), listOf(5, 6)))
-                addView(windowRow("Шторка (гипотеза)", Known(3, 124, 1, listOf(10), sure = false), Known(3, 124, 2, listOf(10), sure = false), listOf(10)))
+                addView(windowRow("Люк", Known(3, 122, 1, listOf(5, 6)), Known(3, 122, 2, listOf(5, 6)), listOf(5, 6)))
+                addView(windowRow("Шторка", Known(3, 124, 1, listOf(10)), Known(3, 124, 2, listOf(10)), listOf(10)))
             })
         }
         addView(scroll, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f).apply { topMargin = dp(8) })
@@ -226,6 +227,7 @@ class ButtonsWidgetView(
             id == 5 && v == 1 -> " откр"
             id == 6 && v == 1 -> " закр"
             id == 6 && v == 12 -> " откр"
+            id == 10 && v == ShadeResume.OPEN_RAW -> " откр"
             else -> ""
         }
         return "0,$id=$s$hint"

@@ -28,13 +28,4 @@ class ClimateHubTest {
         assertEquals(32.0f, ClimateHub.scaleTemp(30)!!, 0.001f) // HI
         assertNull(ClimateHub.scaleTemp(-1))
     }
-
-    @Test
-    fun roundTrip() {
-        for (c in listOf(17.5f, 22f, 22.5f, 23f, 32f)) {
-            assertEquals(c, ClimateHub.scaleTemp(ClimateHub.tempToRaw(c))!!, 0.001f)
-        }
-        assertEquals(0, ClimateHub.tempToRaw(10f))
-        assertEquals(29, ClimateHub.tempToRaw(40f))
-    }
 }

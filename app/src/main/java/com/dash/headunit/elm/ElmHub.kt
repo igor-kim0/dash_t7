@@ -16,9 +16,10 @@ import java.util.UUID
  * и опрос OBD-II: обороты (010C), нагрузка (0104), температура ОЖ
  * (0105 — её нет ни на Desay-шине, ни у приборки, ни в VHAL ГУ),
  * напряжение бортовой сети (ATRV, меряет сам адаптер), температура
- * впускного воздуха (0110), дроссель (0111), топливные балансировки
+ * впускного воздуха (010F), дроссель (0111), топливные балансировки
  * B1 (0106/0107), давление впускного коллектора (010B) и уровень
- * топлива в баке (012F). Не поддерживаемые ЭБУ величины отпадают сами.
+ * топлива в баке (012F). Чего нет в маске ЭБУ (0100/0120), не спрашиваем;
+ * прочие не ответившие величины отпадают сами.
  *
  * Работает как [com.dash.headunit.car.ClusterPps]: один фоновый поток
  * на весь процесс, статусы для debug-экрана. Адрес адаптера выбирается
@@ -112,7 +113,7 @@ object ElmHub {
         LOAD("load", "0104", LIVE_STALE_MS, slow = false, parse = ObdParser::engineLoad),
         COOLANT("coolant", "0105", COOLANT_STALE_MS, slow = true, parse = ObdParser::coolant),
         VOLTAGE("volt", "ATRV", LIVE_STALE_MS, slow = true, parse = ObdParser::voltage),
-        INTAKE_AIR("iat", "0110", COOLANT_STALE_MS, slow = true, parse = ObdParser::intakeAir),
+        INTAKE_AIR("iat", "010F", COOLANT_STALE_MS, slow = true, parse = ObdParser::intakeAir),
         THROTTLE("throttle", "0111", LIVE_STALE_MS, slow = false, parse = ObdParser::throttle),
         TRIM_SHORT("trim_short", "0106", LIVE_STALE_MS, slow = true, parse = ObdParser::fuelTrimShort),
         TRIM_LONG("trim_long", "0107", LIVE_STALE_MS, slow = true, parse = ObdParser::fuelTrimLong),
@@ -195,7 +196,7 @@ object ElmHub {
 
     /**
      * Одна сессия: connect (перебор способов) → инициализация (ATZ, ATE0,
-     * ATL0, ATS0, ATSP0) → цикл опроса. Быстрые величины (обороты, нагрузка)
+     * ATL0, ATS0, ATH0, поиск протокола и маски PID) → цикл опроса. Быстрые величины (обороты, нагрузка)
      * — каждый круг, медленные (ОЖ, напряжение) — каждый [SLOW_EVERY]-й.
      * Величина, не ответившая [MISS_LIMIT] раз подряд (ЭБУ её не отдаёт),
      * дальше спрашивается лишь раз в [RETRY_UNSUPPORTED] кругов.
@@ -231,12 +232,15 @@ object ElmHub {
                 // до 2 с и может догнать после следующей команды — его
                 // вычистит drain в [command]), затем выключаем эхо, а также
                 // построчные/пробельные вставки (дефолты клонов плавают)
-                // и ставим авто-протокол.
+                // и ставим авто-протокол. ATH0 — без CAN-заголовка («7E8…»):
+                // клон BT051525 по умолчанию его шлёт (парсер переживёт
+                // и заголовок, но без него ответы короче).
                 command(input, output, "ATZ")
                 sleep(INIT_DELAY_MS)
                 if (command(input, output, "ATE0") == null) return false
                 command(input, output, "ATL0")
                 command(input, output, "ATS0")
+                command(input, output, "ATH0")
                 var protocol = findProtocol(input, output) ?: return false
                 lastStatus = if (protocol.isNotEmpty()) "ELM: протокол $protocol, читаю данные…"
                 else noBusStatus()
@@ -250,6 +254,7 @@ object ElmHub {
                 while (true) {
                     for (pid in Pid.values()) {
                         if (pid.slow && round % SLOW_EVERY != 0L) continue
+                        if (!supportedByEcu(pid)) continue
                         val miss = misses[pid] ?: 0
                         if (miss >= MISS_LIMIT && round % RETRY_UNSUPPORTED != 0L) continue
                         val reply = command(input, output, pid.cmd) ?: return answers > 0 // сокет умер
@@ -306,17 +311,21 @@ object ElmHub {
      * "" — ЭБУ не ответил ни на одном, null — сокет умер.
      */
     private fun findProtocol(input: InputStream, output: OutputStream): String? {
+        supportedPids = emptySet()
+        supportedUpTo = 0
         for (proto in PROTOCOLS) {
             lastStatus = if (proto == "0") "ELM: ищу протокол шины (авто)…"
             else "ELM: пробую протокол ATSP$proto…"
             command(input, output, "ATSP$proto") ?: return null
             val timeout = if (proto == "0") SEARCH_TIMEOUT_MS else PROBE_TIMEOUT_MS
             val reply = command(input, output, "0100", timeout) ?: return null
-            if (ObdParser.scanResponse(reply, "4100") != null) {
+            val mask = ObdParser.supportedPids(reply, 0x00)
+            if (mask != null) {
                 val dpn = command(input, output, "ATDPN") ?: return null
                 val name = dpn.lines().map { it.trim().trimStart(ObdParser.PROMPT).trim() }
                     .lastOrNull { it.isNotEmpty() && it != "OK" } ?: proto
                 Log.i(TAG, "протокол: ATSP$proto → $name")
+                readSupported(input, output, mask) ?: return null
                 return name
             }
             lastBusReply = shortReply(reply)
@@ -325,6 +334,37 @@ object ElmHub {
         // Ничего не нашли — оставляем авто, чтобы ELM сам пробовал при опросе.
         command(input, output, "ATSP0") ?: return null
         return ""
+    }
+
+    /**
+     * Запомнить маску PID из ответа на 0100 ([mask]) и, если ЭБУ
+     * поддерживает 0120, дочитать маску 0x21..0x40 (там 012F — бак).
+     * null — сокет умер.
+     */
+    private fun readSupported(input: InputStream, output: OutputStream, mask: Set<Int>): Unit? {
+        var pids = mask
+        var upTo = 0x20
+        if (0x20 in mask) {
+            val reply = command(input, output, "0120") ?: return null
+            ObdParser.supportedPids(reply, 0x20)?.let {
+                pids = pids + it
+                upTo = 0x40
+            }
+        }
+        supportedPids = pids
+        supportedUpTo = upTo
+        Log.i(TAG, "PID ЭБУ: " + pids.sorted().joinToString(" ") { "%02X".format(it) })
+        return Unit
+    }
+
+    /**
+     * Поддерживает ли ЭБУ величину по маске 0100/0120. PID вне прочитанных
+     * масок (или если маски нет) и ATRV опрашиваем всегда.
+     */
+    private fun supportedByEcu(pid: Pid): Boolean {
+        if (!pid.cmd.startsWith("01") || pid.cmd.length != 4) return true
+        val num = pid.cmd.substring(2).toIntOrNull(16) ?: return true
+        return num > supportedUpTo || num in supportedPids
     }
 
     private fun noBusStatus(): String =
@@ -484,6 +524,12 @@ object ElmHub {
      * 11/29 бит, 8/9 — CAN 250 кбит, 3/4/5 — K-line, 1/2 — J1850.
      */
     private val PROTOCOLS = listOf("0", "6", "7", "8", "9", "3", "4", "5", "1", "2")
+    /** PID режима 01 из масок 0100/0120 последнего найденного протокола. */
+    @Volatile
+    private var supportedPids: Set<Int> = emptySet()
+    /** До какого номера PID маска прочитана (0 — маски нет). */
+    @Volatile
+    private var supportedUpTo = 0
     /** Последний ответ шинного PID, не давший данных (для статуса). */
     @Volatile
     private var lastBusReply = ""

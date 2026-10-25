@@ -9,7 +9,6 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import com.dash.headunit.R
-import com.dash.headunit.car.ClimateHub
 import com.dash.headunit.car.DesayCarReader
 import com.dash.headunit.theme.DashTheme
 import kotlinx.coroutines.CoroutineScope
@@ -167,21 +166,34 @@ class HeatWidgetView(
         glassIcon.setColorFilter(if (defrost == true) ON_YELLOW else theme.secondaryText)
     }
 
+    /** Читатель шины виджета (лениво, как в [refresh]). */
+    private fun readerReady(): DesayCarReader? {
+        val r = reader ?: DesayCarReader(context.applicationContext).also { reader = it }
+        return if (r.isAvailable()) r else null
+    }
+
     /** Тап по сиденью: 0→1→2→3→0. Дисплей синхронизируется опросом шины. */
     private fun toggleSeat() {
-        ClimateHub.init(context)
         val next = ((seatLevel ?: 0) + 1) % (LEVELS + 1)
         Thread {
-            ClimateHub.setSeatHeatDriver(next)
+            val r = readerReady() ?: return@Thread
+            runCatching { r.write(0, 95, next) }
             post { refresh() }
         }.start()
     }
 
+    /** Лобовое: 16,24 вкл/выкл; при включении — режим 5 и A/C (сценарий ГУ). */
     private fun toggleGlass() {
-        ClimateHub.init(context)
         val next = defrost != true
         Thread {
-            ClimateHub.setDefrostFront(next)
+            val r = readerReady() ?: return@Thread
+            runCatching {
+                r.write(16, 24, if (next) 1 else 0)
+                if (next) {
+                    r.write(16, 6, 5)
+                    r.write(16, 1, 1)
+                }
+            }
             post { refresh() }
         }.start()
     }
@@ -227,7 +239,6 @@ class HeatWidgetView(
         super.onAttachedToWindow()
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
         pollJob = null
-        ClimateHub.init(context)
         ensurePolling()
     }
 

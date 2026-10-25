@@ -128,6 +128,17 @@ class NaviAccessibilityService : AccessibilityService() {
         return g.takeIf { it.onRoute || it.speedLimit != null || it.cameraDistance != null }
     }
 
+    /** Окна, которые система отдаёт службе (заголовок, пакет, границы), — для диагностики. */
+    fun describeWindows(): String = try {
+        windows.joinToString("\n") { w ->
+            val b = android.graphics.Rect().also { w.getBoundsInScreen(it) }
+            "id=${w.id} type=${w.type} layer=${w.layer} ${w.title ?: "-"} " +
+                "pkg=${w.root?.packageName ?: "?"} $b"
+        }.ifEmpty { "(пусто)" }
+    } catch (e: Exception) {
+        "ошибка: ${e.javaClass.simpleName}: ${e.message}"
+    }
+
     /** Дерево окна навигатора текстом — для диагностики. */
     fun dumpTree(): String {
         val root = naviRoot() ?: return "окна $YANDEX_NAVI нет среди окон"

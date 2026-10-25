@@ -177,7 +177,8 @@ class DesayCarReader(private val appContext: Context) {
         val range = CarScaling.desayRangeKm(readInt(4, 72))
         val volts = CarScaling.desayVolts(readInt(4, 76))
         val engineRunning = readInt(0, 27) == 1
-        val outside = CarScaling.outsideTemp(readInt(16, 19))
+        val outsideRaw = readInt(16, 19)
+        val outside = CarScaling.outsideTemp(outsideRaw)
         val odo = readInt(4, 71).takeIf { it in 0..3_000_000 }
         // 4,69 как ECT НЕ используем: это не ОЖ (OBD ECT 98–99, а 4,69
         // стабильно 81.0–81.1). Как в Jarvis: температуру двигателя берём
@@ -204,6 +205,7 @@ class DesayCarReader(private val appContext: Context) {
             engineTempC = engineTemp, // 4,100, см. выше про 4,69
             gearboxTempC = null,
             outsideTempC = outside,
+            outsideRaw = outsideRaw,
             odoKm = odo,
             rpm = rpm,
             brakePressed = brake,

@@ -66,6 +66,7 @@ import com.dash.headunit.widgets.ElmWidgetView
 import com.dash.headunit.widgets.LearnWidgetView
 import com.dash.headunit.widgets.RetroSpeedometerView
 import com.dash.headunit.widgets.SpeedWidgetView
+import com.dash.headunit.widgets.VazClusterView
 import com.dash.headunit.widgets.DesayPushTestWidgetView
 
 /**
@@ -249,13 +250,14 @@ class MainActivity : AppCompatActivity() {
             .showFullScreen()
     }
 
-    /** Настройки приложения: автозапуск, сторона колонки, приборка, журнал поездок. */
+    /** Настройки приложения: автозапуск, сторона колонки, приборка, шторка, журнал поездок. */
     private fun showSettingsDialog() {
-        val journalKeepRow = 3
+        val journalKeepRow = 4
         val items = arrayOf(
             getString(R.string.settings_autostart),
             getString(R.string.settings_bar_left),
             getString(R.string.settings_cluster_navi),
+            getString(R.string.settings_shade_resume),
             getString(
                 R.string.settings_trip_journal_keep,
                 journalKeepLabel(AppSettings.journalKeepDays(this))
@@ -265,6 +267,7 @@ class MainActivity : AppCompatActivity() {
             AppSettings.autostart(this),
             AppSettings.barSideLeft(this),
             AppSettings.clusterNavi(this),
+            AppSettings.shadeResume(this),
             false
         )
         DashDialog.Builder(this)
@@ -283,6 +286,8 @@ class MainActivity : AppCompatActivity() {
                 AppSettings.setBarSideLeft(this, checked[1])
                 applyBarSide()
                 applyClusterNavi(checked[2])
+                // Шторка: настройка проверяется при следующем старте.
+                AppSettings.setShadeResume(this, checked[3])
             }
             .setNegativeButton(R.string.dialog_cancel, null)
             .showFullScreen()
@@ -641,10 +646,10 @@ class MainActivity : AppCompatActivity() {
                 WidgetType.OUTSIDE -> OutsideWidgetView(this, theme)
                 WidgetType.ELM -> ElmWidgetView(this, theme, spec.widgetId, settingsStore)
                 WidgetType.SPEED ->
-                    if (settingsStore.getOption(spec.widgetId, OPT_SPEED_STYLE, SPEED_RETRO) == SPEED_DIGITAL) {
-                        SpeedWidgetView(this, theme)
-                    } else {
-                        RetroSpeedometerView(this)
+                    when (settingsStore.getOption(spec.widgetId, OPT_SPEED_STYLE, SPEED_RETRO)) {
+                        SPEED_DIGITAL -> SpeedWidgetView(this, theme)
+                        SPEED_VAZ -> VazClusterView(this)
+                        else -> RetroSpeedometerView(this)
                     }
                 WidgetType.PUSH_TEST -> DesayPushTestWidgetView(this, theme)
                 WidgetType.LEARN -> LearnWidgetView(this, theme)
@@ -1058,15 +1063,19 @@ class MainActivity : AppCompatActivity() {
      * Видимость — [CarWidgetView.OPT_ITEMS] (пусто = все),
      * порядок всех метрик — [CarWidgetView.OPT_ORDER].
      */
-    /** Вид «Спидометра»: стрелочный ретро или цифровой (обороты и передача). */
+    /** Вид «Спидометра»: ретро-стрелочный, классика ВАЗ или цифровой. */
     private fun showSpeedSettings(widgetId: String) {
-        val styles = listOf(SPEED_RETRO, SPEED_DIGITAL)
+        val styles = listOf(SPEED_RETRO, SPEED_VAZ, SPEED_DIGITAL)
         var selected = styles.indexOf(settingsStore.getOption(widgetId, OPT_SPEED_STYLE, SPEED_RETRO))
             .coerceAtLeast(0)
         DashDialog.Builder(this)
             .setTitle(R.string.speed_style_title)
             .setSingleChoiceItems(
-                arrayOf(getString(R.string.speed_style_retro), getString(R.string.speed_style_digital)),
+                arrayOf(
+                    getString(R.string.speed_style_retro),
+                    getString(R.string.speed_style_vaz),
+                    getString(R.string.speed_style_digital)
+                ),
                 selected
             ) { _, which ->
                 selected = which
@@ -1459,6 +1468,7 @@ class MainActivity : AppCompatActivity() {
         /** Опция «Спидометра»: вид (см. [showSpeedSettings]). */
         private const val OPT_SPEED_STYLE = "style"
         private const val SPEED_RETRO = "retro"
+        private const val SPEED_VAZ = "vaz"
         private const val SPEED_DIGITAL = "digital"
     }
 }

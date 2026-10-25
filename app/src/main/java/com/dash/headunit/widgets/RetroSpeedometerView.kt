@@ -13,6 +13,7 @@ import android.view.View
 import com.dash.headunit.car.CarHub
 import com.dash.headunit.car.CarScaling
 import com.dash.headunit.car.ClusterPps
+import com.dash.headunit.car.CoolantCalibration
 import com.dash.headunit.car.DemoData
 import kotlin.math.cos
 import kotlin.math.exp
@@ -27,7 +28,7 @@ import kotlin.math.tan
  * к краям — разъезжаются), слева указатель топлива 0 · 1/2 · 4/4, справа
  * «ВОДА» (стрелка ОЖ приборки) с подписью в градусах — честные °C из a0ff
  * ([ClusterPps.coolantC]) или OBD в приоритете, без них оценка по стрелке
- * ([CarScaling.needleToCoolant]),
+ * ([CoolantCalibration.estimate]),
  * в центре — одометр, под ним табличка
  * селектора R N P 1–7 (как в цифровом виде): гравированные буквы,
  * включённая подсвечена «лампой», под ней ездит красный указатель.
@@ -130,13 +131,13 @@ class RetroSpeedometerView(context: Context) : View(context) {
             ?: d.engineTempC?.let { CarScaling.coolantToNeedle(it) }
         // Подпись у «ВОДА» в градусах: сначала честные (a0ff приборки /
         // OBD / VHAL / Desay), без них — оценка по положению стрелки
-        // ([CarScaling.needleToCoolant]).
+        // ([CoolantCalibration.estimate]).
         waterC = d.engineTempC
         waterEstimated = false
         if (waterC == null) {
             waterC = ClusterPps.needle()?.let {
                 waterEstimated = true
-                CarScaling.needleToCoolant(it)
+                CoolantCalibration.estimate(it)
             }
         }
         odo = d.odoKm ?: ClusterPps.trip()?.odometerKm?.toInt()

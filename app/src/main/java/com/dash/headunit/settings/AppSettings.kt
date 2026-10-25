@@ -49,6 +49,18 @@ object AppSettings {
         prefs(context).edit().putInt(KEY_JOURNAL_KEEP_DAYS, days).apply()
     }
 
+    /**
+     * Открывать шторку люка при старте, если она была открыта
+     * при окончании последней поездки ([com.dash.headunit.car.ShadeResume],
+     * оценка состояния — ячейка 0,10: 6 = открыто).
+     */
+    fun shadeResume(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_SHADE_RESUME, false)
+
+    fun setShadeResume(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_SHADE_RESUME, enabled).apply()
+    }
+
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
 
@@ -57,6 +69,7 @@ object AppSettings {
     private const val KEY_CLUSTER_NAVI = "cluster_navi"
     private const val KEY_CLUSTER_WIDTH = "cluster_width"
     private const val KEY_JOURNAL_KEEP_DAYS = "journal_keep_days"
+    private const val KEY_SHADE_RESUME = "shade_resume"
 
     /** Срок хранения журнала поездок по умолчанию, дней. */
     private const val JOURNAL_KEEP_DEFAULT = 7

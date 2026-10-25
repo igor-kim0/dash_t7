@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.util.Log
+import com.dash.headunit.navi.NaviUnderlay
 import com.dash.headunit.navi.cluster.ClusterOverlay
 import com.dash.headunit.navi.cluster.ClusterSetup
 import com.dash.headunit.navi.cluster.ClusterTbt
@@ -39,7 +40,10 @@ import java.util.Locale
  *    (на дисплее 1 вернётся зеркало главного экрана);
  *  - tbt --ez on true|false — родные подсказки приборки [ClusterTbt]
  *    (по умолчанию выключены, до перезапуска процесса);
- *  - width --ei px 1100 — ширина центральной полосы картинки.
+ *  - width --ei px 1100 — ширина центральной полосы картинки;
+ *  - peek [--ei sec 20] — проверка: на sec секунд зона касаний дашборда
+ *    кончается над нижней строкой выреза под навигатор (касания ниже
+ *    блока не работают); в это время снять dump и dumpsys accessibility.
  *
  * Защищён правом DUMP: отправить может только adb shell/система.
  */
@@ -58,6 +62,10 @@ class NaviClusterReceiver : BroadcastReceiver() {
                 Log.i(TAG, "родные подсказки приборки: ${ClusterTbt.enabled}")
             }
             "width" -> ClusterOverlay.setContentWidth(app, intent.getIntExtra("px", 1100))
+            "peek" -> {
+                val sec = intent.getIntExtra("sec", 20)
+                if (!NaviUnderlay.peek(sec)) Log.w(TAG, "peek: выреза нет (дашборд не создан?)")
+            }
             "demo" -> {
                 GuidanceHub.setDemo(DEMO)
                 ClusterOverlay.show(announce = true)
@@ -113,6 +121,8 @@ class NaviClusterReceiver : BroadcastReceiver() {
         sb.append("\n== ведение сейчас\n")
         sb.append(GuidanceHub.current?.let(YandexNotificationParser::describe) ?: "нет").append('\n')
         sb.append("\n== последнее уведомление навигатора\n").append(GuidanceHub.lastNotificationDump).append('\n')
+        sb.append("\n== окна у службы спец. возможностей\n")
+            .append(NaviAccessibilityService.instance?.describeWindows() ?: "служба не подключена").append('\n')
         sb.append("\n== окно навигатора (спец. возможности)\n")
             .append(NaviAccessibilityService.instance?.dumpTree() ?: "служба не подключена").append('\n')
         sb.append("\n== история\n")

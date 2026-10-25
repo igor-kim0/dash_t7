@@ -67,6 +67,15 @@ object TripTracker {
     private var blindSince: Long = 0L
 
     /**
+     * Счётчик завершённых поездок (перезаписи живого перехода, слепой
+     * финализации, «спали ГУ» — все через [finalizeLive]/[finalizeBlind]).
+     * [CarHub] ловит по нему момент конца поездки — единственное чтение
+     * ячейки шторки ([ShadeResume], запись «открыта в конце поездки»).
+     */
+    var tripEndTick: Long = 0L
+        private set
+
+    /**
      * Двигатель работает. Любой надёжный сигнал «заглушен» сильнее любого
      * «работает»: обороты Desay (4,62/4) ниже холостых ИЛИ честный флаг
      * Desay (0,27) через [CarData.charging] → «заглушено» — контраглэнды
@@ -237,6 +246,7 @@ object TripTracker {
         now: Long,
         endFallback: Long
     ) {
+        tripEndTick++
         val start = if (t.startTs > 0) t.startTs else now - v.driveMillis
         val final = withCluster(v.copy(cluster = null), lastClusterOn ?: cluster)
         finalizeTrip(start, endFallback, final)?.let { pushEntry(prefs, it) }
@@ -254,6 +264,7 @@ object TripTracker {
         tankLiters: Int,
         end: Long
     ) {
+        tripEndTick++
         val lastOdo = prefs.getInt("last_odo", -1)
         val dist = if (lastOdo >= 0 && t.odoStartKm != null) {
             (lastOdo - t.odoStartKm!!).toFloat().takeIf { it >= 0 }

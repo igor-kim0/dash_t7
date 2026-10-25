@@ -11,6 +11,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import com.dash.headunit.elm.ElmHub
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -57,6 +58,16 @@ class CarDebugActivity : AppCompatActivity() {
         recStatus = TextView(this)
         val btnRec = Button(this).apply { text = "Запись приборки (QNX PPS) старт/стоп" }
         val btnTripSim = Button(this).apply { text = "Журнал: записать тест-поездку" }
+        val btnNaviPeek = Button(this).apply {
+            text = "Навигатор в блоке: проверка окна для приборки (~25 с на дашборде)"
+        }
+        val btnSla = Button(this).apply {
+            text = "Знак «60» на приборку штатным путём (~25 с, смотреть на приборку)"
+        }
+        val btnOverspeed = Button(this).apply {
+            text = "Знак через порог превышения 30 км/ч (~20 с, на ходу > 40)"
+        }
+        val btnEtm = Button(this).apply { text = "ОЖ °C через инженерное меню приборки (~20 с)" }
         val markText = EditText(this).apply {
             hint = "что на приборке: «ОЖ 65», «расход 8.4», «передача 3»"
             isSingleLine = true
@@ -80,6 +91,10 @@ class CarDebugActivity : AppCompatActivity() {
         root.addView(btnCluster)
         root.addView(recRow)
         root.addView(btnTripSim)
+        root.addView(btnNaviPeek)
+        root.addView(btnSla)
+        root.addView(btnOverspeed)
+        root.addView(btnEtm)
         root.addView(recStatus)
         root.addView(
             scroll,
@@ -95,6 +110,14 @@ class CarDebugActivity : AppCompatActivity() {
         btnProbe.setOnClickListener { writeProbe() }
         btnCluster.setOnClickListener { listenCluster() }
         btnTripSim.setOnClickListener { simulateTrip() }
+        // Проверка идёт на дашборде (навигатор в блоке под ним) — экран закрываем.
+        btnNaviPeek.setOnClickListener {
+            com.dash.headunit.diag.NaviPeekTest.start(this)
+            finish()
+        }
+        btnSla.setOnClickListener { com.dash.headunit.diag.ClusterSpeedLimitTest.start(this) }
+        btnOverspeed.setOnClickListener { com.dash.headunit.diag.OverspeedSignTest.start(this) }
+        btnEtm.setOnClickListener { com.dash.headunit.diag.CoolantEtmTest.start(this) }
         btnRec.setOnClickListener {
             if (ClusterRecorder.running) ClusterRecorder.stop() else ClusterRecorder.start(this)
         }
@@ -147,6 +170,9 @@ class CarDebugActivity : AppCompatActivity() {
                         emit(line)
                     }
                     emit("trip: приборка a001 ${ClusterPps.trip()?.describe() ?: "нет"}")
+                    emit("ОЖ: стрелка ${ClusterPps.needle()?.let { "%.0f‰".format(it * 1000) } ?: "нет"}, " +
+                        "сканер ${ElmHub.coolantC() ?: "нет"}")
+                    emit("ОЖ калибровка стрелки: ${CoolantCalibration.describe()}")
                 } catch (e: Exception) {
                     emit("Trip: ОШИБКА ${e.javaClass.simpleName}: ${e.message}")
                 }
@@ -711,7 +737,6 @@ class CarDebugActivity : AppCompatActivity() {
                         parsed = ClimateHub.data
                     }
                     emit("hvac: parsed=${parsed ?: "null (опрос не вернулся за 6 с)"}")
-                    emit("hvac: lastWriteOk=${ClimateHub.lastWriteOk}")
                 } catch (e: Exception) {
                     emit("hvac: ОШИБКА ${e.javaClass.simpleName}: ${e.message}")
                 }

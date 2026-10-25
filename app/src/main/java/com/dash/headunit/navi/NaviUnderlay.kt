@@ -6,10 +6,12 @@ import android.content.Intent
 import android.graphics.Point
 import android.graphics.Rect
 import android.graphics.Region
+import android.os.SystemClock
 import android.util.Log
 import android.view.View
 import android.view.ViewTreeObserver
 import android.view.WindowManager
+import java.lang.ref.WeakReference
 import java.lang.reflect.Proxy
 import java.util.concurrent.Executors
 
@@ -391,6 +393,7 @@ object NaviUnderlay {
      * API недоступен: тогда навигатор виден, но касания до него не дойдут.
      */
     fun installTouchHole(view: View, hole: () -> Region?): Boolean {
+        holeView = WeakReference(view)
         return try {
             val listenerCls = Class.forName(
                 "android.view.ViewTreeObserver\$OnComputeInternalInsetsListener"
@@ -424,10 +427,63 @@ object NaviUnderlay {
         val cls = info.javaClass
         val region = cls.getField("touchableRegion").get(info) as Region
         region.set(0, 0, view.width, view.height)
-        if (hole != null) region.op(hole, Region.Op.DIFFERENCE)
+        if (hole != null) {
+            region.op(hole, Region.Op.DIFFERENCE)
+            // Android 9 считает окно для спец. возможностей по описанному
+            // прямоугольнику зоны касаний: весь экран с вырезом всё равно
+            // «накрывает» навигатор, и служба его окна не видит (проверено
+            // peek-тестом на ГУ 2026-10-23). Отрезаем зону касаний по крайней
+            // строке/столбцу выреза — с той стороны, где теряется меньше
+            // площади дашборда (на ГУ вырез с y=20, выше — полоса климата).
+            region.op(openEdge(hole.bounds, view.width, view.height), Region.Op.INTERSECT)
+            if (SystemClock.uptimeMillis() < peekUntil) {
+                // Проверка (cmd peek): зона касаний кончается над нижней
+                // строкой выреза — её описанный прямоугольник больше не
+                // накрывает окно навигатора целиком.
+                region.op(0, 0, view.width, hole.bounds.bottom - 1, Region.Op.INTERSECT)
+            }
+        }
         // InternalInsetsInfo.TOUCHABLE_INSETS_REGION
         cls.getMethod("setTouchableInsets", Int::class.javaPrimitiveType)
             .invoke(info, TOUCHABLE_INSETS_REGION)
+    }
+
+    /**
+     * Прямоугольник, которым ограничить зону касаний, чтобы её описанный
+     * прямоугольник не накрывал вырез [hole] целиком: открыта одна крайняя
+     * строка или столбец выреза, с самой дешёвой стороны.
+     */
+    internal fun openEdge(hole: Rect, w: Int, h: Int): Rect {
+        val top = Rect(0, hole.top + 1, w, h)
+        val bottom = Rect(0, 0, w, hole.bottom - 1)
+        val left = Rect(hole.left + 1, 0, w, h)
+        val right = Rect(0, 0, hole.right - 1, h)
+        val area = { r: Rect -> r.width().toLong() * r.height() }
+        return listOf(top, bottom, left, right).maxByOrNull(area)!!
+    }
+
+    @Volatile
+    private var peekUntil = 0L
+    private var holeView: WeakReference<View>? = null
+
+    /**
+     * Времянка для проверки гипотезы: на [sec] секунд обрезать зону касаний
+     * дашборда над нижней строкой выреза (касания ниже блока навигатора
+     * в это время не работают). Android 9 считает окно перекрытым по
+     * описанному прямоугольнику зоны касаний; если дело в этом, на время
+     * peek окно навигатора появится у службы спец. возможностей.
+     * false — вырез не установлен (дашборд не создан или API недоступен).
+     */
+    fun peek(sec: Int): Boolean {
+        val view = holeView?.get() ?: return false
+        peekUntil = SystemClock.uptimeMillis() + sec * 1000L
+        Log.i(TAG, "peek: зона касаний обрезана на $sec с")
+        view.post { view.requestLayout() }
+        view.postDelayed({
+            view.requestLayout()
+            Log.i(TAG, "peek: зона касаний восстановлена")
+        }, sec * 1000L + 100)
+        return true
     }
 
     private fun prefs(context: Context) =

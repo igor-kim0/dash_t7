@@ -88,8 +88,8 @@ class ObdParserTest {
     @Test
     fun intakeAir_standard() {
         // 0x2C = 44 → 4 °C.
-        assertEquals(4f, ObdParser.intakeAir("41 10 2C\r\r>"))
-        assertNull(ObdParser.intakeAir("41 10\r\r>"))
+        assertEquals(4f, ObdParser.intakeAir("41 0F 2C\r\r>"))
+        assertNull(ObdParser.intakeAir("41 0F\r\r>"))
     }
 
     @Test
@@ -119,5 +119,43 @@ class ObdParserTest {
         // 0x70 = 112 → −12,5 % (бедная смесь).
         assertEquals(-12.5f, ObdParser.fuelTrimLong("41 07 70\r>")!!, 0.01f)
         assertNull(ObdParser.fuelTrimShort("41 0C 1A F8\r\r>"))
+    }
+
+    // Строки из logs_20261023: клон BT051525 шлёт CAN-заголовок «7E8» (нечётная длина после ATS0).
+
+    @Test
+    fun canHeader_oddLengthLines() {
+        assertEquals(82f, ObdParser.coolant("7E80341057A>"))
+        assertEquals(0f, ObdParser.rpm("SEARCHING...7E804410C0000>"))
+        assertEquals(0x27 * 100f / 255f, ObdParser.throttle("7E803411127>")!!, 0.01f)
+        assertEquals(101f, ObdParser.mapPressure("7E803410B65>"))
+        assertEquals(0f, ObdParser.fuelTrimShort("7E803410680>"))
+        assertEquals(0xCD * 100f / 255f, ObdParser.fuelLevel("7E803412FCD>")!!, 0.01f)
+    }
+
+    @Test
+    fun canHeader_withSpaces() {
+        assertEquals(82f, ObdParser.coolant("7E8 03 41 05 7A \r\r>"))
+    }
+
+    @Test
+    fun serviceWordsDoNotGlue() {
+        assertNull(ObdParser.coolant("SEARCHING... UNABLE TO CONNECT\r\r>"))
+        assertNull(ObdParser.intakeAir("NO DATA>"))
+        assertNull(ObdParser.rpm("BUS INIT: . . . .UNABLE TO CONNECT"))
+    }
+
+    @Test
+    fun supportedPids_fromLog() {
+        // 0100 → BE 3E A8 13: 01 03–07, 0B–0F, 11 13 15, 1C 1F 20; 0110 (MAF) нет.
+        val pids = ObdParser.supportedPids("SEARCHING... 7E8064100BE3EA813", 0x00)!!
+        assertEquals(
+            setOf(0x01, 0x03, 0x04, 0x05, 0x06, 0x07, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+                0x11, 0x13, 0x15, 0x1C, 0x1F, 0x20),
+            pids
+        )
+        assertEquals(setOf(0x2F), ObdParser.supportedPids("41 20 00 02 00 00", 0x20))
+        assertNull(ObdParser.supportedPids("UNABLE TO CONNECT>", 0x00))
+        assertNull(ObdParser.supportedPids("41 00 BE 3E", 0x00))
     }
 }

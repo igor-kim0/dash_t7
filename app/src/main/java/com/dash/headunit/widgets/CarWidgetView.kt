@@ -14,6 +14,7 @@ import com.dash.headunit.car.CarData
 import com.dash.headunit.car.CarHub
 import com.dash.headunit.car.CarScaling
 import com.dash.headunit.car.ClusterPps
+import com.dash.headunit.car.CoolantCalibration
 import com.dash.headunit.car.DemoData
 import com.dash.headunit.dashboard.WidgetSettingsStore
 import com.dash.headunit.theme.DashTheme
@@ -353,9 +354,9 @@ class CarWidgetView(
         }
         // Двигатель: прямые градусы (a0ff приборки / OBD / VHAL / Desay),
         // без них — оценка по стрелке ОЖ приборки, как у ретро-спидометра
-        // ([CarScaling.needleToCoolant], со знаком «≈»), иначе «—».
+        // ([CoolantCalibration.estimate], со знаком «≈»), иначе «—».
         val engExact = d?.engineTempC
-        val eng = engExact ?: ClusterPps.needle()?.let { CarScaling.needleToCoolant(it) }
+        val eng = engExact ?: ClusterPps.needle()?.let { CoolantCalibration.estimate(it) }
         if (eng != null) {
             engValue.text = (if (engExact == null) "≈" else "") + "%.0f".format(locale, eng)
             engUnit.text = "°"

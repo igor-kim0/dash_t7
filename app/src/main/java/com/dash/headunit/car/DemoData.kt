@@ -3,7 +3,7 @@ package com.dash.headunit.car
 /**
  * Демо-данные для виджетов, когда до машины не добраться
  * (эмулятор, нет сервиса Desay/VHAL). Подставляются только пока
- * реальные данные не пришли: как только [CarHub] или [ClimateHub]
+ * реальные данные не пришли: как только [CarHub]
  * получит снимок, настоящие значения вытесняют демо.
  */
 object DemoData {
@@ -18,6 +18,7 @@ object DemoData {
         engineTempC = 90f,
         gearboxTempC = null,
         outsideTempC = 14f,
+        outsideRaw = 134, // 14 + 120, как с шины
         odoKm = null,
         rpm = 800,
         speedKmh = 46f,
@@ -31,26 +32,5 @@ object DemoData {
         avgCons = 7.4f,
         avgSpeedKmh = 46f,
         driveMillis = 72L * 60_000
-    )
-
-    /** Состояние для виджета «Климат». */
-    fun climate(): ClimateHub.ClimateState = ClimateHub.ClimateState(
-        tempDriverC = 21f,
-        tempPassC = 21f,
-        fanSpeed = 3,
-        auto = true,
-        ac = false,
-        recirc = false,
-        power = true,
-        fanDirection = 1,
-        defrostFront = false,
-        doorDriverOpen = false,
-        windows = listOf(false, false, false),
-        hazard = false,
-        parkingBrake = false,
-        engineOn = false,
-        sync = true,
-        windshieldHeat = false,
-        seatHeatDriver = 0
     )
 }

@@ -1,7 +1,6 @@
 package com.dash.headunit.car
 
 import android.content.Context
-import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -12,8 +11,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Климат-хаб: чтение и запись состояния HVAC через штатный Desay SV
- * (com.desaysv.svcarinfo/CarInfoService, transact(3, чтение) / transact(4, запись)).
+ * Климат-хаб: только чтение состояния HVAC через штатный Desay SV
+ * (com.desaysv.svcarinfo/CarInfoService, transact(3, чтение)).
  *
  * Карта свойств (группа 16) выведена диффом сценарных снапшотов реального ГУ:
  *   16,1   A/C вкл            1=вкл
@@ -24,7 +23,7 @@ import kotlinx.coroutines.withContext
  *   16,10  уставка темп вод.  raw/2 + 17.5 (raw 9=22°, 1°=0.5°HvacID)
  *   16,12  скорость вентилят. 0..7 (5 = авто, 0 = выкл)
  *   16,13  уставка темп пасс. синхронна с водителем
- *   16,22  SET уставка вод.   Request-ячейка svhvac (сюда пишем)
+ *   16,22  SET уставка вод.   Request-ячейка svhvac
  *   16,23  SET уставка пасс.  Request-ячейка svhvac
  *   16,18  климат активен     1=работает
  *   16,24  обдув лобового     1=вкл (вместе с 16,6→5 и 16,1→1)
@@ -34,10 +33,13 @@ import kotlinx.coroutines.withContext
  * Доп. канальные значения (чтение): 4,15 дверь, 0,100..102 окна,
  * 4,79 аварийка, 4,75 ручник, 0,27 двигатель запущен.
  *
- * ВНИМАНИЕ: write() пишет в CAN шины комфорта. Значения сверяются
- * write-back'ом (read-after-write); расхождение логируется.
+ * Записи здесь нет (команды в шину — в тех виджетах, которым они нужны):
+ * - Request-ячейки (16,22/16,23, SET уставка svhvac) подтверждаются
+ *   read-back по 16,10/16,13.
+ * - Подогрев сиденья/лобового пишет HeatWidgetView напрямую.
  */
 object ClimateHub {
+
 
     /** Состояние HVAC, нормализованное к человекочитаемым величинам. */
     data class ClimateState(
@@ -92,10 +94,6 @@ object ClimateHub {
 
     @Volatile
     var data: ClimateState? = null
-        private set
-
-    @Volatile
-    var lastWriteOk: Boolean? = null
         private set
 
     private val listeners = mutableSetOf<() -> Unit>()
@@ -204,135 +202,12 @@ object ClimateHub {
         else -> null
     }
 
-    // ---------- запись ----------
-
-    /**
-     * Записать уставку температуры водителя [celsius] (16..32).
-     * Возвращает true, если write ушёл; фактическое значение сверяется
-     * следующим опросом (write-back).
-     */
-    /**
-     * Записать уставку температуры водителя [celsius] (17.5..32.5).
-     * Команда — Request-ячейки штатного svhvac (HvacID.Request из дампа
-     * SVCarInfoService): 16,22 AC_DRIVER_TEMP_SET / 16,23 пассажир.
-     * Читаем Response-ячейки 16,10/16,13 — они подтверждённо меняются.
-     * Возвращает true, если write ушёл; фактическое значение сверяется
-     * следующим опросом (write-back).
-     */
-    fun setTempDriver(celsius: Float): Boolean {
-        val raw = tempToRaw(celsius)
-        val d = desay ?: return false
-        val ok = withWriteGuard { d.write(G, 22, raw) }
-        if (ok) {
-            // Пассажирская зона синхронизируется — пишем и её.
-            d.write(G, 23, raw)
-        }
-        return ok
-    }
-
-    internal fun tempToRaw(celsius: Float): Int =
-        ((celsius - 17.5f) * 2f).toInt().coerceIn(0, 29)
-
-    /** Вентилятор 0..7. */
-    fun setFanSpeed(speed: Int): Boolean {
-        val d = desay ?: return false
-        val v = speed.coerceIn(0, 7)
-        return withWriteGuard { d.write(G, 12, v) }
-    }
-
-    fun setAc(on: Boolean): Boolean = writeFlag(1, if (on) 1 else 0)
-
-    fun setAuto(on: Boolean): Boolean = writeFlag(4, if (on) 1 else 0)
-
-    fun setRecirc(on: Boolean): Boolean = writeFlag(8, if (on) 0 else 1)
-
-    /**
-     * Климат вкл/выкл через 16,18 (1 = активен). 16,3 больше не трогаем:
-     * по Jarvis это SYNC (см. [setSync]), а не питание.
-     */
-    fun setPower(on: Boolean): Boolean {
-        val d = desay ?: return false
-        return withWriteGuard { d.write(G, 18, if (on) 1 else 0) }
-    }
-
-    /** Синхронизация зон (16,3, инверсия: вкл = 0). */
-    fun setSync(on: Boolean): Boolean = writeFlag(3, if (on) 0 else 1)
-
-    /** Обогрев лобового стекла (16,65, 1 = вкл). */
-    fun setWindshieldHeat(on: Boolean): Boolean = writeFlag(65, if (on) 1 else 0)
-
-    /** Режим обдува: 1 лицо, 2 ноги, 5 лобовое. */
-    fun setFanDirection(direction: Int): Boolean {
-        val d = desay ?: return false
-        val v = direction.coerceIn(1, 5)
-        return withWriteGuard { d.write(G, 6, v) }
-    }
-
-    fun setDefrostFront(on: Boolean): Boolean {
-        val d = desay ?: return false
-        val ok1 = withWriteGuard { d.write(G, 24, if (on) 1 else 0) }
-        if (on) {
-            // По сценарию defrost: режим→5 и A/C форсируется.
-            d.write(G, 6, 5)
-            d.write(G, 1, 1)
-        }
-        return ok1
-    }
-
-    private fun writeFlag(id: Int, value: Int): Boolean {
-        val d = desay ?: return false
-        return withWriteGuard { d.write(G, id, value) }
-    }
-
-    private inline fun withWriteGuard(block: () -> Boolean): Boolean =
-        try {
-            val ok = block()
-            lastWriteOk = ok
-            ok
-        } catch (e: Throwable) {
-            Log.w(TAG, "write", e)
-            lastWriteOk = false
-            false
-        }
-
-    // ---------- окна/двери (группа 0/4) ----------
-
-    /**
-     * Открыть/закрыть окно водителя. Команда — VR-ячейка (3,120), как у
-     * штатного исполнителя голосовых команд (см. ActionLearner.Known):
-     * 1/2 водитель, 3/4 пассажир. Состояние читается из 0,100/0,101
-     * (2 закрыто, 6 едет, 3 приоткрыто, 4 открыто) — туда не пишем.
-     */
-    fun setWindowDriver(open: Boolean): Boolean {
-        val d = desay ?: return false
-        return withWriteGuard { d.write(3, 120, if (open) 1 else 2) }
-    }
-
-    fun setWindowPass(open: Boolean): Boolean {
-        val d = desay ?: return false
-        return withWriteGuard { d.write(3, 120, if (open) 3 else 4) }
-    }
-
-    fun setHazard(on: Boolean): Boolean {
-        val d = desay ?: return false
-        return withWriteGuard { d.write(4, 79, if (on) 1 else 0) }
-    }
-
-    /**
-     * Подогрев сиденья водителя (0,95): выкл + 3 ступени (как в штатном:
-     * 3 риски-индикатора). Видели 0→2→0 по одиночным нажатиям.
-     */
-    fun setSeatHeatDriver(level: Int): Boolean {
-        val d = desay ?: return false
-        return withWriteGuard { d.write(0, 95, level.coerceIn(0, 3)) }
-    }
 
     fun resetForTests() {
         scope.cancel()
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
         listeners.clear()
         data = null
-        lastWriteOk = null
         pollJob = null
         appContext = null
         desay = null

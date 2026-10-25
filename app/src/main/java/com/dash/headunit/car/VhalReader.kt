@@ -123,9 +123,8 @@ class VhalReader(private val appContext: Context) {
                 Int::class.javaPrimitiveType,
                 Int::class.javaPrimitiveType
             ).invoke(mgr, propId, areaId) ?: return null
-            // CarPropertyValue.STATUS_AVAILABLE = 2 (ERROR=0, UNAVAILABLE=1).
             val status = cpv.javaClass.getMethod("getStatus").invoke(cpv) as? Int ?: return null
-            if (status != 2) return null
+            if (status != STATUS_AVAILABLE) return null
             cpv.javaClass.getMethod("getValue").invoke(cpv)
         } catch (e: Exception) {
             null
@@ -274,7 +273,11 @@ class VhalReader(private val appContext: Context) {
             val volts = getFloatProperty(PROP_VOLT_JARVIS)
                 ?.let { CarScaling.vhalVolts(it.toDouble()) }
             val engineTemp = readEngineTemp()
-            val outside = getFloatProperty(PROP_OUTSIDE)
+            // ENV_OUTSIDE_TEMPERATURE: как лад Exterior у Jarvis (−50..60), но
+            // с проверкой статуса: Android 9 при отсутствии значения тихо
+            // отдаёт 0 (getFloatProperty) — ноль прошёл бы валидацию и
+            // повис «за бортом 0°». propertyValue отфильтрует не-AVAILABLE.
+            val outside = (propertyValue(PROP_OUTSIDE) as? Float)
                 ?.takeIf { it.isFinite() && it >= -50f && it <= 60f }
             // Пробег: стандартный PERF_ODOMETER (float, км) — в конфиге ГУ есть.
             val odoRaw = getFloatProperty(PROP_ODOMETER) ?: getIntProperty(PROP_ODOMETER)?.toFloat()
@@ -309,6 +312,18 @@ class VhalReader(private val appContext: Context) {
 
     companion object {
         private const val TAG = "VhalReader"
+        /**
+         * CarPropertyValue.STATUS_AVAILABLE — значение с устройства. По AOSP
+         * (P, Q и main): AVAILABLE = 0, UNAVAILABLE = 1, ERROR = 2, а не
+         * наоборот; читается рефлексией на случай вендорских правок кар-либы.
+         */
+        private val STATUS_AVAILABLE: Int = try {
+            Class.forName("android.car.hardware.CarPropertyValue")
+                .getField("STATUS_AVAILABLE").getInt(null)
+        } catch (e: Exception) {
+            0
+        }
+
         /** AOSP FUEL_LEVEL (float) — в конфиге ГУ 703002573AA есть. */
         const val PROP_FUEL = 291504903            // 0x11600307
         /** AOSP PERF_ODOMETER (float, км) — есть в конфиге ГУ. */

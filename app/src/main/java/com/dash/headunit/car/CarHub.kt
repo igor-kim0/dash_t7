@@ -52,6 +52,8 @@ object CarHub {
     private var desayAvailable: Boolean? = null
     private var scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var pollJob: Job? = null
+    /** Отметка конца поездки, обработанная [tickShadeTick] (чтение 0,10). */
+    private var lastShadeTick = 0L
 
     fun init(context: Context) {
         if (appContext == null) {
@@ -59,6 +61,7 @@ object CarHub {
             appContext = app
             desay = DesayCarReader(app)
             vhal = VhalReader(app)
+            CoolantCalibration.init(app)
         }
     }
 
@@ -195,6 +198,32 @@ object CarHub {
             // даже когда шина спит / провайдеры молчат.
             notifyListeners()
             tickTripTracker(snapshot)
+            tickShadeTick(snapshot)
+        }
+    }
+
+    /**
+     * Шторка ([ShadeResume]): постоянного опроса ячейки 0,10 нет — как и
+     * запись поездки в журнал, состояние запоминается один раз по факту
+     * конца поездки ([TripTracker.tripEndTick]); до того и после шторку
+     * не трогаем. Однократно — попытка автооткрытия на старте.
+     */
+    private suspend fun tickShadeTick(freshSnapshot: CarData?) {
+        val ctx = appContext ?: return
+        try {
+            ShadeResume.tick(ctx, freshSnapshot != null)
+            if (TripTracker.tripEndTick == lastShadeTick) return
+            lastShadeTick = TripTracker.tripEndTick
+            // Момент конца поездки — единственный раз читаем 0,10; только
+            // пока шина живая в этом же тике. Шина спит (слепые финализации):
+            // не читаем, поездочное значение остаётся с прошлых поездок.
+            if (freshSnapshot == null) return
+            val raw = withContext(Dispatchers.IO) {
+                runCatching { desay?.readInt(0, 10) }.getOrDefault(-1)
+            }
+            ShadeResume.record(ctx, raw)
+        } catch (e: Exception) {
+            android.util.Log.w(TAG, "shade tick", e)
         }
     }
 
@@ -237,6 +266,7 @@ object CarHub {
                 engineTempC = merged?.engineTempC ?: p.engineTempC,
                 gearboxTempC = merged?.gearboxTempC ?: p.gearboxTempC,
                 outsideTempC = merged?.outsideTempC ?: p.outsideTempC,
+                outsideRaw = merged?.outsideRaw ?: p.outsideRaw,
                 odoKm = merged?.odoKm ?: p.odoKm,
                 rpm = merged?.rpm ?: p.rpm,
                 speedKmh = merged?.speedKmh ?: p.speedKmh,
@@ -247,7 +277,10 @@ object CarHub {
         }
         // Прямые градусы ОЖ — приоритет над провайдерами: приборка (a0ff),
         // затем OBD-адаптер (PID 0105).
-        val coolant = ClusterPps.coolantC() ?: ElmHub.coolantC()
+        val elmCoolant = ElmHub.coolantC()
+        // Сканер на связи — учим стрелку ОЖ приборки его градусам.
+        CoolantCalibration.observe(ClusterPps.needle(), elmCoolant)
+        val coolant = ClusterPps.coolantC() ?: elmCoolant
         if (merged == null) {
             if (coolant == null) return null
             return CarData(
@@ -295,6 +328,7 @@ object CarHub {
         lastFreshTs = 0L
         tripView = null
         pollJob = null
+        lastShadeTick = 0L
         appContext = null
         desay = null
         vhal = null
