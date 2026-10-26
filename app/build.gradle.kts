@@ -39,8 +39,8 @@ android {
         // Приложение только для сайдлоада на ГУ, требований Play нет.
         minSdk = 28
         targetSdk = 28
-        versionCode = 4
-        versionName = "1.3"
+        versionCode = 5
+        versionName = "1.4"
 
         buildConfigField("String", "OPENWEATHER_KEY", "\"$owmKey\"")
     }

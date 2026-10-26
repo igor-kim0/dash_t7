@@ -9,9 +9,11 @@ import android.os.Looper
 import android.provider.Settings
 import android.util.Log
 import com.dash.headunit.navi.NaviUnderlay
+import com.dash.headunit.navi.cluster.CarLanClient
 import com.dash.headunit.navi.cluster.ClusterOverlay
 import com.dash.headunit.navi.cluster.ClusterSetup
 import com.dash.headunit.navi.cluster.ClusterTbt
+import com.dash.headunit.navi.cluster.ClusterWarnings
 import com.dash.headunit.navi.cluster.Guidance
 import com.dash.headunit.navi.cluster.GuidanceHub
 import com.dash.headunit.navi.cluster.Maneuver
@@ -40,6 +42,14 @@ import java.util.Locale
  *    (на дисплее 1 вернётся зеркало главного экрана);
  *  - tbt --ez on true|false — родные подсказки приборки [ClusterTbt]
  *    (по умолчанию выключены, до перезапуска процесса);
+ *  - carlan_on --ez on true|false — CarLan из маршрута [CarLanClient]:
+ *    видео дисплея 1 (4100/2+5) и лимит/камеры (4100/4); по умолчанию
+ *    выключено, до перезапуска процесса;
+ *  - carlan_video --ez on true|false — разово 4100/2+5+4 (без маршрута);
+ *  - carlan_cam [--ei cam 3] [--ei st 3] [--ei spd 60] [--ei warn 1] —
+ *    разово CameraInfo 4100/4; cam и warn запоминаются для [ClusterWarnings];
+ *  - carlan --ei sub N --es json '{…}' [--ei type 4100] — сырое сообщение;
+ *    ответы CarLan — в dump, раздел «CarLan»;
  *  - width --ei px 1100 — ширина центральной полосы картинки;
  *  - peek [--ei sec 20] — проверка: на sec секунд зона касаний дашборда
  *    кончается над нижней строкой выреза под навигатор (касания ниже
@@ -60,6 +70,29 @@ class NaviClusterReceiver : BroadcastReceiver() {
                 ClusterTbt.enabled = intent.getBooleanExtra("on", true)
                 if (!ClusterTbt.enabled) ClusterTbt.stop(app)
                 Log.i(TAG, "родные подсказки приборки: ${ClusterTbt.enabled}")
+            }
+            "carlan_on" -> {
+                CarLanClient.enabled = intent.getBooleanExtra("on", true)
+                Log.i(TAG, "CarLan из маршрута: ${CarLanClient.enabled}")
+                if (GuidanceHub.current != null) ClusterOverlay.show(announce = true)
+            }
+            "carlan_video" -> {
+                val on = intent.getBooleanExtra("on", true)
+                CarLanClient.showNaviArea(app, on)
+                CarLanClient.send(app, CarLanClient.SUB_CAMERA, ClusterWarnings.json(GuidanceHub.current ?: DEMO.takeIf { on }))
+            }
+            "carlan_cam" -> {
+                ClusterWarnings.cameraType = intent.getIntExtra("cam", ClusterWarnings.cameraType)
+                ClusterWarnings.warnShow = intent.getIntExtra("warn", ClusterWarnings.warnShow)
+                CarLanClient.send(app, CarLanClient.SUB_CAMERA, CarLanClient.Json.cameraInfo(
+                    ClusterWarnings.cameraType, intent.getIntExtra("st", 3),
+                    intent.getIntExtra("spd", 60), ClusterWarnings.warnShow,
+                ))
+            }
+            "carlan" -> {
+                val json = intent.getStringExtra("json")
+                if (json == null) Log.w(TAG, "carlan: нет --es json")
+                else CarLanClient.send(app, intent.getIntExtra("sub", 0), json, intent.getIntExtra("type", CarLanClient.TYPE_NAVI))
             }
             "width" -> ClusterOverlay.setContentWidth(app, intent.getIntExtra("px", 1100))
             "peek" -> {
@@ -127,6 +160,8 @@ class NaviClusterReceiver : BroadcastReceiver() {
             .append(NaviAccessibilityService.instance?.dumpTree() ?: "служба не подключена").append('\n')
         sb.append("\n== история\n")
         ClusterOverlay.statusHistory().forEach { sb.append(it).append('\n') }
+        sb.append("\n== CarLan (из маршрута: ").append(CarLanClient.enabled).append(")\n")
+        CarLanClient.history().forEach { sb.append(it).append('\n') }
 
         File(dir, "$label.txt").writeText(sb.toString())
         File(dir, "$label.done").writeText("ok\n")

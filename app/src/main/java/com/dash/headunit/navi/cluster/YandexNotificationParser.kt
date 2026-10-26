@@ -167,7 +167,8 @@ object YandexNotificationParser {
     fun describe(g: Guidance): String =
         "манёвр=${g.maneuver} стрелка=${g.maneuverIcon?.let { "${it.width}x${it.height}" }} " +
             "до=${g.distance} улица=${g.street} осталось=${g.remainingDistance}/${g.remainingTime} " +
-            "прибытие=${g.arrival} огр=${g.speedLimit} камера=${g.cameraDistance}/${g.cameraLimit}"
+            "прибытие=${g.arrival} огр=${g.speedLimit} камера=${g.cameraDistance}/${g.cameraLimit}" +
+            if (g.overspeed) " ПРЕВЫШЕНИЕ" else ""
 
     /** id view навигатора по имени ресурса и обратно. */
     private class IdLookup(context: Context, private val pkg: String) {

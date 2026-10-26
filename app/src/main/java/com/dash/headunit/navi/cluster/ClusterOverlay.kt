@@ -31,6 +31,10 @@ import com.dash.headunit.settings.AppSettings
  *    com.desaysv.mapservice: turbodog.navigation.system.message CODE
  *    207; плюс, как Jarvis,
  *    AUTONAVI_STANDARD_BROADCAST_SEND KEY_TYPE=10019 (на этой ГУ не слушается);
+ *  - видео дисплея 1 приборка показывает только после DisplayCluster:true —
+ *    шлём сами через CarLan ([CarLanClient], 4100 подтипы 2+5), там же
+ *    лимит/камеры ([ClusterWarnings], 4100/4); по умолчанию выключено
+ *    (adb NAVI_CLUSTER cmd carlan_on);
  *  - приборка сама просит навигацию (водитель листает виды):
  *    desay.broadcast.map.meter.interaction с RequestNaviAreaDisplay=1/0.
  *    targetSdk 28 — неявные broadcast в манифесте не доходят, поэтому
@@ -98,7 +102,9 @@ object ClusterOverlay {
         val ctx = app ?: return@Listener
         if (g != null) {
             main.removeCallbacks(routeEnded)
-            if (ClusterTbt.enabled && (AppSettings.clusterNavi(ctx) || GuidanceHub.isDemo)) ClusterTbt.update(ctx, g)
+            val toCluster = AppSettings.clusterNavi(ctx) || GuidanceHub.isDemo
+            if (ClusterTbt.enabled && toCluster) ClusterTbt.update(ctx, g)
+            if (CarLanClient.enabled && toCluster) ClusterWarnings.update(ctx, g)
             if (!routeActive) {
                 routeActive = true
                 if (AppSettings.clusterNavi(ctx)) {
@@ -116,6 +122,7 @@ object ClusterOverlay {
         routeActive = false
         val ctx = app ?: return@Runnable
         ClusterTbt.stop(ctx)
+        if (CarLanClient.enabled) ClusterWarnings.update(ctx, null)
         if (view != null && AppSettings.clusterNavi(ctx)) {
             status = "маршрут закончился — возвращаю приборку"
             hide(announce = true)
@@ -265,8 +272,14 @@ object ClusterOverlay {
         status = "окно с приборки убрано"
     }
 
-    /** Переключение вида приборки через com.desaysv.mapservice (как Jarvis). */
+    /** Переключение вида приборки: CarLan (если включён) и com.desaysv.mapservice (как Jarvis). */
     private fun announce(ctx: Context, on: Boolean) {
+        if (CarLanClient.enabled) {
+            // После 207: на него mapservice сам шлёт DisplayCluster:false.
+            main.removeCallbacks(carLanAnnounce)
+            carLanOn = on
+            main.postDelayed(carLanAnnounce, CARLAN_DELAY_MS)
+        }
         try {
             // 207 — как в проверенной на ГУ версии (картинка в «Картах» была).
             // Пара 205→207 (по разбору SVMapService) на ГУ дала пустые «Карты»
@@ -298,6 +311,18 @@ object ClusterOverlay {
         status = "приборка: навигация ${if (on) "вкл" else "выкл"} (10019)"
     }
 
+    private var carLanOn = false
+
+    private val carLanAnnounce = Runnable {
+        val ctx = app ?: return@Runnable
+        CarLanClient.showNaviArea(ctx, carLanOn)
+        // У TiggoBridge панель появлялась только вместе с CameraInfo (2+5+4).
+        ClusterWarnings.reset()
+        ClusterWarnings.update(ctx, if (carLanOn) GuidanceHub.current else null)
+        status = "приборка: CarLan DisplayCluster=$carLanOn"
+    }
+
+    private const val CARLAN_DELAY_MS = 700L
     private const val ACTION_METER = "desay.broadcast.map.meter.interaction"
     private const val ACTION_CARLAN = "SVCarLanManager"
     private const val ACTION_TURBODOG = "turbodog.navigation.system.message"

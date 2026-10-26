@@ -16,7 +16,9 @@ import com.dash.headunit.weather.WeatherHub
  * Виджет «За бортом»: подпись + крупная забортная температура
  * (раньше жила в виджете «Часы»).
  *
- * Температура — из общего [CarHub] (пока данных нет — демо-значение).
+ * Температура — из общего [CarHub]: сначала приборка (PPS spi_service 7902,
+ * запасной 7926, шаг 0,5 °C — та же цифра, что на приборке), затем шина
+ * Desay (16,19, шаг 1 °C) и VHAL. Пока данных нет — демо-значение.
  * Вторая строка — что бы показал Jarvis (см. Jarvis/03-outside-temp):
  * ячейка 16,19 как прямые °C (−50..60), иначе — погода (кросс-валидация
  * >15° у Jarvis тоже в пользу погоды).
@@ -65,7 +67,9 @@ class OutsideWidgetView(
         val d = CarHub.data
         val out = d?.outsideTempC ?: if (d == null) DemoData.car().outsideTempC else null
         if (out != null) {
-            tempView.text = "%+.0f°".format(out)
+            // Приборка даёт полградуса (7902), поэтому половинные значения
+            // показываем с одним знаком после запятой.
+            tempView.text = if (out % 1f == 0f) "%+.0f°".format(out) else "%+.1f°".format(out)
             tempView.visibility = VISIBLE
         } else {
             tempView.visibility = GONE

@@ -35,6 +35,8 @@ data class Guidance(
     val cameraDistance: String? = null,
     /** Ограничение на камере, км/ч. */
     val cameraLimit: Int? = null,
+    /** Навигатор показывает превышение (#view_speedlimit_alarm виден). */
+    val overspeed: Boolean = false,
 ) {
     /** Есть ли что показать про манёвр. */
     val hasManeuver: Boolean
@@ -61,6 +63,7 @@ data class Guidance(
             speedLimit = speedLimit ?: other.speedLimit,
             cameraDistance = cameraDistance ?: other.cameraDistance,
             cameraLimit = cameraLimit ?: other.cameraLimit,
+            overspeed = overspeed || other.overspeed,
         )
     }
 }

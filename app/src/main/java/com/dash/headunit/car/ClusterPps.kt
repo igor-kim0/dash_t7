@@ -86,6 +86,9 @@ object ClusterPps {
     /** Бортовой компьютер приборки или null (нет связи / данные устарели). */
     fun trip(): ClusterTrip? = synchronized(parser) { parser.trip(SystemClock.uptimeMillis()) }
 
+    /** Забортная температура с приборки, °C (шаг 0,5), или null. */
+    fun outsideTempC(): Float? = synchronized(parser) { parser.outsideTempC(SystemClock.uptimeMillis()) }
+
     /** Разобранное состояние одной строкой — для диагностики. */
     fun describe(): String = synchronized(parser) { parser.describe(SystemClock.uptimeMillis()) }
 
@@ -250,7 +253,7 @@ object ClusterPps {
 
     private const val TAG = "ClusterPps"
     private const val DIR = "/var/pps/spi_service"
-    private val OBJECTS = listOf("a000", "a001", "a0ff", "a5a5")
+    private val OBJECTS = listOf("a000", "a001", "a0ff", "a5a5", "7902", "7926")
     private const val DATA_PREFIX = "data:json:"
     private const val HISTORY_MAX = 50
     private const val FRAME_HISTORY_MAX = 200
@@ -312,6 +315,10 @@ class ClusterParser {
     private var rpmAt = 0L
     private var rpmSource = ""
 
+    private var outside: Float? = null
+    private var outsideAt = 0L
+    private var outsideSource = ""
+
     private var a5a5b2 = -1
 
     /** [body] — текст после «data:json:», внутри должен быть массив data:[…]. */
@@ -363,7 +370,28 @@ class ClusterParser {
                     u16(bytes, 6).takeIf { it <= MAX_RPM }?.let { setRpm(it, "a5a5", now) }
                 }
             }
+            // Забортная температура (которую показывает приборка, шаг 0,5 °C;
+            // срез 2026-10-25): 7902 = [11,1,103,248] — b2×0.5−40 (11.5),
+            // 7926 = [115,0] — LE16×0.1 (11.5). 7902 главный, 7926 запасной.
+            "7902" -> if (bytes.size >= 4) {
+                bytes[2].let { c: Int -> c * 0.5f - 40f }
+                    .takeIf { it in MIN_OUTSIDE_C..MAX_OUTSIDE_C }
+                    ?.let { setOutside(it, "7902", now) }
+            }
+            "7926" -> if (bytes.size >= 2 && (outsideSource != "7902" || now - outsideAt >= FALLBACK_MS)) {
+                val raw = u16(bytes, 0)
+                if (raw != NO_DATA_U16) {
+                    (raw * 0.1f).takeIf { it in MIN_OUTSIDE_C..MAX_OUTSIDE_C }
+                        ?.let { setOutside(it, "7926", now) }
+                }
+            }
         }
+    }
+
+    private fun setOutside(v: Float, src: String, now: Long) {
+        outside = v
+        outsideAt = now
+        outsideSource = src
     }
 
     private fun setSpeed(v: Int, src: String, now: Long) {
@@ -390,6 +418,9 @@ class ClusterParser {
     /** Бортовой компьютер (a001). */
     fun trip(now: Long): ClusterTrip? = trip?.takeIf { now - tripAt < STALE_MS }
 
+    /** Забортная температура, °C. */
+    fun outsideTempC(now: Long): Float? = outside?.takeIf { now - outsideAt < STALE_MS }
+
     /** Скорость, км/ч. */
     fun speedKmh(now: Long): Int? = speed?.takeIf { now - speedAt < LIVE_MS }
 
@@ -404,6 +435,7 @@ class ClusterParser {
             "скорость ${speedKmh(now)?.let { "$it км/ч ($speedSource)" } ?: "нет"}, " +
             "обороты ${rpm(now)?.let { "$it ($rpmSource)" } ?: "нет"}, " +
             "a5a5[2] ${if (a5a5b2 >= 0) a5a5b2 else "нет"}, " +
+            "за бортом ${outsideTempC(now)?.let { "%.1f° ($outsideSource)".format(it) } ?: "нет"}, " +
             "БК ${trip(now)?.describe() ?: "нет"}"
     }
 
@@ -413,6 +445,10 @@ class ClusterParser {
         private const val LIVE_MS = 30_000L
         /** a000 молчит дольше — скорость/обороты берём из a5a5. */
         private const val FALLBACK_MS = 3_000L
+        /** Разумный диапазон забортной температуры между −40 и +60 °C. */
+        private const val MIN_OUTSIDE_C = -40f
+        private const val MAX_OUTSIDE_C = 60f
+        private const val NO_DATA_U16 = 0xFFFF
         private const val MAX_SPEED = 300
         private const val MAX_RPM = 10_000
         private const val A5A5_MARKER = 0x55AA

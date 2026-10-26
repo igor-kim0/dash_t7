@@ -124,6 +124,7 @@ class NaviAccessibilityService : AccessibilityService() {
             speedLimit = limit,
             cameraDistance = camDist?.let { if (camLabel != null) "$it $camLabel" else it },
             cameraLimit = GuidanceText.speedLimit(text("view_notification_speedcamera_limit")),
+            overspeed = node("view_speedlimit_alarm") != null,
         )
         return g.takeIf { it.onRoute || it.speedLimit != null || it.cameraDistance != null }
     }

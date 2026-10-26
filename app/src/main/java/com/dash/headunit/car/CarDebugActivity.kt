@@ -68,6 +68,15 @@ class CarDebugActivity : AppCompatActivity() {
             text = "Знак через порог превышения 30 км/ч (~20 с, на ходу > 40)"
         }
         val btnEtm = Button(this).apply { text = "ОЖ °C через инженерное меню приборки (~20 с)" }
+        val btnCarLanVideo = Button(this).apply {
+            text = "CarLan: наша картинка в «Картах» приборки (~30 с, демо-маршрут)"
+        }
+        val btnCarLanLimit = Button(this).apply {
+            text = "CarLan: знак лимита на приборке (5 шагов по 6 с)"
+        }
+        fun carLanRouteText() =
+            "CarLan из маршрута Яндекса: ${if (com.dash.headunit.navi.cluster.CarLanClient.enabled) "вкл" else "выкл"}"
+        val btnCarLanRoute = Button(this).apply { text = carLanRouteText() }
         val markText = EditText(this).apply {
             hint = "что на приборке: «ОЖ 65», «расход 8.4», «передача 3»"
             isSingleLine = true
@@ -95,6 +104,9 @@ class CarDebugActivity : AppCompatActivity() {
         root.addView(btnSla)
         root.addView(btnOverspeed)
         root.addView(btnEtm)
+        root.addView(btnCarLanVideo)
+        root.addView(btnCarLanLimit)
+        root.addView(btnCarLanRoute)
         root.addView(recStatus)
         root.addView(
             scroll,
@@ -118,6 +130,12 @@ class CarDebugActivity : AppCompatActivity() {
         btnSla.setOnClickListener { com.dash.headunit.diag.ClusterSpeedLimitTest.start(this) }
         btnOverspeed.setOnClickListener { com.dash.headunit.diag.OverspeedSignTest.start(this) }
         btnEtm.setOnClickListener { com.dash.headunit.diag.CoolantEtmTest.start(this) }
+        btnCarLanVideo.setOnClickListener { com.dash.headunit.diag.CarLanTest.startVideo(this) }
+        btnCarLanLimit.setOnClickListener { com.dash.headunit.diag.CarLanTest.startLimit(this) }
+        btnCarLanRoute.setOnClickListener {
+            com.dash.headunit.diag.CarLanTest.toggleFromRoute(this)
+            btnCarLanRoute.text = carLanRouteText()
+        }
         btnRec.setOnClickListener {
             if (ClusterRecorder.running) ClusterRecorder.stop() else ClusterRecorder.start(this)
         }

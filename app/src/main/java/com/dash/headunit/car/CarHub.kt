@@ -286,7 +286,7 @@ object CarHub {
             return CarData(
                 fuelPct = null, fuelLiters = null, rangeKm = null, voltageV = null,
                 charging = null, engineTempC = coolant, gearboxTempC = null,
-                outsideTempC = null, odoKm = null, source = CarData.SOURCE_MERGED
+                outsideTempC = ClusterPps.outsideTempC(), odoKm = null, source = CarData.SOURCE_MERGED
             )
         }
         return merged.copy(
@@ -298,7 +298,11 @@ object CarHub {
             // Приборка — первой: она же идёт в «живой» канал, иначе раз в
             // POLL_MS значения прыгали бы между источниками.
             speedKmh = ClusterPps.speedKmh()?.toFloat() ?: merged.speedKmh,
-            rpm = ClusterPps.rpm() ?: merged.rpm
+            rpm = ClusterPps.rpm() ?: merged.rpm,
+            // Забортная — с приборки (PPS 7902/7926, шаг 0,5 °C): шина Desay
+            // (16,19, шаг 1 °C) отстаёт/расходится на ~1,5 °C с приборкой
+            // и OWM (срез 2026-10-25). Приборка — первой, как и ОЖ выше.
+            outsideTempC = ClusterPps.outsideTempC() ?: merged.outsideTempC
         )
     }
 

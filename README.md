@@ -92,9 +92,14 @@ SDK. Ключ OpenWeatherMap (необязательно) кладётся в `l
 APK обновлялся поверх ранее установленной сборки без удаления. Это осознанное
 решение: приложение сайдлоадное, магазины не используются.
 
-Релизы собирает и GitHub Actions (`.github/workflows/prod-release.yml`): тег
-`v*` запускает юнит-тесты, `assembleProdRelease` и публикует GitHub Release
-с APK. Подпись — тем же debug-ключом, поэтому CI- и локальные сборки
+Релизы собирает и GitHub Actions:
+
+- `.github/workflows/prod-release.yml` — тег `v*` запускает юнит-тесты,
+  `assembleProdRelease` и публикует GitHub Release с APK;
+- `.github/workflows/dev-release.yml` — тег `v*-dev` (например `v1.4-dev`)
+  собирает flavor `dev` (все виджеты) и публикует его как prerelease.
+
+Подпись — тем же debug-ключом, поэтому CI- и локальные сборки
 взаимозаменяемы.
 
 ### Варианты поставки
