@@ -37,13 +37,6 @@ import android.util.Log
 @SuppressLint("StaticFieldLeak") // только applicationContext
 object CarLanClient {
 
-    /**
-     * Слать ли в CarLan из маршрута. На ГУ 2026-10-26 подтверждены видео
-     * (2+5) и знак лимита (4) — включено; выключить для проверки до
-     * перезапуска процесса: adb NAVI_CLUSTER cmd carlan_on --ez on false.
-     */
-    @Volatile var enabled = true
-
     private val thread = HandlerThread("CarLan").apply { start() }
     private val worker = Handler(thread.looper)
 
@@ -52,17 +45,8 @@ object CarLanClient {
     private var common: IBinder? = null
     private val pending = LinkedHashMap<Pair<Int, Int>, String>()
 
-    private val history = mutableListOf<String>()
-
-    /** Последние отправки и ответы — для adb NAVI_CLUSTER dump. */
-    fun history(): List<String> = synchronized(history) { history.toList() }
-
     private fun note(s: String) {
         Log.i(TAG, s)
-        synchronized(history) {
-            history.add("${System.currentTimeMillis()} $s")
-            while (history.size > HISTORY_MAX) history.removeAt(0)
-        }
     }
 
     /** Отправить [json] с типом [type] и подтипом [subtype] (асинхронно). */
@@ -207,6 +191,5 @@ object CarLanClient {
     private const val ICOMMON = "desaysv.carlan.ICommon"
     private const val TX_GET_SERVICE = IBinder.FIRST_CALL_TRANSACTION + 1
     private const val TX_WRITE_MESSAGE = IBinder.FIRST_CALL_TRANSACTION + 2
-    private const val HISTORY_MAX = 40
     private const val TAG = "CarLan"
 }

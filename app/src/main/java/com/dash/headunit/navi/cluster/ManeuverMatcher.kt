@@ -64,9 +64,9 @@ object ManeuverMatcher {
         if (m == null) return Match(null, null, 1f, "стрелки на картинке нет")
         val scored = list.map { it to score(it.mask, m) }.sortedBy { it.second }
         val (best, s) = scored[0]
-        // Соперник — ближайший шаблон другого вида для приборки: exit_* и
-        // take_* почти одинаковы (0.04), но для TurboDog оба 7/8.
-        val rival = scored.firstOrNull { ClusterTbt.turnType(it.first.maneuver) != ClusterTbt.turnType(best.maneuver) }
+        // Соперник — ближайший шаблон другого манёвра: exit_* и take_*
+        // почти одинаковы (0.04), но это один и тот же манёвр.
+        val rival = scored.firstOrNull { it.first.maneuver != best.maneuver }
             ?.second ?: 1f
         val ok = s <= MAX_SCORE && rival - s >= MIN_GAP
         val top = scored.take(3).joinToString(" ") { "${it.first.name.removePrefix("context_ra_")}=%.3f".format(it.second) }

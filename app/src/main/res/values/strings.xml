@@ -11,6 +11,10 @@
     <string name="msg_no_nav">Нет навигационного приложения</string>
     <string name="cd_bluetooth">Bluetooth</string>
     <string name="cd_night">Тема оформления</string>
+    <string name="cd_debug">Диагностика</string>
+    <string name="cd_cluster_calibration">Калибровочная рамка и образец маршрута на приборке</string>
+    <string name="cluster_calibration_on">Рамка на приборке включена — вид «Карты»</string>
+    <string name="cluster_calibration_off">Рамка на приборке выключена</string>
     <string name="cd_edit">Изменить виджеты (долгое нажатие — сбросить раскладку)</string>
     <string name="msg_dark">Тёмная тема включена</string>
     <string name="set_theme_title">Тема оформления</string>
@@ -35,21 +39,6 @@
     <string name="climate_style_text">Текстом</string>
     <string name="climate_style_icons">Иконками (ретро)</string>
     <string name="settings_cluster_navi">Маршрут навигатора на приборке</string>
-    <string name="settings_cluster_mode">Приборка: показывать %s</string>
-    <string name="cluster_mode_title">Как показывать маршрут на приборке</string>
-    <string name="cluster_mode_native">родным интерфейсом</string>
-    <string name="cluster_mode_overlay">своим окном в «Картах»</string>
-    <string name="cluster_mode_native_full">Родной интерфейс приборки: стрелка манёвра, расстояние, улица и знак ограничения скорости в верхней строке, в любом виде приборки</string>
-    <string name="cluster_mode_overlay_full">Своё окно в виде «Карты» приборки: картинка маршрута целиком (в разработке)</string>
-    <string name="settings_cluster_variant">Приборка: вариант %d (подбор, если с Яндексом на экране нет подсказок)</string>
-    <string name="cluster_variant_title">Вариант родного интерфейса приборки</string>
-    <string-array name="cluster_variants">
-        <item>1. Как было: неизвестный манёвр — без стрелки (-1), знак лимита есть</item>
-        <item>2. Неизвестный манёвр — прошлая стрелка или «прямо», знак лимита есть</item>
-        <item>3. Без стрелки (-1), без знака лимита</item>
-        <item>4. Прошлая стрелка или «прямо», без знака лимита</item>
-        <item>5. Как 2 + подсказка повторяется каждые 2 с</item>
-    </string-array>
     <string name="settings_shade_resume">Открывать шторку при старте, если была открыта в конце поездки</string>
     <string name="settings_etm_coolant">Температура ОЖ: вход в инженерное меню приборки при старте (запись в tx)</string>
     <string name="settings_trip_journal_keep">Журнал поездок: хранить %s</string>
@@ -70,9 +59,6 @@
     <string name="clear_confirm_title">Убрать все блоки?</string>
     <string name="clear_confirm_text">Дашборд останется пустым — блоки придётся добавить заново.</string>
     <string name="clear_confirm_ok">Убрать</string>
-    <string name="cd_navi_demo">Демо-маршрут на приборке (30 сек)</string>
-    <string name="navi_demo_started">Демо-маршрут подан на приборку</string>
-    <string name="navi_demo_failed">Демо не запустилось: %1$s</string>
     <string name="add_title">Добавить блок</string>
     <string name="add_on_dashboard">Уже на главной</string>
     <string name="widget_clock">Часы</string>

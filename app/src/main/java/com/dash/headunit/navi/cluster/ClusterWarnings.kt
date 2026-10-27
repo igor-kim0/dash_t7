@@ -7,25 +7,19 @@ import android.content.Context
  * (CarLan 4100/4, [CarLanClient]). ISA через mapservice на этой ГУ закрыт
  * (part.number), а в TBT-канале 201 полей лимита нет — остаётся CarLan.
  *
- * SpeedingInfo — лимит камеры, иначе лимит участка (у TiggoBridge приборка
- * рисует его кольцом-знаком); WarningMessage [warnShow] при лимите, -1 без
- * него. Значения CameraType/WarningMessage на этой приборке не проверены —
- * подбирать adb NAVI_CLUSTER cmd carlan_cam.
+ * SpeedingInfo — лимит камеры, иначе лимит участка; приборка рисует его
+ * знаком при CameraType 3 и WarningMessage 1 (ГУ 2026-10-26), без лимита
+ * WarningMessage -1. Знак виден, пока поднята панель навигации (2+5).
  */
 object ClusterWarnings {
-
-    /** CameraType, как у SVMapService/TiggoBridge. */
-    @Volatile var cameraType = 3
-    /** WarningMessage при известном лимите (TiggoBridge: 1). */
-    @Volatile var warnShow = 1
 
     private var last: String? = null
 
     /** CameraInfo для ведения [g] (null — маршрута нет). Чистая функция. */
     fun json(g: Guidance?): String {
-        if (g == null) return CarLanClient.Json.cameraInfo(cameraType, NAVI_OFF, 0, -1)
+        if (g == null) return CarLanClient.Json.cameraInfo(CAMERA_TYPE, NAVI_OFF, 0, -1)
         val limit = g.cameraLimit ?: g.speedLimit ?: 0
-        return CarLanClient.Json.cameraInfo(cameraType, NAVI_ON, limit, if (limit > 0) warnShow else -1)
+        return CarLanClient.Json.cameraInfo(CAMERA_TYPE, NAVI_ON, limit, if (limit > 0) WARN_SHOW else -1)
     }
 
     /** Новое состояние ведения (главный поток); шлёт только изменения. */
@@ -41,6 +35,8 @@ object ClusterWarnings {
         last = null
     }
 
+    private const val CAMERA_TYPE = 3
+    private const val WARN_SHOW = 1
     private const val NAVI_ON = 3
     private const val NAVI_OFF = 4
 }

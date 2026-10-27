@@ -94,16 +94,28 @@
                     android:padding="15dp"
                     android:src="@drawable/ic_grid" />
 
-                <!-- Только dev: демо-маршрут на приборке (см. diag/NaviClusterReceiver). -->
+                <!-- Калибровочная рамка на приборке (временно, пока подбираем
+                     видимую зону «Карт»), см. ClusterOverlay.toggleCalibration. -->
                 <ImageButton
-                    android:id="@+id/btn_navi_demo"
+                    android:id="@+id/btn_cluster_calibration"
                     android:layout_width="68dp"
                     android:layout_height="68dp"
                     android:layout_marginBottom="10dp"
                     android:background="@drawable/widget_card"
-                    android:contentDescription="@string/cd_navi_demo"
+                    android:contentDescription="@string/cd_cluster_calibration"
                     android:padding="15dp"
                     android:src="@drawable/ic_cluster" />
+
+                <!-- Только dev: экран диагностики (CarDebugActivity). -->
+                <ImageButton
+                    android:id="@+id/btn_debug"
+                    android:layout_width="68dp"
+                    android:layout_height="68dp"
+                    android:layout_marginBottom="10dp"
+                    android:background="@drawable/widget_card"
+                    android:contentDescription="@string/cd_debug"
+                    android:padding="15dp"
+                    android:src="@drawable/ic_logs" />
 
                 <!-- Статус Wi-Fi и Bluetooth — в самом низу колонки. -->
                 <View

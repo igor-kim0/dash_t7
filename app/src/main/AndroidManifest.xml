@@ -89,15 +89,6 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/navi_accessibility" />
         </service>
-        <!-- Маршрут на приборке по команде с ПК — см. diag/NaviClusterReceiver. -->
-        <receiver
-            android:name=".diag.NaviClusterReceiver"
-            android:exported="true"
-            android:permission="android.permission.DUMP">
-            <intent-filter>
-                <action android:name="com.dash.headunit.NAVI_CLUSTER" />
-            </intent-filter>
-        </receiver>
         <!-- Срезы шины Desay по команде с ПК (tools/hu_dump.sh). Право DUMP есть
              только у adb shell/системы — другие приложения вызвать не смогут. -->
         <receiver

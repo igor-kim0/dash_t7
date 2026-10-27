@@ -55,6 +55,7 @@ object CoolantEtm {
     fun ensureEnter(): String {
         val ctx = appContext ?: return ""
         val on = runCatching { AppSettings.etmCoolant(ctx) }.getOrDefault(true)
+        if (!on) return ""
         synchronized(this) {
             val now = SystemClock.uptimeMillis()
             if (now - lastSentAt < RESEND_MS) return ""

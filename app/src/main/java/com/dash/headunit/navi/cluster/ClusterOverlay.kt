@@ -16,49 +16,34 @@ import android.view.WindowManager
 import com.dash.headunit.settings.AppSettings
 
 /**
- * Маршрут навигатора на приборке. Два режима ([AppSettings.clusterMode]):
- *
- * Родной интерфейс ([AppSettings.CLUSTER_NATIVE], по умолчанию) — приборка
- * рисует сама в верхней строке поверх любого вида: манёвр, расстояние,
- * улица ([ClusterTbt], 202/201/203 через mapservice) и знак ограничения
- * скорости ([ClusterWarnings], CarLan CameraInfo 4100/4). Окна на дисплее 1
- * нет, вид приборки не переключаем. Больше родной интерфейс не умеет:
- * полосы, остаток пути, расстояние до камеры в модели данных QNX есть, но
- * cluster.kzb их не рисует (разбор 2026-10-26).
- *
- * Своё окно ([AppSettings.CLUSTER_OVERLAY]) — описано ниже.
+ * Маршрут навигатора на приборке — своё окно в виде «Карты».
  *
  * Приборка T18FL3 получает видео со второго дисплея Android (id 1,
- * «Экран HDMI» 1920×720, FLAG_PRESENTATION) и показывает его в режиме
- * «навигация». Как у Jarvis:
- *  - родные подсказки приборки (TBT) — [ClusterTbt], по умолчанию
- *    выключены (adb NAVI_CLUSTER cmd tbt);
- *  - картинку кладём на этот дисплей — у нас это окно-оверлей
- *    (TYPE_APPLICATION_OVERLAY, без фокуса и касаний), а не Activity:
- *    на Android 9 activity на втором дисплее забрала бы фокус и паузу
- *    у главного экрана;
- *  - приборку переключаем в навигацию широковещанием для
- *    com.desaysv.mapservice: turbodog.navigation.system.message CODE
- *    207; плюс, как Jarvis,
- *    AUTONAVI_STANDARD_BROADCAST_SEND KEY_TYPE=10019 (на этой ГУ не слушается);
- *  - видео дисплея 1 приборка показывает только после DisplayCluster:true —
- *    шлём сами через CarLan ([CarLanClient], 4100 подтипы 2+5), там же
- *    лимит/камеры ([ClusterWarnings], 4100/4); на ГУ подтверждено 2026-10-26;
- *  - приборка сама просит навигацию (водитель листает виды):
+ * «Экран HDMI» 1920×720, FLAG_PRESENTATION) и показывает его в виде
+ * «Карты», если включить панель навигации через CarLan
+ * ([CarLanClient.showNaviArea], 4100/2 DisplayCluster:true + 4100/5) —
+ * подтверждено на ГУ 2026-10-26.
+ *  - Картинка — окно-оверлей ([ClusterGuidanceView], TYPE_APPLICATION_OVERLAY,
+ *    без фокуса и касаний), а не Activity: на Android 9 activity на втором
+ *    дисплее забрала бы фокус и паузу у главного экрана.
+ *  - Знак лимита — штатный CameraInfo ([ClusterWarnings], 4100/4) поверх.
+ *  - Приборка сама просит навигацию (водитель листает виды):
  *    desay.broadcast.map.meter.interaction с RequestNaviAreaDisplay=1/0.
  *    targetSdk 28 — неявные broadcast в манифесте не доходят, поэтому
  *    приёмник регистрируем динамически из живущих сервисов
  *    (MediaListenerService, NaviAccessibilityService).
  *
- * Поведение своего окна при включённой настройке [AppSettings.clusterNavi]:
- * начался маршрут — показать и переключить приборку; закончился
- * (через [END_DELAY_MS]) — вернуть приборку; запросы приборки
- * выполняются всегда.
+ * При включённой настройке [AppSettings.clusterNavi]: начался маршрут —
+ * поднять панель; закончился (через [END_DELAY_MS]) — опустить.
  *
- * Окно, раз появившись, с дисплея 1 не убираем (пока настройка включена
- * или после демо): без своего содержимого HDMI-дисплей зеркалит главный
- * экран, и в разделе «Карты» приборки оказывается дашборд. Без маршрута
- * окно просто чёрное. Убираем только при выключении настройки ([remove]).
+ * Окно, раз появившись, с дисплея 1 не убираем, пока настройка включена:
+ * без своего содержимого HDMI-дисплей зеркалит главный экран, и в «Картах»
+ * приборки оказывается дашборд. Без маршрута окно просто чёрное.
+ *
+ * Калибровка ([toggleCalibration], кнопка в баре дашборда) — окно на весь
+ * дисплей 1 с сеткой координат и образцом маршрута ([SAMPLE]), панель
+ * навигации и знак лимита подняты: видно, какая часть 1920×720 попадает
+ * в «Карты» и как смотрится карточка, без поездки и без настройки.
  */
 @SuppressLint("StaticFieldLeak") // только applicationContext
 object ClusterOverlay {
@@ -70,21 +55,11 @@ object ClusterOverlay {
     private var routeActive = false
     private var grantTried = false
 
-    private val history = mutableListOf<String>()
+    /** Включена калибровочная рамка. */
+    var calibration = false
+        private set
 
-    /** Последний статус (для диагностики). */
-    @Volatile
-    var status: String = "не запускали"
-        private set(value) {
-            field = value
-            Log.i(TAG, value)
-            synchronized(history) {
-                history.add("${System.currentTimeMillis()} $value")
-                while (history.size > HISTORY_MAX) history.removeAt(0)
-            }
-        }
-
-    fun statusHistory(): List<String> = synchronized(history) { history.toList() }
+    private fun status(s: String) = Log.i(TAG, s)
 
     /** Идемпотентно: можно звать из любого живущего компонента. */
     fun init(context: Context) {
@@ -92,99 +67,95 @@ object ClusterOverlay {
             if (app != null) return@post
             val ctx = context.applicationContext
             app = ctx
-            ctx.registerReceiver(meterReceiver, IntentFilter().apply {
-                addAction(ACTION_METER)
-                addAction(ACTION_CARLAN)
-            })
+            ctx.registerReceiver(meterReceiver, IntentFilter(ACTION_METER))
             (ctx.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager)
                 .registerDisplayListener(displayListener, main)
             GuidanceHub.addListener(guidanceListener)
-            status = "готов"
             // Сразу занять дисплей 1 чёрным окном — чтобы в «Картах»
             // приборки не было зеркала главного экрана.
-            if (overlayOn(ctx)) show(announce = false)
+            if (AppSettings.clusterNavi(ctx)) addView(ctx)
         }
     }
 
-    /** Режим родного интерфейса приборки. */
-    fun isNative(ctx: Context): Boolean = AppSettings.clusterMode(ctx) == AppSettings.CLUSTER_NATIVE
-
-    /**
-     * Слать ли знак лимита (CarLan CameraInfo): в родном режиме — по
-     * варианту ([ClusterTbt.variant]), в своём окне — всегда.
-     */
-    private fun warningsOn(ctx: Context): Boolean =
-        CarLanClient.enabled && (!isNative(ctx) || ClusterTbt.variant(ctx).limit)
-
-    /** Включён режим своего окна. */
-    private fun overlayOn(ctx: Context): Boolean = AppSettings.clusterNavi(ctx) && !isNative(ctx)
-
-    /**
-     * Настройку (вкл/выкл или режим) поменяли — привести приборку в
-     * соответствие: убрать чужой режим, текущий маршрут показать новым.
-     */
-    fun applySettings() {
+    /** Настройку включили: окно на приборку, идёт маршрут — поднять панель. */
+    fun show() {
         main.post {
             val ctx = app ?: return@post
-            val g = GuidanceHub.current
-            if (overlayOn(ctx)) {
-                if (!ClusterTbt.enabled) ClusterTbt.stop(ctx)
-                if (view == null && !addView(ctx)) return@post
-                if (g != null) announce(ctx, true)
-                status = "режим: своё окно"
-                return@post
-            }
-            if (view != null) {
-                removeView()
-                announce(ctx, false)
-            }
-            // Вариант без знака лимита: убрать уже показанный.
-            if (CarLanClient.enabled && !warningsOn(ctx)) ClusterWarnings.update(ctx, null)
-            if (AppSettings.clusterNavi(ctx) && g != null) {
-                nativeUpdate(ctx, g)
-            } else {
-                ClusterTbt.stop(ctx)
-                if (warningsOn(ctx)) ClusterWarnings.update(ctx, null)
-            }
-            status = if (AppSettings.clusterNavi(ctx)) "режим: родной интерфейс приборки" else "маршрут на приборке выключен"
+            if (view == null && !addView(ctx)) return@post
+            if (calibration || GuidanceHub.current != null) naviArea(ctx, true)
         }
     }
 
-    /** Родной интерфейс: подсказка манёвра и знак лимита. */
-    private fun nativeUpdate(ctx: Context, g: Guidance) {
-        val wasActive = ClusterTbt.isActive
-        ClusterTbt.update(ctx, g)
-        val started = !wasActive && ClusterTbt.isActive
-        if (!warningsOn(ctx)) return
-        ClusterWarnings.update(ctx, g)
-        // На 202 mapservice сам шлёт CameraInfo (NaviStatus=3) и может
-        // затереть наш лимит — повторяем свой следом.
-        if (started) {
-            main.removeCallbacks(warningsRepeat)
-            main.postDelayed(warningsRepeat, WARNINGS_REPEAT_MS)
+    /**
+     * Вкл/выкл калибровочную рамку (главный поток). Выключили — окно и панель
+     * как требуют настройка и маршрут. Возвращает новое состояние.
+     */
+    fun toggleCalibration(): Boolean {
+        val ctx = app ?: return false
+        calibration = !calibration
+        view?.calibration = calibration
+        main.removeCallbacks(calibrationInfo)
+        if (calibration) {
+            main.post(calibrationInfo)
+            status("калибровка: рамка на приборке")
+            if (view == null && !addView(ctx)) return true
+            naviArea(ctx, true)
+        } else {
+            status("калибровка выключена")
+            if (!AppSettings.clusterNavi(ctx)) {
+                removeView()
+                naviArea(ctx, false)
+            } else if (!routeActive) {
+                naviArea(ctx, false)
+            } else {
+                ClusterWarnings.update(ctx, GuidanceHub.current)
+            }
+        }
+        return calibration
+    }
+
+    /** Строка состояния в рамке: источники данных, службы, настройка — раз в секунду. */
+    private val calibrationInfo = object : Runnable {
+        override fun run() {
+            val ctx = app ?: return
+            if (!calibration) return
+            view?.info = listOf(
+                GuidanceHub.sourcesInfo(),
+                "спец. возможности: ${onOff(ClusterSetup.isA11yEnabled(ctx))}" +
+                    " · слушатель уведомлений: ${onOff(ClusterSetup.isListenerEnabled(ctx))}",
+                "настройка «маршрут на приборке»: ${onOff(AppSettings.clusterNavi(ctx))}" +
+                    " · ${if (GuidanceHub.current != null) "на карточке маршрут" else "на карточке образец"}",
+            )
+            main.postDelayed(this, 1000)
+        }
+    }
+
+    private fun onOff(b: Boolean) = if (b) "вкл" else "выкл"
+
+    /** Ведение для приборки: в калибровке без маршрута — образец. */
+    private fun shown(): Guidance? = GuidanceHub.current ?: SAMPLE.takeIf { calibration }
+
+    /** Настройку выключили: убрать окно и панель навигации. */
+    fun remove() {
+        main.post {
+            val ctx = app ?: return@post
+            removeView()
+            naviArea(ctx, false)
         }
     }
 
     private val guidanceListener = GuidanceHub.Listener { g ->
         view?.guidance = g
         val ctx = app ?: return@Listener
+        if (!AppSettings.clusterNavi(ctx)) return@Listener
         if (g != null) {
             main.removeCallbacks(routeEnded)
-            val toCluster = AppSettings.clusterNavi(ctx) || GuidanceHub.isDemo
-            if (toCluster && isNative(ctx)) {
-                nativeUpdate(ctx, g)
-            } else if (toCluster) {
-                if (ClusterTbt.enabled) ClusterTbt.update(ctx, g)
-                if (CarLanClient.enabled) ClusterWarnings.update(ctx, g)
-            }
+            ClusterWarnings.update(ctx, g)
             if (!routeActive) {
                 routeActive = true
-                if (overlayOn(ctx)) {
-                    status = "маршрут начался — показываю на приборке"
-                    show(announce = true)
-                } else if (toCluster) {
-                    status = "маршрут начался — родной интерфейс приборки"
-                }
+                status("маршрут начался — показываю на приборке")
+                if (view == null) addView(ctx)
+                naviArea(ctx, true)
             }
         } else if (routeActive) {
             main.removeCallbacks(routeEnded)
@@ -196,12 +167,9 @@ object ClusterOverlay {
         routeActive = false
         ManeuverGrab.reset()
         val ctx = app ?: return@Runnable
-        ClusterTbt.stop(ctx)
-        if (warningsOn(ctx)) ClusterWarnings.update(ctx, null)
-        if (view != null && overlayOn(ctx)) {
-            status = "маршрут закончился — возвращаю приборку"
-            hide(announce = true)
-        }
+        if (calibration) return@Runnable // рамка держит панель сама
+        status("маршрут закончился — опускаю панель")
+        naviArea(ctx, false)
     }
 
     private val meterReceiver = object : BroadcastReceiver() {
@@ -209,18 +177,13 @@ object ClusterOverlay {
             val ex = intent.extras
             val map = ex?.keySet()?.associateWith { k -> try { ex.get(k) } catch (e: Exception) { null } }
                 ?: emptyMap()
-            val req = GuidanceText.naviAreaRequest(map)
-            if (req == null) {
-                Log.d(TAG, "от приборки ${intent.action}: $map — не про навигацию")
-                return
-            }
-            status = "от приборки ${intent.action}: $map -> " +
-                if (req == 1) "показать навигацию" else "убрать навигацию"
-            if (!overlayOn(context)) return
-            when (req) {
-                1 -> show(announce = true)
-                0 -> {} // окно остаётся (чёрное без маршрута) — см. описание
-
+            val req = GuidanceText.naviAreaRequest(map) ?: return
+            status("от приборки: $map -> ${if (req == 1) "показать" else "убрать"} навигацию")
+            if (!AppSettings.clusterNavi(context)) return
+            // Убрать — окно остаётся (чёрное без маршрута), см. описание.
+            if (req == 1) {
+                if (view == null) addView(context.applicationContext)
+                naviArea(context, true)
             }
         }
     }
@@ -228,12 +191,12 @@ object ClusterOverlay {
     private val displayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(displayId: Int) {
             val ctx = app ?: return
-            if (view == null && overlayOn(ctx)) show(announce = routeActive)
+            if (view == null && AppSettings.clusterNavi(ctx) && addView(ctx) && routeActive) naviArea(ctx, true)
         }
 
         override fun onDisplayRemoved(displayId: Int) {
             if (view?.display?.displayId == displayId) {
-                status = "дисплей $displayId пропал"
+                status("дисплей $displayId пропал")
                 removeView()
             }
         }
@@ -242,69 +205,28 @@ object ClusterOverlay {
     }
 
     /** Дисплей приборки: первый presentation-дисплей, иначе второй по счёту. */
-    fun clusterDisplay(context: Context): Display? {
+    private fun clusterDisplay(context: Context): Display? {
         val dm = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
         return dm.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION).firstOrNull()
             ?: dm.displays.firstOrNull { it.displayId != Display.DEFAULT_DISPLAY }
     }
 
-    val isShown: Boolean get() = view != null
-
-    /** Показать окно на приборке; [announce] — переключить приборку в навигацию. */
-    fun show(announce: Boolean) {
-        main.post {
-            val ctx = app ?: return@post
-            if (view == null && !addView(ctx)) return@post
-            if (announce) announce(ctx, true)
-        }
-    }
-
-    /**
-     * Маршрута на приборке больше нет: окно остаётся (пустое чёрное —
-     * не зеркало главного экрана), [announce] — вернуть вид приборки.
-     */
-    fun hide(announce: Boolean) {
-        main.post {
-            val ctx = app ?: return@post
-            if (announce) announce(ctx, false)
-        }
-    }
-
-    /** Совсем убрать маршрут с приборки (настройка выключена): окно и родные подсказки. */
-    fun remove() {
-        main.post {
-            val ctx = app ?: return@post
-            if (view != null) {
-                removeView()
-                announce(ctx, false)
-            }
-            ClusterTbt.stop(ctx)
-            if (warningsOn(ctx)) ClusterWarnings.update(ctx, null)
-        }
-    }
-
-    /** Ширина центральной полосы картинки, px. */
-    fun setContentWidth(context: Context, px: Int) {
-        AppSettings.setClusterWidth(context, px)
-        main.post { view?.contentWidth = px }
-    }
-
     private fun addView(ctx: Context): Boolean {
         val display = clusterDisplay(ctx)
         if (display == null) {
-            status = "второго дисплея (приборки) нет"
+            status("второго дисплея (приборки) нет")
             return false
         }
         if (!Settings.canDrawOverlays(ctx)) {
             if (!grantTried) {
                 grantTried = true
-                status = "нет права оверлея — выдаю через adb"
+                status("нет права оверлея — выдаю через adb")
                 Thread {
                     ClusterSetup.grantOverlay(ctx)
-                    main.post { if (routeActive || GuidanceHub.current != null) show(announce = true) }
+                    main.post { if (AppSettings.clusterNavi(ctx) || calibration) show() }
                 }.start()
             } else {
-                status = "нет права оверлея (appops SYSTEM_ALERT_WINDOW)"
+                status("нет права оверлея (appops SYSTEM_ALERT_WINDOW)")
             }
             return false
         }
@@ -314,6 +236,7 @@ object ClusterOverlay {
             val v = ClusterGuidanceView(dctx).apply {
                 contentWidth = AppSettings.clusterWidth(ctx)
                 guidance = GuidanceHub.current
+                calibration = this@ClusterOverlay.calibration
             }
             @Suppress("DEPRECATION")
             val lp = WindowManager.LayoutParams(
@@ -330,11 +253,11 @@ object ClusterOverlay {
             wm.addView(v, lp)
             view = v
             viewWm = wm
-            status = "окно на дисплее ${display.displayId} (${display.name})"
+            status("окно на дисплее ${display.displayId} (${display.name})")
             true
         } catch (e: Exception) {
             Log.w(TAG, "addView", e)
-            status = "окно на приборку не добавилось: ${e.javaClass.simpleName}: ${e.message}"
+            status("окно на приборку не добавилось: ${e.javaClass.simpleName}: ${e.message}")
             false
         }
     }
@@ -348,83 +271,43 @@ object ClusterOverlay {
         }
         view = null
         viewWm = null
-        status = "окно с приборки убрано"
+        status("окно с приборки убрано")
     }
 
-    /** Переключение вида приборки: CarLan (если включён) и com.desaysv.mapservice (как Jarvis). */
-    private fun announce(ctx: Context, on: Boolean) {
-        if (CarLanClient.enabled) {
-            // После 207: на него mapservice сам шлёт DisplayCluster:false.
-            main.removeCallbacks(carLanAnnounce)
-            carLanOn = on
-            main.postDelayed(carLanAnnounce, CARLAN_DELAY_MS)
-        }
-        try {
-            // 207 — как в проверенной на ГУ версии (картинка в «Картах» была).
-            // Пара 205→207 (по разбору SVMapService) на ГУ дала пустые «Карты»
-            // и неработающее демо (2026-10-22) — не шлём.
-            ctx.sendBroadcast(Intent(ACTION_TURBODOG).putExtra("CODE", 207).putExtra("DATA", 0))
-        } catch (e: Exception) {
-            Log.w(TAG, "turbodog", e)
-        }
-        val hasMapService = try {
-            ctx.packageManager.getPackageInfo(MAP_SERVICE, 0)
-            true
-        } catch (e: Exception) {
-            false
-        }
-        if (!hasMapService) {
-            status = "$MAP_SERVICE нет — вид приборки не переключаю"
-            return
-        }
-        fun send(state: Int) = ctx.sendBroadcast(
-            Intent(ACTION_AUTONAVI).putExtra("KEY_TYPE", 10019).putExtra("EXTRA_STATE", state)
-        )
-        if (on) {
-            // Jarvis сначала «сбрасывает» (2), через 400 мс — показать (1).
-            send(2)
-            main.postDelayed({ send(1) }, 400)
-        } else {
-            send(2)
-        }
-        status = "приборка: навигация ${if (on) "вкл" else "выкл"} (10019)"
-    }
-
-    private var carLanOn = false
-
-    private val carLanAnnounce = Runnable {
-        val ctx = app ?: return@Runnable
-        CarLanClient.showNaviArea(ctx, carLanOn)
-        // У TiggoBridge панель появлялась только вместе с CameraInfo (2+5+4).
-        // Окно убрали ради родного режима — лимит там нужен по-прежнему.
-        val keepWarnings = carLanOn || (isNative(ctx) && AppSettings.clusterNavi(ctx) && warningsOn(ctx))
+    /** Панель навигации приборки (видео дисплея 1 в «Картах») и знак лимита. */
+    private fun naviArea(ctx: Context, on: Boolean) {
+        CarLanClient.showNaviArea(ctx, on)
         ClusterWarnings.reset()
-        ClusterWarnings.update(ctx, if (keepWarnings) GuidanceHub.current else null)
+        ClusterWarnings.update(ctx, if (on) shown() else null)
         // CameraInfo сразу после 2+5 приборка теряет (ГУ 2026-10-26: знак
         // появился только со второго 4100/4) — повторить, когда панель поднимется.
         main.removeCallbacks(warningsRepeat)
-        if (keepWarnings) main.postDelayed(warningsRepeat, CARLAN_CAMERA_REPEAT_MS)
-        status = "приборка: CarLan DisplayCluster=$carLanOn"
+        if (on) main.postDelayed(warningsRepeat, CAMERA_REPEAT_MS)
+        status("приборка: панель навигации ${if (on) "вкл" else "выкл"}")
     }
 
-    /** Повторить CameraInfo (лимит) текущего маршрута — его могли потерять или затереть. */
     private val warningsRepeat = Runnable {
         val ctx = app ?: return@Runnable
-        val g = GuidanceHub.current ?: return@Runnable
-        if (!warningsOn(ctx)) return@Runnable
+        val g = shown() ?: return@Runnable
         ClusterWarnings.reset()
         ClusterWarnings.update(ctx, g)
     }
 
-    private const val CARLAN_DELAY_MS = 700L
-    private const val CARLAN_CAMERA_REPEAT_MS = 1500L
-    private const val WARNINGS_REPEAT_MS = 700L
+    /** Образец маршрута для калибровки. */
+    val SAMPLE = Guidance(
+        maneuver = Maneuver.LEFT,
+        distance = "300 м",
+        street = "улица Ленина",
+        remainingDistance = "12 км",
+        remainingTime = "18 мин",
+        arrival = "14:35",
+        speedLimit = 60,
+        cameraDistance = "350 м",
+        cameraLimit = 60,
+    )
+
+    private const val CAMERA_REPEAT_MS = 1500L
     private const val ACTION_METER = "desay.broadcast.map.meter.interaction"
-    private const val ACTION_CARLAN = "SVCarLanManager"
-    private const val ACTION_TURBODOG = "turbodog.navigation.system.message"
-    private const val ACTION_AUTONAVI = "AUTONAVI_STANDARD_BROADCAST_SEND"
-    private const val MAP_SERVICE = "com.desaysv.mapservice"
     private const val END_DELAY_MS = 8_000L
-    private const val HISTORY_MAX = 40
     private const val TAG = "ClusterOverlay"
 }

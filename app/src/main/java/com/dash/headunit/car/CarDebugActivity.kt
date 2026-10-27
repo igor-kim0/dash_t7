@@ -56,25 +56,7 @@ class CarDebugActivity : AppCompatActivity() {
         recStatus = TextView(this)
         val btnRec = Button(this).apply { text = "Запись приборки (QNX PPS) старт/стоп" }
         val btnTripSim = Button(this).apply { text = "Журнал: записать тест-поездку" }
-        val btnNaviPeek = Button(this).apply {
-            text = "Навигатор в блоке: проверка окна для приборки (~25 с на дашборде)"
-        }
-        val btnSla = Button(this).apply {
-            text = "Знак «60» на приборку штатным путём (~25 с, смотреть на приборку)"
-        }
-        val btnOverspeed = Button(this).apply {
-            text = "Знак через порог превышения 30 км/ч (~20 с, на ходу > 40)"
-        }
         val btnEtm = Button(this).apply { text = "ОЖ °C через инженерное меню приборки (~20 с)" }
-        val btnCarLanVideo = Button(this).apply {
-            text = "CarLan: наша картинка в «Картах» приборки (~30 с, демо-маршрут)"
-        }
-        val btnCarLanLimit = Button(this).apply {
-            text = "CarLan: знак лимита на приборке (5 шагов по 6 с)"
-        }
-        fun carLanRouteText() =
-            "CarLan из маршрута Яндекса: ${if (com.dash.headunit.navi.cluster.CarLanClient.enabled) "вкл" else "выкл"}"
-        val btnCarLanRoute = Button(this).apply { text = carLanRouteText() }
         val markText = EditText(this).apply {
             hint = "что на приборке: «ОЖ 65», «расход 8.4», «передача 3»"
             isSingleLine = true
@@ -96,13 +78,7 @@ class CarDebugActivity : AppCompatActivity() {
         root.addView(btnCluster)
         root.addView(recRow)
         root.addView(btnTripSim)
-        root.addView(btnNaviPeek)
-        root.addView(btnSla)
-        root.addView(btnOverspeed)
         root.addView(btnEtm)
-        root.addView(btnCarLanVideo)
-        root.addView(btnCarLanLimit)
-        root.addView(btnCarLanRoute)
         root.addView(recStatus)
         root.addView(
             scroll,
@@ -116,20 +92,7 @@ class CarDebugActivity : AppCompatActivity() {
         btnSave.setOnClickListener { saveToFile() }
         btnCluster.setOnClickListener { listenCluster() }
         btnTripSim.setOnClickListener { simulateTrip() }
-        // Проверка идёт на дашборде (навигатор в блоке под ним) — экран закрываем.
-        btnNaviPeek.setOnClickListener {
-            com.dash.headunit.diag.NaviPeekTest.start(this)
-            finish()
-        }
-        btnSla.setOnClickListener { com.dash.headunit.diag.ClusterSpeedLimitTest.start(this) }
-        btnOverspeed.setOnClickListener { com.dash.headunit.diag.OverspeedSignTest.start(this) }
         btnEtm.setOnClickListener { com.dash.headunit.diag.CoolantEtmTest.start(this) }
-        btnCarLanVideo.setOnClickListener { com.dash.headunit.diag.CarLanTest.startVideo(this) }
-        btnCarLanLimit.setOnClickListener { com.dash.headunit.diag.CarLanTest.startLimit(this) }
-        btnCarLanRoute.setOnClickListener {
-            com.dash.headunit.diag.CarLanTest.toggleFromRoute(this)
-            btnCarLanRoute.text = carLanRouteText()
-        }
         btnRec.setOnClickListener {
             if (ClusterRecorder.running) ClusterRecorder.stop() else ClusterRecorder.start(this)
         }

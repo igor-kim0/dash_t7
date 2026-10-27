@@ -50,7 +50,6 @@ class MediaListenerService : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         if (sbn == null || sbn.packageName != YANDEX_NAVI) return
         val r = YandexNotificationParser.parse(this, sbn)
-        GuidanceHub.lastNotificationDump = r.dump
         if (r.guidance != null) {
             guidanceKey = sbn.key
             GuidanceHub.setFromNotification(r.guidance)

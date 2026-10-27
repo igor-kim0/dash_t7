@@ -29,6 +29,13 @@ class RetroClimateIcons(private val hole: Paint) {
         strokeJoin = Paint.Join.ROUND
     }
     private val iconFill = Paint(Paint.ANTI_ALIAS_FLAG)
+    /** Внутренность «трубки» человечка — цветом фона таблички. */
+    private val holeLine = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 2.5f
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
     /** Надписи табличек (уставка, скорость, AUTO) — цветом текущей лампы. */
     val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textAlign = Paint.Align.CENTER
@@ -80,30 +87,57 @@ class RetroClimateIcons(private val hole: Paint) {
     }
 
     /**
-     * Обдув: сидящий человечек в профиль и стрелки потока — в лицо
-     * (1, 3), в ноги (2, 3, 4), на стекло (4, 5). Режим неизвестен — без стрелок.
+     * Обдув, как на штатных кнопках климата: полулежащий человечек контуром
+     * (голова кольцом справа, ноги влево) и толстые стрелки потока слева
+     * сверху — в лицо (1, 3), в ноги (2, 3, 4), вверх на стекло (4, 5).
+     * Режим неизвестен — без стрелок.
      */
     fun direction(c: Canvas, cx: Float, cy: Float, mode: Int?) {
-        icon.strokeWidth = 2.5f
-        c.drawCircle(cx + 7f, cy - 13f, 3.5f, iconFill)
+        // Голова — кольцо.
+        icon.strokeWidth = 2f
+        c.drawCircle(cx + 11f, cy - 14f, 3.2f, icon)
+        // Тело «трубкой»: толстая линия цветом символа, внутри — цветом фона.
         path.reset()
-        path.moveTo(cx + 5f, cy - 7f)
-        path.lineTo(cx + 1f, cy + 5f)
-        path.lineTo(cx + 12f, cy + 5f)
-        path.lineTo(cx + 11f, cy + 16f)
+        path.moveTo(cx + 10f, cy - 7f)
+        path.lineTo(cx + 8f, cy + 6f)
+        path.quadTo(cx + 7f, cy + 10f, cx + 3f, cy + 9f)
+        path.lineTo(cx - 4f, cy + 8f)
+        path.lineTo(cx - 14f, cy + 14f)
+        icon.strokeWidth = 6.5f
         c.drawPath(path, icon)
-        if (mode == 1 || mode == 3) {
-            c.drawLine(cx - 17f, cy - 11f, cx - 1f, cy - 11f, icon)
-            arrowHead(c, cx - 1f, cy - 11f, 0.0)
-        }
-        if (mode == 2 || mode == 3 || mode == 4) {
-            c.drawLine(cx - 17f, cy + 4f, cx - 3f, cy + 14f, icon)
-            arrowHead(c, cx - 3f, cy + 14f, atan2(10.0, 14.0))
-        }
+        holeLine.color = hole.color
+        c.drawPath(path, holeLine)
+        icon.strokeWidth = 2.5f
+        if (mode == 1 || mode == 3) flowArrow(c, cx - 11f, cy - 17f, cx + 3f, cy - 9f)
+        if (mode == 2 || mode == 3 || mode == 4) flowArrow(c, cx - 17f, cy - 5f, cx - 10f, cy + 4f)
         if (mode == 4 || mode == 5) {
-            c.drawLine(cx - 6f, cy - 2f, cx - 15f, cy - 16f, icon)
-            arrowHead(c, cx - 15f, cy - 16f, atan2(-14.0, -9.0))
+            // Стекло — наклонная черта слева сверху, стрелка к нему.
+            c.drawLine(cx - 18f, cy - 8f, cx - 10f, cy - 19f, icon)
+            flowArrow(c, cx + 1f, cy - 5f, cx - 7f, cy - 13f)
         }
+    }
+
+    /** Толстая залитая стрелка потока из ([x0], [y0]) остриём в ([x1], [y1]). */
+    private fun flowArrow(c: Canvas, x0: Float, y0: Float, x1: Float, y1: Float) {
+        val dir = atan2((y1 - y0).toDouble(), (x1 - x0).toDouble())
+        val ux = cos(dir).toFloat()
+        val uy = sin(dir).toFloat()
+        val head = 7f
+        val half = 5.5f
+        val w = icon.strokeWidth
+        icon.strokeWidth = 4f
+        icon.strokeCap = Paint.Cap.BUTT
+        c.drawLine(x0, y0, x1 - ux * head * 0.9f, y1 - uy * head * 0.9f, icon)
+        icon.strokeCap = Paint.Cap.ROUND
+        icon.strokeWidth = w
+        val bx = x1 - ux * head
+        val by = y1 - uy * head
+        path.reset()
+        path.moveTo(x1, y1)
+        path.lineTo(bx - uy * half, by + ux * half)
+        path.lineTo(bx + uy * half, by - ux * half)
+        path.close()
+        c.drawPath(path, iconFill)
     }
 
     /** A/C: снежинка — шесть лучей с «ёлочками». */

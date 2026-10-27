@@ -26,16 +26,13 @@ object GuidanceHub {
     @Volatile private var fromNotification: Guidance? = null
     @Volatile private var fromA11y: Guidance? = null
     @Volatile private var a11yAt = 0L
-    @Volatile private var demo: Guidance? = null
+    @Volatile private var notifAt = 0L
 
     /** Склеенное состояние; null — маршрута нет. */
     @Volatile
     var current: Guidance? = null
         private set
 
-    /** Сырые разборы для диагностики (adb NAVI_CLUSTER dump). */
-    @Volatile var lastNotificationDump: String = "уведомлений навигатора не было"
-    @Volatile var lastA11yDump: String = "окно навигатора не читали"
 
     fun addListener(l: Listener) {
         main.post {
@@ -51,6 +48,7 @@ object GuidanceHub {
     /** Уведомление ведения появилось/обновилось (null — снято). */
     fun setFromNotification(g: Guidance?) {
         fromNotification = g
+        notifAt = SystemClock.uptimeMillis()
         publish()
     }
 
@@ -64,13 +62,19 @@ object GuidanceHub {
         if (g != null) main.postDelayed(expire, A11Y_FRESH_MS + 100)
     }
 
-    /** Идёт демо-маршрут (на приборку — даже при выключенной настройке). */
-    val isDemo: Boolean get() = demo != null
-
-    /** Демо-маршрут для проверки картинки на приборке (null — выключить). */
-    fun setDemo(g: Guidance?) {
-        demo = g
-        publish()
+    /** Откуда сейчас данные — строка для калибровочной рамки. */
+    fun sourcesInfo(): String {
+        val now = SystemClock.uptimeMillis()
+        fun ago(t: Long) = if (t == 0L) "не было" else "${(now - t) / 1000} с назад"
+        val n = fromNotification
+        val a = fromA11y
+        return "уведомление: ${if (n != null) "ведение" else "нет"} (${ago(notifAt)})" +
+            " · окно навигатора: ${when {
+                a == null -> "не видно"
+                a.onRoute -> "маршрут"
+                else -> "без маршрута"
+            }} (${ago(a11yAt)})" +
+            " · итог: ${if (current != null) "маршрут" else "нет маршрута"}"
     }
 
     private val expire = Runnable { publish() }
@@ -78,7 +82,7 @@ object GuidanceHub {
     private fun publish() {
         val a11y = fromA11y?.takeIf { SystemClock.uptimeMillis() - a11yAt < A11Y_FRESH_MS }
         val notif = fromNotification
-        val merged = demo ?: when {
+        val merged = when {
             notif != null -> notif.orElse(a11y)
             a11y != null && a11y.onRoute -> a11y
             else -> null

@@ -26,7 +26,8 @@ import kotlin.math.tan
  * «Спидометр» в стиле классической советской приборки (Москвич-412/2140):
  * цифры 0–160 ровной строкой поверху, риски — отрезки лучей из оси,
  * спрятанной под одометром (поэтому к середине шкалы цифры сжимаются,
- * к краям — разъезжаются), слева указатель топлива 0 · 1/2 · 4/4, справа
+ * к краям — разъезжаются), слева указатель топлива 0 · 1/2 · 4/4 с подписью
+ * литров в баке (по объёму бака из настроек, [CarData.fuelLiters]), справа
  * «ВОДА» (стрелка ОЖ приборки) с подписью в градусах — честные °C из a0ff
  * ([ClusterPps.coolantC]) или OBD в приоритете, без них оценка по стрелке
  * ([CoolantCalibration.estimate]),
@@ -51,6 +52,8 @@ class RetroSpeedometerView(context: Context) : View(context) {
     /** Целевые значения (null — данных нет, стрелка на упоре). */
     private var speedTarget: Float? = null
     private var fuelTarget: Float? = null
+    /** Литров в баке для подписи под указателем топлива. */
+    private var fuelL: Float? = null
     private var waterTarget: Float? = null
     /** Градусы ОЖ для подписи у «ВОДА»; [waterEstimated] — это оценка по стрелке. */
     private var waterC: Float? = null
@@ -136,6 +139,7 @@ class RetroSpeedometerView(context: Context) : View(context) {
         val d = CarHub.data ?: DemoData.car()
         speedTarget = d.speedKmh
         fuelTarget = d.fuelPct?.let { (it / 100f).coerceIn(0f, 1f) }
+        fuelL = d.fuelLiters
         // Стрелка ОЖ приборки (0..1) — ровно то, что видно на штатной;
         // если её нет, но есть градусы — по той же шкале ([CarScaling.coolantToNeedle]).
         waterTarget = ClusterPps.needle()
@@ -299,8 +303,16 @@ class RetroSpeedometerView(context: Context) : View(context) {
         )
     }
 
-    private fun drawFuel(c: Canvas) =
+    /** Топливо: стрелка уровня + подпись литров под шкалой (как градусы у «ВОДА»). */
+    private fun drawFuel(c: Canvas) {
         drawSmallGauge(c, 108f, listOf("0", "1/2", "4/4"), null, redAtEnd = false, pos = fuelPos)
+        fuelL?.let { l ->
+            label.textSize = 24f
+            // Резерв — подпись краснеет вместе с меткой в начале шкалы.
+            label.color = if ((fuelTarget ?: 1f) < LOW_FUEL) red else dimCream
+            c.drawText("%d л".format(l.roundToInt()), 108f, LEDGE_Y + 30f, label)
+        }
+    }
 
     /** «ВОДА»: стрелка ОЖ приборки + подпись градусов под шкалой. */
     private fun drawWater(c: Canvas) {
@@ -460,6 +472,8 @@ class RetroSpeedometerView(context: Context) : View(context) {
         val GEARS = listOf("R", "N", "P", "1", "2", "3", "4", "5", "6", "7")
         /** Упор малых стрелок без данных (чуть ниже нуля). */
         const val GAUGE_REST = -0.08f
+        /** Доля бака, ниже которой подпись литров красная (как у [fuelLevelColor]). */
+        const val LOW_FUEL = 0.08f
         const val NEEDLE_TAU_MS = 120f
         val RED_MARKS = listOf(60f, 90f)
         /** Таблички климата: левая от [CLIMATE_LEFT_X], правая зеркально. */

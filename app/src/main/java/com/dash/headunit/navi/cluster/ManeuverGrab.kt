@@ -30,7 +30,7 @@ object ManeuverGrab {
     @Volatile private var busy = false
     @Volatile private var failedAt = 0L
 
-    /** Последний разбор — для дампа NAVI_CLUSTER. */
+    /** Последний разбор (в лог). */
     @Volatile var lastDump: String = "стрелку с экрана не снимали"
         private set
 

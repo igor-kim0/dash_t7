@@ -37,7 +37,6 @@ import com.dash.headunit.dashboard.WidgetType
 import com.dash.headunit.elm.ElmHub
 import com.dash.headunit.car.CoolantEtm
 import com.dash.headunit.car.TripTracker
-import com.dash.headunit.navi.AdbShell
 import com.dash.headunit.navi.HoleBackground
 import com.dash.headunit.navi.NaviUnderlay
 import com.dash.headunit.ui.DashDialog
@@ -135,10 +134,18 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btn_done).setOnClickListener { setEditMode(false) }
         findViewById<View>(R.id.btn_clear).setOnClickListener { confirmClearDashboard() }
         findViewById<View>(R.id.btn_add).setOnClickListener { showAddDialog() }
-        // Демо-маршрут на приборке — тоже dev (prod-сборке иконка не нужна).
-        val naviDemo = findViewById<View>(R.id.btn_navi_demo)
-        naviDemo.visibility = if (BuildConfig.PROD_BUILD) View.GONE else View.VISIBLE
-        naviDemo.setOnClickListener { startNaviDemo() }
+        // Диагностика: CAN/VHAL, приборка, ОЖ через ETM — только dev.
+        val debug = findViewById<View>(R.id.btn_debug)
+        debug.visibility = if (BuildConfig.PROD_BUILD) View.GONE else View.VISIBLE
+        debug.setOnClickListener { startActivity(android.content.Intent(this, com.dash.headunit.car.CarDebugActivity::class.java)) }
+        findViewById<View>(R.id.btn_cluster_calibration).setOnClickListener {
+            val on = ClusterOverlay.toggleCalibration()
+            Toast.makeText(
+                this,
+                if (on) R.string.cluster_calibration_on else R.string.cluster_calibration_off,
+                Toast.LENGTH_SHORT
+            ).show()
+        }
         findViewById<View>(R.id.btn_night).setOnClickListener {
             showThemeDialog()
         }
@@ -207,9 +214,10 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btn_home).background = ThemeCard.card(this, theme)
         findViewById<View>(R.id.btn_settings).background = ThemeCard.card(this, theme)
         findViewById<View>(R.id.btn_edit).background = ThemeCard.card(this, theme)
-        findViewById<View>(R.id.btn_navi_demo).background = ThemeCard.card(this, theme)
         findViewById<View>(R.id.btn_clear).background = ThemeCard.card(this, theme)
         findViewById<View>(R.id.btn_add).background = ThemeCard.card(this, theme)
+        findViewById<View>(R.id.btn_cluster_calibration).background = ThemeCard.card(this, theme)
+        findViewById<View>(R.id.btn_debug).background = ThemeCard.card(this, theme)
         findViewById<View>(R.id.btn_done).background = ThemeCard.accent(this, theme)
         findViewById<ImageButton>(R.id.btn_done).setColorFilter(theme.background)
         findViewById<View>(R.id.top_glow_line).apply {
@@ -245,16 +253,11 @@ class MainActivity : AppCompatActivity() {
 
     /** Настройки приложения: автозапуск, сторона колонки, приборка, шторка, журнал поездок. */
     private fun showSettingsDialog() {
-        val clusterModeRow = 3
-        val clusterVariantRow = 4
-        val journalKeepRow = 6
-        val etmCoolantRow = 7
+        val journalKeepRow = 4
         val items = arrayOf(
             getString(R.string.settings_autostart),
             getString(R.string.settings_bar_left),
             getString(R.string.settings_cluster_navi),
-            getString(R.string.settings_cluster_mode, clusterModeLabel(AppSettings.clusterMode(this))),
-            getString(R.string.settings_cluster_variant, AppSettings.clusterVariant(this)),
             getString(R.string.settings_shade_resume),
             getString(
                 R.string.settings_trip_journal_keep,
@@ -266,24 +269,14 @@ class MainActivity : AppCompatActivity() {
             AppSettings.autostart(this),
             AppSettings.barSideLeft(this),
             AppSettings.clusterNavi(this),
-            false,
-            false,
             AppSettings.shadeResume(this),
             false,
             AppSettings.etmCoolant(this)
         )
         DashDialog.Builder(this)
             .setTitle(R.string.settings_title)
-            .setMultiChoiceItems(items, checked, routers = setOf(clusterModeRow, clusterVariantRow, journalKeepRow)) { dlg, which, isChecked ->
+            .setMultiChoiceItems(items, checked, routers = setOf(journalKeepRow)) { dlg, which, isChecked ->
                 when (which) {
-                    clusterModeRow -> {
-                        dlg.dismiss()
-                        showClusterModeDialog()
-                    }
-                    clusterVariantRow -> {
-                        dlg.dismiss()
-                        showClusterVariantDialog()
-                    }
                     journalKeepRow -> {
                         dlg.dismiss()
                         showJournalKeepDialog()
@@ -297,12 +290,12 @@ class MainActivity : AppCompatActivity() {
                 applyBarSide()
                 applyClusterNavi(checked[2])
                 // Шторка: настройка проверяется при следующем старте.
-                AppSettings.setShadeResume(this, checked[5])
+                AppSettings.setShadeResume(this, checked[3])
                 // ETM: отключили — посылаем приборке выход из инженерного
                 // меню (вернуть как было). Вход идёт при каждом
                 // подключении [ClusterPps] к qconn.
-                AppSettings.setEtmCoolant(this, checked[7])
-                if (!checked[7]) Thread { runCatching { CoolantEtm.send(0) } }.start()
+                AppSettings.setEtmCoolant(this, checked[5])
+                if (!checked[5]) Thread { runCatching { CoolantEtm.send(0) } }.start()
             }
             .setNegativeButton(R.string.dialog_cancel, null)
             .showFullScreen()
@@ -340,65 +333,6 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton(R.string.dialog_cancel) { _, _ -> showSettingsDialog() }
             .showFullScreen()
     }
-
-    /**
-     * Как показывать маршрут на приборке ([AppSettings.clusterMode]):
-     * родной интерфейс или своё окно в «Картах». Если маршрут на приборке
-     * включён — сразу переключаем ([ClusterOverlay.applySettings]).
-     */
-    private fun showClusterModeDialog() {
-        val modes = intArrayOf(AppSettings.CLUSTER_NATIVE, AppSettings.CLUSTER_OVERLAY)
-        val labels = arrayOf(
-            getString(R.string.cluster_mode_native_full),
-            getString(R.string.cluster_mode_overlay_full)
-        )
-        var selected = modes.indexOf(AppSettings.clusterMode(this)).coerceAtLeast(0)
-        DashDialog.Builder(this)
-            .setTitle(R.string.cluster_mode_title)
-            .setSingleChoiceItems(labels, selected) { _, which ->
-                selected = which
-            }
-            .setPositiveButton(R.string.edit_done) { _, _ ->
-                if (modes[selected] != AppSettings.clusterMode(this)) {
-                    AppSettings.setClusterMode(this, modes[selected])
-                    ClusterOverlay.init(applicationContext)
-                    ClusterOverlay.applySettings()
-                }
-                showSettingsDialog()
-            }
-            .setNegativeButton(R.string.dialog_cancel) { _, _ -> showSettingsDialog() }
-            .showFullScreen()
-    }
-
-    /**
-     * Вариант родного интерфейса приборки ([AppSettings.clusterVariant]) —
-     * подбор на ГУ, почему подсказки пропадают с Яндексом на экране.
-     * Применяется сразу ([ClusterOverlay.applySettings]).
-     */
-    private fun showClusterVariantDialog() {
-        val labels = resources.getStringArray(R.array.cluster_variants)
-        var selected = AppSettings.clusterVariant(this) - 1
-        DashDialog.Builder(this)
-            .setTitle(R.string.cluster_variant_title)
-            .setSingleChoiceItems(labels, selected) { _, which ->
-                selected = which
-            }
-            .setPositiveButton(R.string.edit_done) { _, _ ->
-                if (selected + 1 != AppSettings.clusterVariant(this)) {
-                    AppSettings.setClusterVariant(this, selected + 1)
-                    ClusterOverlay.init(applicationContext)
-                    ClusterOverlay.applySettings()
-                }
-                showSettingsDialog()
-            }
-            .setNegativeButton(R.string.dialog_cancel) { _, _ -> showSettingsDialog() }
-            .showFullScreen()
-    }
-
-    /** «родной интерфейс / своё окно» — для строки настроек. */
-    private fun clusterModeLabel(mode: Int): String = getString(
-        if (mode == AppSettings.CLUSTER_OVERLAY) R.string.cluster_mode_overlay else R.string.cluster_mode_native
-    )
 
     /** «неделю / 2 недели / месяц / всегда» — для строки настроек. */
     private fun journalKeepLabel(days: Int): String = getString(
@@ -452,39 +386,7 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 Toast.makeText(app, report, Toast.LENGTH_LONG).show()
                 ClusterOverlay.init(app)
-                ClusterOverlay.applySettings()
-            }
-        }.start()
-    }
-
-    /**
-     * Демо-маршрут на приборке (dev): та же команда, что и с ПК —
-     * `am broadcast -a com.dash.headunit.NAVI_CLUSTER -n
-     * com.dash.headunit/.diag.NaviClusterReceiver --es cmd demo`
-     * (diag/NaviClusterReceiver демонстрирует маршрут 30 секунд и убирает).
-     * Идёт через adb-канал ([AdbShell]), потому что приёмник защищён правом DUMP.
-     */
-    private fun startNaviDemo() {
-        val app = applicationContext
-        Thread {
-            val out = AdbShell.exec(
-                app,
-                "am broadcast -a com.dash.headunit.NAVI_CLUSTER " +
-                    "-n com.dash.headunit/.diag.NaviClusterReceiver --es cmd demo"
-            )?.trim()
-            runOnUiThread {
-                val failed = out == null ||
-                    out.contains("Error", ignoreCase = true) ||
-                    out.contains("Exception", ignoreCase = true)
-                if (failed) {
-                    Toast.makeText(
-                        app,
-                        getString(R.string.navi_demo_failed, out ?: AdbShell.lastStatus),
-                        Toast.LENGTH_LONG
-                    ).show()
-                } else {
-                    Toast.makeText(app, R.string.navi_demo_started, Toast.LENGTH_SHORT).show()
-                }
+                ClusterOverlay.show()
             }
         }.start()
     }
