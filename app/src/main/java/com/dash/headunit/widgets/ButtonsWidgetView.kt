@@ -11,7 +11,6 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import com.dash.headunit.R
-import com.dash.headunit.car.ActionLearner.Known
 import com.dash.headunit.car.CarHub
 import com.dash.headunit.car.CarScaling
 import com.dash.headunit.car.DesayCarReader
@@ -35,13 +34,20 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 4 открыто, прочие — «в движении»), 0,5+0,6 люк (закрыт 2,1 / открыт 1,12),
  * 0,10 шторка (6 открыто — подтверждено, 1 закрыто).
  *
- * На ходу (скорость > [MAX_SPEED_KMH]) кнопки отказывают тостом,
- * как в [ActionLearner].
+ * На ходу (скорость > [MAX_SPEED_KMH]) кнопки отказывают тостом.
  */
 class ButtonsWidgetView(
     context: Context,
     private val theme: DashTheme
 ) : LinearLayout(context) {
+
+    /**
+     * Команда шины: запись [value] в ([group],[id]); сработала ли — по
+     * изменению ячеек состояния [verify] (группа 0).
+     */
+    private data class Known(val group: Int, val id: Int, val value: Int, val verify: List<Int>) {
+        val cell: String get() = "$group,$id"
+    }
 
     /** Строка управления: две кнопки Known-команд и ячейки состояния рядом. */
     private class RowDef(
@@ -154,28 +160,14 @@ class ButtonsWidgetView(
             Toast.makeText(context, "Машина едет (${speed.toInt()} км/ч) — запрещено", Toast.LENGTH_SHORT).show()
             return
         }
-        val go = {
-            log("пишу (${k.cell}) = ${k.value}…")
-            Thread {
-                val d = DesayCarReader(context.applicationContext)
-                val ok = d.connect() && d.write(k.group, k.id, k.value)
-                handler.post {
-                    log(if (ok) "(${k.cell}) = ${k.value}: запись ушла" else "(${k.cell}) = ${k.value}: запись НЕ ушла")
-                }
-            }.start()
-        }
-        if (k.sure) go() else {
-            com.dash.headunit.ui.DashDialog.Builder(context)
-                .setTitle(R.string.buttons_send_title)
-                .setMessage(
-                    "Запишу в шину (${k.cell}) = ${k.value} — значение угадано, так «должен» делать " +
-                        "исполнитель голосовых команд, но не проверено. " +
-                        "Руки и предметы — подальше от люка."
-                )
-                .setPositiveButton(R.string.learn_try_go) { _, _ -> go() }
-                .setNegativeButton(R.string.dialog_cancel, null)
-                .showFullScreen()
-        }
+        log("пишу (${k.cell}) = ${k.value}…")
+        Thread {
+            val d = DesayCarReader(context.applicationContext)
+            val ok = d.connect() && d.write(k.group, k.id, k.value)
+            handler.post {
+                log(if (ok) "(${k.cell}) = ${k.value}: запись ушла" else "(${k.cell}) = ${k.value}: запись НЕ ушла")
+            }
+        }.start()
     }
 
     /** Чтение состояний (группа 0) в фоне; нить-одиночка — пропускаем тик. */

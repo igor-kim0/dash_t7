@@ -1,5 +1,6 @@
 package com.dash.headunit
 
+import android.annotation.SuppressLint
 import android.Manifest
 import android.app.Dialog
 import android.bluetooth.BluetoothAdapter
@@ -34,8 +35,7 @@ import com.dash.headunit.dashboard.WidgetAvailability
 import com.dash.headunit.dashboard.WidgetSpec
 import com.dash.headunit.dashboard.WidgetType
 import com.dash.headunit.elm.ElmHub
-import com.dash.headunit.car.CarDebugActivity
-import com.dash.headunit.car.DesayPushProbe
+import com.dash.headunit.car.CoolantEtm
 import com.dash.headunit.car.TripTracker
 import com.dash.headunit.navi.AdbShell
 import com.dash.headunit.navi.HoleBackground
@@ -58,15 +58,14 @@ import com.dash.headunit.widgets.AppWidgetView
 import com.dash.headunit.widgets.ButtonsWidgetView
 import com.dash.headunit.widgets.NavApps
 import com.dash.headunit.widgets.TripWidgetView
+import com.dash.headunit.widgets.ClimateIconsView
 import com.dash.headunit.widgets.ClimateWidgetView
 import com.dash.headunit.widgets.HeatWidgetView
 import com.dash.headunit.widgets.OutsideWidgetView
 import com.dash.headunit.widgets.ElmWidgetView
-import com.dash.headunit.widgets.LearnWidgetView
 import com.dash.headunit.widgets.RetroSpeedometerView
 import com.dash.headunit.widgets.SpeedWidgetView
 import com.dash.headunit.widgets.VazClusterView
-import com.dash.headunit.widgets.DesayPushTestWidgetView
 
 /**
  * Главный экран дашборда ГУ (альбомная ориентация, иммерсивный режим).
@@ -136,10 +135,6 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btn_done).setOnClickListener { setEditMode(false) }
         findViewById<View>(R.id.btn_clear).setOnClickListener { confirmClearDashboard() }
         findViewById<View>(R.id.btn_add).setOnClickListener { showAddDialog() }
-        // Диагностика: CAN/VHAL, борткомпьютер, приборка — все проверки на одном экране.
-        findViewById<View>(R.id.btn_debug).setOnClickListener {
-            startActivity(android.content.Intent(this, CarDebugActivity::class.java))
-        }
         // Демо-маршрут на приборке — тоже dev (prod-сборке иконка не нужна).
         val naviDemo = findViewById<View>(R.id.btn_navi_demo)
         naviDemo.visibility = if (BuildConfig.PROD_BUILD) View.GONE else View.VISIBLE
@@ -213,7 +208,6 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btn_settings).background = ThemeCard.card(this, theme)
         findViewById<View>(R.id.btn_edit).background = ThemeCard.card(this, theme)
         findViewById<View>(R.id.btn_navi_demo).background = ThemeCard.card(this, theme)
-        findViewById<View>(R.id.btn_debug).background = ThemeCard.card(this, theme)
         findViewById<View>(R.id.btn_clear).background = ThemeCard.card(this, theme)
         findViewById<View>(R.id.btn_add).background = ThemeCard.card(this, theme)
         findViewById<View>(R.id.btn_done).background = ThemeCard.accent(this, theme)
@@ -254,6 +248,7 @@ class MainActivity : AppCompatActivity() {
         val clusterModeRow = 3
         val clusterVariantRow = 4
         val journalKeepRow = 6
+        val etmCoolantRow = 7
         val items = arrayOf(
             getString(R.string.settings_autostart),
             getString(R.string.settings_bar_left),
@@ -264,7 +259,8 @@ class MainActivity : AppCompatActivity() {
             getString(
                 R.string.settings_trip_journal_keep,
                 journalKeepLabel(AppSettings.journalKeepDays(this))
-            )
+            ),
+            getString(R.string.settings_etm_coolant)
         )
         val checked = booleanArrayOf(
             AppSettings.autostart(this),
@@ -273,7 +269,8 @@ class MainActivity : AppCompatActivity() {
             false,
             false,
             AppSettings.shadeResume(this),
-            false
+            false,
+            AppSettings.etmCoolant(this)
         )
         DashDialog.Builder(this)
             .setTitle(R.string.settings_title)
@@ -301,6 +298,11 @@ class MainActivity : AppCompatActivity() {
                 applyClusterNavi(checked[2])
                 // Шторка: настройка проверяется при следующем старте.
                 AppSettings.setShadeResume(this, checked[5])
+                // ETM: отключили — посылаем приборке выход из инженерного
+                // меню (вернуть как было). Вход идёт при каждом
+                // подключении [ClusterPps] к qconn.
+                AppSettings.setEtmCoolant(this, checked[7])
+                if (!checked[7]) Thread { runCatching { CoolantEtm.send(0) } }.start()
             }
             .setNegativeButton(R.string.dialog_cancel, null)
             .showFullScreen()
@@ -499,6 +501,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    @SuppressLint("MissingPermission")
     private fun updateStatusIcons() {
         // Зелёный = есть подключение, серый = включено, тусклое = выключено.
         try {
@@ -516,7 +519,7 @@ class MainActivity : AppCompatActivity() {
             val connected = runCatching {
                 // A2DP — подключён ли аудиопрофиль (нормальное право BLUETOOTH).
                 bt?.getProfileConnectionState(BluetoothProfile.A2DP) ==
-                    BluetoothProfile.STATE_CONNECTED
+                    BluetoothAdapter.STATE_CONNECTED
             }.getOrDefault(false)
             iconBluetooth.setColorFilter(if (connected) theme.success else theme.secondaryText)
             iconBluetooth.alpha = if (bt?.isEnabled == true) 1f else 0.35f
@@ -713,7 +716,12 @@ class MainActivity : AppCompatActivity() {
                     onExpand = { openNaviFull() }
                 }
                 WidgetType.TRIP -> TripWidgetView(this, theme)
-                WidgetType.CLIMATE -> ClimateWidgetView(this, theme)
+                WidgetType.CLIMATE ->
+                    if (settingsStore.getOption(spec.widgetId, OPT_CLIMATE_STYLE, CLIMATE_TEXT) == CLIMATE_ICONS) {
+                        ClimateIconsView(this)
+                    } else {
+                        ClimateWidgetView(this, theme)
+                    }
                 WidgetType.REFERENCE -> ReferenceWidgetView(this, theme)
                 WidgetType.HEAT -> HeatWidgetView(this, theme)
                 WidgetType.OUTSIDE -> OutsideWidgetView(this, theme)
@@ -724,8 +732,6 @@ class MainActivity : AppCompatActivity() {
                         SPEED_VAZ -> VazClusterView(this)
                         else -> RetroSpeedometerView(this)
                     }
-                WidgetType.PUSH_TEST -> DesayPushTestWidgetView(this, theme)
-                WidgetType.LEARN -> LearnWidgetView(this, theme)
                 WidgetType.BUTTONS -> ButtonsWidgetView(this, theme)
             }
             val frame = WidgetFrame(
@@ -753,11 +759,11 @@ class MainActivity : AppCompatActivity() {
                     WidgetType.SPEED -> {
                         { showSpeedSettings(spec.widgetId) }
                     }
+                    WidgetType.CLIMATE -> {
+                        { showClimateSettings(spec.widgetId) }
+                    }
                     WidgetType.COMBO -> {
                         { showClockSettings(spec.widgetId) }
-                    }
-                    WidgetType.PUSH_TEST -> {
-                        { showPushSettings() }
                     }
                     else -> null
                 }
@@ -839,8 +845,6 @@ class MainActivity : AppCompatActivity() {
         PickerItem(WidgetType.REFERENCE, R.string.widget_reference, R.drawable.ic_book, debug = true),
         PickerItem(WidgetType.HEAT, R.string.widget_heat, R.drawable.ic_seat_heat, debug = true),
         PickerItem(WidgetType.ELM, R.string.widget_elm, R.drawable.ic_obd, debug = true),
-        PickerItem(WidgetType.PUSH_TEST, R.string.widget_push_test, R.drawable.ic_broadcast, debug = true),
-        PickerItem(WidgetType.LEARN, R.string.widget_learn, R.drawable.ic_sync, debug = true),
         PickerItem(WidgetType.BUTTONS, R.string.widget_buttons, R.drawable.ic_grid, debug = true),
     ).filter { WidgetAvailability.isEnabled(it.type) }
 
@@ -1001,13 +1005,11 @@ class MainActivity : AppCompatActivity() {
             WidgetType.TRIP -> 92 to 24
             WidgetType.CLIMATE -> 92 to 40
             WidgetType.REFERENCE -> 56 to 40
-            WidgetType.LEARN -> 56 to 48
             WidgetType.HEAT -> 60 to 32
             WidgetType.OUTSIDE -> 40 to 20
             WidgetType.WIFI -> 40 to 18
             WidgetType.ELM -> 56 to 44
             WidgetType.SPEED -> 48 to 26
-            WidgetType.PUSH_TEST -> 56 to 40
             WidgetType.BUTTONS -> 56 to 40
             WidgetType.CLOCK -> 40 to 24
         }
@@ -1155,6 +1157,30 @@ class MainActivity : AppCompatActivity() {
             }
             .setPositiveButton(R.string.edit_done) { _, _ ->
                 settingsStore.setOption(widgetId, OPT_SPEED_STYLE, styles[selected])
+                buildWidgets(readSpecs())
+            }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .showFullScreen()
+    }
+
+    /** Вид «Климата»: текстом или ретро-иконками, как на спидометре. */
+    private fun showClimateSettings(widgetId: String) {
+        val styles = listOf(CLIMATE_TEXT, CLIMATE_ICONS)
+        var selected = styles.indexOf(settingsStore.getOption(widgetId, OPT_CLIMATE_STYLE, CLIMATE_TEXT))
+            .coerceAtLeast(0)
+        DashDialog.Builder(this)
+            .setTitle(R.string.climate_style_title)
+            .setSingleChoiceItems(
+                arrayOf(
+                    getString(R.string.climate_style_text),
+                    getString(R.string.climate_style_icons)
+                ),
+                selected
+            ) { _, which ->
+                selected = which
+            }
+            .setPositiveButton(R.string.edit_done) { _, _ ->
+                settingsStore.setOption(widgetId, OPT_CLIMATE_STYLE, styles[selected])
                 buildWidgets(readSpecs())
             }
             .setNegativeButton(R.string.dialog_cancel, null)
@@ -1376,6 +1402,7 @@ class MainActivity : AppCompatActivity() {
      * Выбор спаренного Bluetooth-адаптера ELM327. Выбор сохраняется
      * глобально ([ElmHub]), а не per-widget — адаптер в машине один.
      */
+    @SuppressLint("MissingPermission")
     private fun showElmAdapterDialog() {
         val manager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         val paired = manager.adapter?.takeIf { it.isEnabled }
@@ -1397,18 +1424,6 @@ class MainActivity : AppCompatActivity() {
                     getString(R.string.elm_picked, device.name ?: getString(R.string.elm_no_name)),
                     Toast.LENGTH_SHORT
                 ).show()
-            }
-            .setNegativeButton(R.string.dialog_cancel, null)
-            .showFullScreen()
-    }
-
-    /** Настройки теста push: какой набор подписок регистрировать. */
-    private fun showPushSettings() {
-        val presets = DesayPushProbe.Preset.values()
-        DashDialog.Builder(this)
-            .setTitle(R.string.set_push_title)
-            .setItems(presets.map { it.label }.toTypedArray()) { _, which ->
-                DesayPushProbe.preset = presets[which]
             }
             .setNegativeButton(R.string.dialog_cancel, null)
             .showFullScreen()
@@ -1570,5 +1585,10 @@ class MainActivity : AppCompatActivity() {
         private const val SPEED_RETRO = "retro"
         private const val SPEED_VAZ = "vaz"
         private const val SPEED_DIGITAL = "digital"
+
+        /** Опция «Климата»: вид (см. [showClimateSettings]). */
+        private const val OPT_CLIMATE_STYLE = "style"
+        private const val CLIMATE_TEXT = "text"
+        private const val CLIMATE_ICONS = "icons"
     }
 }

@@ -137,6 +137,7 @@ object ElmBtProbe {
     }
 
     /** Строка состояния адаптера (или почему BT недоступен). */
+    @SuppressLint("MissingPermission")
     fun adapterInfo(): String {
         val adapter = BluetoothAdapter.getDefaultAdapter()
             ?: return "нет BT-адаптера в системе"
@@ -156,6 +157,7 @@ object ElmBtProbe {
     }
 
     /** Запустить скан (или перезапустить, если уже идёт). */
+    @SuppressLint("MissingPermission")
     fun scan() {
         val adapter = BluetoothAdapter.getDefaultAdapter() ?: run {
             status = "нет BT-адаптера"
@@ -172,6 +174,7 @@ object ElmBtProbe {
         log("startDiscovery -> $ok")
     }
 
+    @SuppressLint("MissingPermission")
     fun stopScan() {
         val adapter = BluetoothAdapter.getDefaultAdapter() ?: return
         if (adapter.isDiscovering) {
@@ -181,6 +184,7 @@ object ElmBtProbe {
     }
 
     /** Попытаться спарить устройство. Возвращает текст результата. */
+    @SuppressLint("MissingPermission")
     fun pair(address: String): String {
         val adapter = BluetoothAdapter.getDefaultAdapter() ?: return "нет BT-адаптера"
         val device = try {
@@ -225,6 +229,7 @@ object ElmBtProbe {
      * и скрытый RFCOMM-канал 1 — классические обходы, когда машина не даёт
      * SPP-сокет. Всё в фоне, результат — в журнале.
      */
+    @SuppressLint("MissingPermission")
     fun testConnect(address: String) {
         if (address.isBlank()) {
             log("адрес ELM не выбран — сначала выберите устройство")
@@ -360,6 +365,7 @@ object ElmBtProbe {
         }
     }
 
+    @SuppressLint("MissingPermission")
     private fun add(device: BluetoothDevice, rssi: Int?) {
         synchronized(devices) {
             val prev = devices[device.address]
@@ -378,6 +384,7 @@ object ElmBtProbe {
         }
     }
 
+    @SuppressLint("MissingPermission") // SecurityException ловим ниже
     private fun nameOf(device: BluetoothDevice): String? =
         try {
             device.name

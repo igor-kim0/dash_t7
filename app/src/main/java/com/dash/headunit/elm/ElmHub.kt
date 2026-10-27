@@ -1,5 +1,6 @@
 package com.dash.headunit.elm
 
+import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket
@@ -212,6 +213,7 @@ object ElmHub {
      * через [NO_ANSWER_RECONNECT_MS] без единого ответа — переподключение.
      * true — получен хоть один ответ.
      */
+    @SuppressLint("MissingPermission")
     private fun session(address: String): Boolean {
         val adapter = BluetoothAdapter.getDefaultAdapter()
         if (adapter == null || !adapter.isEnabled) {

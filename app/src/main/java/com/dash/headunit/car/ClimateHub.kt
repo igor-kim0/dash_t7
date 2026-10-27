@@ -14,40 +14,62 @@ import kotlinx.coroutines.withContext
  * Климат-хаб: только чтение состояния HVAC через штатный Desay SV
  * (com.desaysv.svcarinfo/CarInfoService, transact(3, чтение)).
  *
- * Карта свойств (группа 16) выведена диффом сценарных снапшотов реального ГУ:
- *   16,1   A/C вкл            1=вкл
- *   16,3   SYNC зон          инверсия: 0=вкл (как в Jarvis)
- *   16,4   AUTO               1=вкл
- *   16,6   режим обдува       1=лицо, 2=ноги, 5=лобовое
- *   16,8   рециркуляция       инверсия: 0=рецирк.вкл, 1=улица
- *   16,10  уставка темп вод.  raw/2 + 17.5 (raw 9=22°, 1°=0.5°HvacID)
- *   16,12  скорость вентилят. 0..7 (5 = авто, 0 = выкл)
- *   16,13  уставка темп пасс. синхронна с водителем
- *   16,22  SET уставка вод.   Request-ячейка svhvac
- *   16,23  SET уставка пасс.  Request-ячейка svhvac
- *   16,18  климат активен     1=работает
- *   16,24  обдув лобового     1=вкл (вместе с 16,6→5 и 16,1→1)
- *   16,65  обогрев лобового   1=вкл (электрообогрев, как в Jarvis)
+ * Карта свойств (группа 16) выведена диффом сценарных снапшотов реального ГУ
+ * и сверена с константами HvacID$Request/Response штатного сервиса
+ * (дамп SVCarInfoService, logs/logs_1111111):
+ *   16,1   A/C компрессор     1=вкл (AC_COMPRESSOR_STATE)
+ *   16,3   SYNC зон          инверсия: 0=вкл (AC_DUAL_SYNC_MODE, как в Jarvis)
+ *   16,4   AUTO               1=вкл (AC_AUTO_STATE)
+ *   16,6   режим обдува       1=лицо, 2=ноги, 5=лобовое (AC_WIND_MODE)
+ *   16,8   рециркуляция       инверсия: 0=рецирк.вкл, 1=улица (AC_CIRCULATION_MODE)
+ *   16,10  уставка темп вод.  raw (AC_DRIVER_TEMP), см. [scaleTemp]
+ *   16,12  скорость вентилят. 0..7, 5=авто (AC_WIND_SPEED)
+ *   16,13  уставка темп пасс. (AC_PASSENGER_TEMP)
+ *   16,18  климат активен     1=работает (AC_SWITCH)
+ *   16,24  обдув лобового     1=вкл (AC_MAX_DEFROST_STATE)
+ *   16,65  обогрев лобового   1=вкл (AC_FRONT_WINDSHIELD_HEATING, как в Jarvis)
  *   0,95   подогрев сиденья вод. 0..3
+ *
+ * Температура: PRIMARY — Desay raw 16,10/16,13 со шкалой [scaleTemp]
+ * («1°»: raw 10 = 25 °C, сверено с панелью на машине). Фолбэк — VHAL
+ * HVAC_TEMPERATURE_SET (0x15600503, float °C, зоны 31/44), если Desay
+ * недоступен. Прежняя шкала «0,5°» ((raw+35)/2) занижала: панель 25° →
+ * виджет 22,5°, шаг панели 1° → виджет 0,5°.
  *
  * Доп. канальные значения (чтение): 4,15 дверь, 0,100..102 окна,
  * 4,79 аварийка, 4,75 ручник, 0,27 двигатель запущен.
  *
  * Записи здесь нет (команды в шину — в тех виджетах, которым они нужны):
- * - Request-ячейки (16,22/16,23, SET уставка svhvac) подтверждаются
- *   read-back по 16,10/16,13.
+ * - Request-ячейки (16,22/16,23 AC_DRIVER/PASSENGER_TEMP_SET, 16,2 WIND_MODE,
+ *   16,24 WIND_LEVEL_SET скорость, 16,1 AUTO, 16,0 AC_SWITCH, 16,45/46
+ *   BLOWER_OPEN/CLOSE) подтверждаются read-back по Response-ячейкам.
  * - Подогрев сиденья/лобового пишет HeatWidgetView напрямую.
  */
 object ClimateHub {
 
+    /** Откуда взята температура уставки (для debug-сверки с панелью). */
+    const val TEMP_SOURCE_VHAL = "VHAL"
+    const val TEMP_SOURCE_DESAY = "Desay"
+
+    /** VHAL HVAC_TEMPERATURE_SET: float °C, зоны 31 (вод.) / 44 (пасс.). */
+    const val VHAL_HVAC_TEMP_SET = 358614275 // 0x15600503
+    private const val AREA_DRIVER = 31
+    private const val AREA_PASSENGER = 44
+
+    /** Границы конфига VHAL (dumpsys car service: f min 16.0, f max 32.0). */
+    private const val VHAL_TEMP_MIN = 15.5f
+    private const val VHAL_TEMP_MAX = 32.5f
+
 
     /** Состояние HVAC, нормализованное к человекочитаемым величинам. */
     data class ClimateState(
-        /** Температура водителя, °C (16,10 → 16..32). null = нет данных. */
+        /** Температура водителя, °C (VHAL зона 31 / Desay 16,10). null = нет данных. */
         val tempDriverC: Float?,
-        /** Температура пассажира, °C. */
+        /** Температура пассажира, °C (VHAL зона 44 / Desay 16,13). */
         val tempPassC: Float?,
-        /** Скорость вентилятора 0..7. */
+        /** Источник температуры: [TEMP_SOURCE_VHAL] / [TEMP_SOURCE_DESAY]. */
+        val tempSource: String?,
+        /** Скорость вентилятора 0..7 (Desay 16,12, 5 = авто). */
         val fanSpeed: Int?,
         /** AUTO вкл. */
         val auto: Boolean?,
@@ -57,7 +79,7 @@ object ClimateHub {
         val recirc: Boolean?,
         /** Климат включён (не OFF). */
         val power: Boolean?,
-        /** Режим обдува: 1 лицо, 2 ноги, 5 лобовое. */
+        /** Режим обдува: 1 лицо, 2 ноги, 5 лобовое (Desay 16,6). */
         val fanDirection: Int?,
         /** Обдув лобового. */
         val defrostFront: Boolean?,
@@ -80,7 +102,7 @@ object ClimateHub {
     ) {
         companion object {
             val EMPTY = ClimateState(
-                null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null,
                 null, null, null, null, null, null, null
             )
         }
@@ -90,6 +112,7 @@ object ClimateHub {
     private const val G = 16 // группа HVAC
 
     private var desay: DesayCarReader? = null
+    private var vhal: VhalReader? = null
     private var appContext: Context? = null
 
     @Volatile
@@ -105,6 +128,7 @@ object ClimateHub {
             val app = context.applicationContext
             appContext = app
             desay = DesayCarReader(app)
+            vhal = VhalReader(app)
         }
     }
 
@@ -153,15 +177,28 @@ object ClimateHub {
         val recircRaw = desay.readInt(G, 8) // 0 = рецирк вкл
         val defrost = desay.readInt(G, 24)
         val engineOn = boolOr(desay.readInt(0, 27))
+        // Температура: сначала Desay raw со шкалой [scaleTemp] (сверена с
+        // панелью), при недоступности — VHAL (float °C).
+        val desayDriver = scaleTemp(desay.readInt(G, 10))
+        val desayPass = scaleTemp(desay.readInt(G, 13))
+        val desayOk = desayDriver != null || desayPass != null
+        val tempDriver = if (desayOk) desayDriver else vhalTemp(AREA_DRIVER)
+        val tempPass = if (desayOk) desayPass else vhalTemp(AREA_PASSENGER)
+        val tempSource = when {
+            desayOk -> TEMP_SOURCE_DESAY
+            tempDriver != null || tempPass != null -> TEMP_SOURCE_VHAL
+            else -> null
+        }
         return ClimateState(
-            tempDriverC = scaleTemp(desay.readInt(G, 10)),
-            tempPassC = scaleTemp(desay.readInt(G, 13)),
+            tempDriverC = tempDriver,
+            tempPassC = tempPass,
+            tempSource = tempSource,
             fanSpeed = desay.readInt(G, 12).takeIf { it in 0..7 },
             auto = boolOr(desay.readInt(G, 4)),
             ac = boolOr(desay.readInt(G, 1)),
             recirc = boolOr(recircRaw)?.not(),
             power = boolOr(powerRaw),
-            fanDirection = desay.readInt(G, 6).takeIf { it in listOf(1, 2, 5) },
+            fanDirection = desay.readInt(G, 6).takeIf { it in 1..5 },
             defrostFront = boolOr(defrost),
             // 4,15 = 1 и при заглушенном двигателе, и при открытой двери
             // водителя (снапшоты) — без работающего двигателя считаем
@@ -183,15 +220,26 @@ object ClimateHub {
     }
 
     /**
-     * Сырое значение уставки → °C. Калибровка Jarvis (режим
-     * «климат-контроль», x9): °C = (raw + 35) / 2, шаг 0.5, raw 0 = LO
-     * (17.5), raw ≥ 30 = HI; снапшоты 16,10: 9→10→11 за тапы «+0.5°»
-     * (22.0→22.5→23.0), дефолт Jarvis 9 = 22 °C.
+     * Сырое значение уставки → °C. Шкала «1°» (как вариант Jarvis «1° (LO,
+     * 16..30, HI)»): raw 0 = LO, raw 1..15 = 16..30 °C, raw ≥ 16 = HI.
+     * Сверено на машине: панель 25° при raw 10, шаг панели 1° = шаг raw 1.
+     * LO/HI возвращаются как [TEMP_LO]/[TEMP_HI] (вне 16..30).
      */
-    internal fun scaleTemp(raw: Int): Float? {
-        if (raw < 0) return null
-        return (raw.coerceIn(0, 29) + 35f) / 2f
+    internal fun scaleTemp(raw: Int): Float? = when {
+        raw < 0 -> null
+        raw == 0 -> TEMP_LO
+        raw >= 16 -> TEMP_HI
+        else -> raw + 15f
     }
+
+    /** Уставка «LO» / «HI» (виджет рисует текстом). */
+    const val TEMP_LO = 15f
+    const val TEMP_HI = 31f
+
+    /** Уставка зоны из VHAL: float °C или null (нет свойства/статуса). */
+    private fun vhalTemp(areaId: Int): Float? =
+        (vhal?.propertyValue(VHAL_HVAC_TEMP_SET, areaId) as? Float)
+            ?.takeIf { it.isFinite() && it in VHAL_TEMP_MIN..VHAL_TEMP_MAX }
 
     private fun boolOr(raw: Int): Boolean? = if (raw < 0) null else raw != 0
 
@@ -211,6 +259,7 @@ object ClimateHub {
         pollJob = null
         appContext = null
         desay = null
+        vhal = null
     }
 
     private const val POLL_MS = 4000L

@@ -52,8 +52,6 @@ class CarDebugActivity : AppCompatActivity() {
         }
         btnScan = Button(this).apply { text = "Сканировать CAN/VHAL" }
         btnSave = Button(this).apply { text = "Сохранить в файл" }
-        val btnEcho = Button(this).apply { text = "Климат: состояние (группа 16)" }
-        val btnProbe = Button(this).apply { text = "Климат-проба записи (write-back)" }
         val btnCluster = Button(this).apply { text = "Слушать приборку 60 с" }
         recStatus = TextView(this)
         val btnRec = Button(this).apply { text = "Запись приборки (QNX PPS) старт/стоп" }
@@ -95,8 +93,6 @@ class CarDebugActivity : AppCompatActivity() {
         val scroll = ScrollView(this).apply { addView(output) }
         root.addView(btnScan)
         root.addView(btnSave)
-        root.addView(btnEcho)
-        root.addView(btnProbe)
         root.addView(btnCluster)
         root.addView(recRow)
         root.addView(btnTripSim)
@@ -118,8 +114,6 @@ class CarDebugActivity : AppCompatActivity() {
 
         btnScan.setOnClickListener { startScan() }
         btnSave.setOnClickListener { saveToFile() }
-        btnEcho.setOnClickListener { readEcho() }
-        btnProbe.setOnClickListener { writeProbe() }
         btnCluster.setOnClickListener { listenCluster() }
         btnTripSim.setOnClickListener { simulateTrip() }
         // Проверка идёт на дашборде (навигатор в блоке под ним) — экран закрываем.
@@ -190,6 +184,8 @@ class CarDebugActivity : AppCompatActivity() {
                     emit("trip: приборка a001 ${ClusterPps.trip()?.describe() ?: "нет"}")
                     emit("ОЖ: стрелка ${ClusterPps.needle()?.let { "%.0f‰".format(it * 1000) } ?: "нет"}, " +
                         "сканер ${ElmHub.coolantC() ?: "нет"}")
+                    emit("ОЖ a0ff: ${ClusterPps.coolantC()?.let { "%.1f °C".format(it) } ?: "нет"}; " +
+                        "ETM: ${CoolantEtm.lastStatus}")
                     emit("ОЖ калибровка стрелки: ${CoolantCalibration.describe()}")
                 } catch (e: Exception) {
                     emit("Trip: ОШИБКА ${e.javaClass.simpleName}: ${e.message}")
@@ -703,106 +699,6 @@ class CarDebugActivity : AppCompatActivity() {
             try {
                 conn?.disconnect()
             } catch (e: Exception) {
-            }
-        }
-    }
-
-    // ---------- Климат-проба ----------
-
-    /**
-     * Состояние HVAC: все ключевые свойства группы 16 по карте из дампа
-     * (1 A/C, 3 off, 4 auto, 6 mode, 8 recirc, 10/13 уставка, 12 fan,
-     * 18 power, 24 defrost, 19 outside) + разобранный [ClimateHub.ClimateState].
-     */
-    private fun readEcho() {
-        if (job?.isActive == true) return
-        job = scope.launch {
-            withContext(Dispatchers.IO) {
-                try {
-                    val reader = DesayCarReader(applicationContext)
-                    if (!reader.isAvailable()) {
-                        emit("hvac: сервис НЕ НАЙДЕН")
-                        return@withContext
-                    }
-                    val keys = listOf(
-                        1 to "A/C",
-                        3 to "climate_off(инв)",
-                        4 to "AUTO",
-                        6 to "mode(1 лицо/2 ноги/5 лоб)",
-                        8 to "recirc(инв:0 вкл)",
-                        10 to "t°вод",
-                        12 to "fan 0..7",
-                        13 to "t°пас",
-                        18 to "power",
-                        19 to "t°заборт",
-                        24 to "defrost_front"
-                    )
-                    emit("=== Климат (Desay group 16) ===")
-                    for ((id, label) in keys) {
-                        val raw = reader.readRaw(16, id)
-                        val bytes = raw?.joinToString(",") { (it and 0xFF).toString() } ?: "null"
-                        val int = if (raw == null) "null" else CarScaling.bytesToInt(raw).toString()
-                        emit("hvac(16,$id) $label = [$bytes] int=$int")
-                    }
-                    emit("=== Климат (ClimateHub разбор) ===")
-                    ClimateHub.init(applicationContext)
-                    withContext(Dispatchers.Main) { ClimateHub.refresh() }
-                    var parsed: ClimateHub.ClimateState? = null
-                    var waited = 0
-                    while (parsed == null && waited < 6000) {
-                        Thread.sleep(250)
-                        waited += 250
-                        parsed = ClimateHub.data
-                    }
-                    emit("hvac: parsed=${parsed ?: "null (опрос не вернулся за 6 с)"}")
-                } catch (e: Exception) {
-                    emit("hvac: ОШИБКА ${e.javaClass.simpleName}: ${e.message}")
-                }
-            }
-        }
-    }
-
-    /**
-     * Проба записи БЕЗ изменения состояния: читаем (16,10) и пишем то же
-     * значение обратно в (16,10). Если transact принят и эхо не изменилось —
-     * писать в уставку ClimateHub можно. Для проверки РЕАЛЬНОЙ записи можно
-     * один раз нажать при изменённой вручную уставке (см. readEcho до/после).
-     * Машину ставить на паркинг.
-     */
-    private fun writeProbe() {
-        if (job?.isActive == true) return
-        job = scope.launch {
-            withContext(Dispatchers.IO) {
-                try {
-                    val reader = DesayCarReader(applicationContext)
-                    if (!reader.isAvailable()) {
-                        emit("hvac-проба: сервис НЕ НАЙДЕН")
-                        return@withContext
-                    }
-                    val before = reader.readRaw(16, 10)
-                    if (before == null || before.isEmpty()) {
-                        emit("hvac-проба: эхо не читается, писать нечего — стоп")
-                        return@withContext
-                    }
-                    val value = CarScaling.bytesToInt(before)
-                    emit("hvac-проба: (16,10) до = $value, пишу то же значение в (16,10)…")
-                    val ok = reader.write(16, 10, value)
-                    Thread.sleep(1500)
-                    val after = reader.readRaw(16, 10)
-                    val afterInt = if (after == null) "null" else CarScaling.bytesToInt(after).toString()
-                    emit("hvac-проба: transact принят=$ok, (16,10) после = $afterInt")
-                    emit(
-                        if (ok && afterInt == value.toString())
-                            "hvac-проба: ЗАПИСЬ ПРИНИМАЕТСЯ (значение стабильно)"
-                        else if (ok)
-                            "hvac-проба: transact принят, но эхо изменилось ($value → $afterInt) — проверить"
-                        else
-                            "hvac-проба: запись отклонена (нужен root/системное приложение)"
-                    )
-                    emit("hvac-проба: для проверки реальной записи: сдвиньте уставку на штатном климате на +1° и нажмите «Климат: состояние» — значение 16,10 должно измениться; затем нажмите эту пробу ещё раз.")
-                } catch (e: Exception) {
-                    emit("hvac-проба: ОШИБКА ${e.javaClass.simpleName}: ${e.message}")
-                }
             }
         }
     }

@@ -11,7 +11,7 @@ import com.dash.headunit.theme.DashTheme
 import java.util.Locale
 
 /**
- * Виджет «Климат»: только чтение состояния HVAC (Desay шина, [ClimateHub]).
+ * Виджет «Климат»: только чтение состояния HVAC (Desay шина + VHAL, [ClimateHub]).
  * Пока данных нет — прочерк. Никаких команд — только показ.
  */
 class ClimateWidgetView(
@@ -22,7 +22,8 @@ class ClimateWidgetView(
     private val locale = Locale("ru")
     private val hubListener: () -> Unit = { render() }
 
-    private val tempValue = TextView(context)
+    private val tempDriverValue = TextView(context)
+    private val tempPassValue = TextView(context)
     private val fanValue = TextView(context)
     private val modeValue = TextView(context)
     private val autoValue = TextView(context)
@@ -40,7 +41,8 @@ class ClimateWidgetView(
         }
         addView(title, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
 
-        addView(row(context.getString(R.string.cl_temp), tempValue))
+        addView(row(context.getString(R.string.cl_temp_driver), tempDriverValue))
+        addView(row(context.getString(R.string.cl_temp_pass), tempPassValue))
         addView(row(context.getString(R.string.cl_fan), fanValue))
         addView(row(context.getString(R.string.cl_mode), modeValue))
         addView(row(context.getString(R.string.cl_auto), autoValue))
@@ -71,15 +73,21 @@ class ClimateWidgetView(
     private fun render() {
         val s = ClimateHub.data ?: ClimateHub.ClimateState.EMPTY
 
-        val t = s.tempDriverC
-        tempValue.text = if (t != null) {
-            if (t % 1f == 0f) "%.0f°".format(locale, t) else "%.1f°".format(locale, t)
-        } else "—"
+        tempDriverValue.text = tempText(s.tempDriverC)
+        tempPassValue.text = tempText(s.tempPassC)
 
-        fanValue.text = text(s.fanSpeed?.let { "%d" })
+        fanValue.text = text(s.fanSpeed?.toString())
         modeValue.text = directionText(s.fanDirection)
         autoValue.text = onOffText(s.auto)
         acValue.text = onOffText(s.ac)
+    }
+
+    private fun tempText(t: Float?): String {
+        if (t == null) return "—"
+        if (t <= ClimateHub.TEMP_LO) return "LO"
+        if (t >= ClimateHub.TEMP_HI) return "HI"
+        // VHAL-фолбэк может отдать полградуса — показываем как есть.
+        return if (t % 1f == 0f) "%.0f°".format(locale, t) else "%.1f°".format(locale, t)
     }
 
     private fun text(s: String?): String = when (s) {
@@ -87,10 +95,17 @@ class ClimateWidgetView(
         else -> s
     }
 
+    /**
+     * Обдув (Desay 16,6): 1 лицо, 2 ноги, 5 лобовое — по снапшотам ГУ
+     * (17/18/21). 3/4 — комбинации по порядку штатной панели (лицо+ноги,
+     * ноги+лобовое), шинных снапшотов для них нет.
+     */
     private fun directionText(raw: Int?): String = when (raw) {
         null -> "—"
         1 -> context.getString(R.string.cl_mode_face)
         2 -> context.getString(R.string.cl_mode_feet)
+        3 -> context.getString(R.string.cl_mode_face_feet)
+        4 -> context.getString(R.string.cl_mode_feet_windshield)
         5 -> context.getString(R.string.cl_mode_windshield)
         else -> raw.toString()
     }

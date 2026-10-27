@@ -31,12 +31,6 @@ enum class WidgetType(val id: String) {
     /** Спидометр: скорость, обороты, селектор передач. */
     SPEED("speed"),
 
-    /** Тест push: проверка событийной подписки на шину Desay (DesayPushProbe). */
-    PUSH_TEST("push_test"),
-
-    /** Обучение кнопкам: поиск ячеек шины для стёкол/люка/замков и их запись (ActionLearner). */
-    LEARN("learn"),
-
     /** Wi-Fi: статус подключения ГУ, вкл/выкл, выбор сети (WifiHub). */
     WIFI("wifi"),
 
@@ -50,7 +44,7 @@ enum class WidgetType(val id: String) {
                 ?: if (id == "test") REFERENCE else CLOCK
 
         /** Удалённые виджеты: их плитки из сохранённой раскладки выбрасываем. */
-        val REMOVED_IDS = setOf("claude_test")
+        val REMOVED_IDS = setOf("claude_test", "push_test", "learn")
     }
 }
 

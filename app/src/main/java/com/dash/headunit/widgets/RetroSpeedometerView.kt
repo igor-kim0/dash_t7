@@ -12,6 +12,7 @@ import android.os.SystemClock
 import android.view.View
 import com.dash.headunit.car.CarHub
 import com.dash.headunit.car.CarScaling
+import com.dash.headunit.car.ClimateHub
 import com.dash.headunit.car.ClusterPps
 import com.dash.headunit.car.CoolantCalibration
 import com.dash.headunit.car.DemoData
@@ -32,6 +33,10 @@ import kotlin.math.tan
  * в центре — одометр, под ним табличка
  * селектора R N P 1–7 (как в цифровом виде): гравированные буквы,
  * включённая подсвечена «лампой», под ней ездит красный указатель.
+ * По бокам от селектора — таблички климата ([ClimateHub]): слева
+ * вентилятор со скоростью, режим обдува и уставка, справа контрольные
+ * лампы AUTO, A/C, рециркуляции и обдува лобового — гравированные
+ * символы, включённые светятся, как буквы селектора.
  *
  * Рисуется в виртуальных координатах [VW]×[VH] и вписывается в блок
  * с сохранением пропорций. Данные — живой канал [CarHub] (скорость с
@@ -41,6 +46,7 @@ import kotlin.math.tan
 class RetroSpeedometerView(context: Context) : View(context) {
 
     private val hubListener: () -> Unit = { onData() }
+    private val climateListener: () -> Unit = { postInvalidateOnAnimation() }
 
     /** Целевые значения (null — данных нет, стрелка на упоре). */
     private var speedTarget: Float? = null
@@ -97,6 +103,7 @@ class RetroSpeedometerView(context: Context) : View(context) {
         textAlign = Paint.Align.CENTER
         typeface = Typeface.create("sans-serif-condensed", Typeface.BOLD)
     }
+    private val climate = RetroClimateIcons(hood)
     private val rect = RectF()
 
     init {
@@ -114,10 +121,14 @@ class RetroSpeedometerView(context: Context) : View(context) {
         CarHub.init(context)
         CarHub.addLiveListener(hubListener)
         CarHub.ensurePolling()
+        ClimateHub.init(context)
+        ClimateHub.addListener(climateListener)
+        ClimateHub.ensurePolling()
     }
 
     override fun onDetachedFromWindow() {
         CarHub.removeLiveListener(hubListener)
+        ClimateHub.removeListener(climateListener)
         super.onDetachedFromWindow()
     }
 
@@ -181,6 +192,7 @@ class RetroSpeedometerView(context: Context) : View(context) {
         drawSpeedNeedle(canvas)
         drawOdometer(canvas)
         drawGears(canvas)
+        drawClimate(canvas)
 
         canvas.restore()
         if (moving) postInvalidateOnAnimation() else lastFrame = 0L
@@ -345,7 +357,7 @@ class RetroSpeedometerView(context: Context) : View(context) {
                 gearText.color = gearLamp(i)
                 gearText.setShadowLayer(14f, 0f, 0f, gearLamp(i))
             } else {
-                gearText.color = Color.rgb(0x5C, 0x58, 0x4E)
+                gearText.color = RetroClimateIcons.ENGRAVED
                 gearText.clearShadowLayer()
             }
             c.drawText(g, cx, baseline, gearText)
@@ -358,6 +370,66 @@ class RetroSpeedometerView(context: Context) : View(context) {
             rect.set(px - 14f, top + 43f, px + 14f, top + 49f)
             c.drawRoundRect(rect, 3f, 3f, dot)
         }
+    }
+
+    /**
+     * Таблички климата по бокам от селектора, той же высоты. Слева —
+     * вентилятор со скоростью, режим обдува и уставка (обе зоны, если
+     * разошлись), справа — лампы AUTO, A/C, рециркуляции, обдува лобового.
+     * Нет данных или климат выключен — всё гравировкой, без подсветки.
+     */
+    private fun drawClimate(c: Canvas) {
+        val s = ClimateHub.data
+        val on = s != null && s.power != false
+        val ci = climate
+        val text = ci.text
+        val top = GEAR_TOP
+        val cy = top + 29f
+
+        // Левая: вентилятор, обдув, уставка.
+        val x0 = CLIMATE_LEFT_X
+        plate(c, x0, top)
+        val fan = s?.fanSpeed?.takeIf { on && it > 0 }
+        ci.lamp(fan != null, RetroClimateIcons.LAMP_WHITE)
+        ci.fan(c, x0 + 30f, cy)
+        text.textSize = 28f
+        c.drawText(fan?.toString() ?: "–", x0 + 62f, cy + 10f, text)
+        ci.lamp(on && s?.fanDirection != null, RetroClimateIcons.LAMP_WHITE)
+        ci.direction(c, x0 + 104f, cy, s?.fanDirection)
+        ci.lamp(on && s?.tempDriverC != null, RetroClimateIcons.LAMP_WHITE)
+        val temp = if (s?.power == false) "OFF" else tempText(s?.tempDriverC, s?.tempPassC)
+        text.textSize = if (temp.length > 4) 24f else 32f
+        c.drawText(temp, x0 + 166f, cy + 11f, text)
+
+        // Правая: контрольные лампы.
+        val x1 = VW - CLIMATE_LEFT_X - CLIMATE_W
+        val step = CLIMATE_W / 4f
+        plate(c, x1, top)
+        ci.lamp(on && s?.auto == true, RetroClimateIcons.LAMP_GREEN)
+        text.textSize = 20f
+        c.drawText("AUTO", x1 + step * 0.5f, cy + 7f, text)
+        ci.lamp(on && s?.ac == true, RetroClimateIcons.LAMP_BLUE)
+        ci.snowflake(c, x1 + step * 1.5f, cy)
+        ci.lamp(on && s?.recirc == true, RetroClimateIcons.LAMP_GREEN)
+        ci.recirc(c, x1 + step * 2.5f, cy)
+        ci.lamp(on && s?.defrostFront == true, RetroClimateIcons.LAMP_AMBER)
+        ci.defrost(c, x1 + step * 3.5f, cy)
+    }
+
+    /** Уставка: «22°», LO/HI; зоны разошлись — «22·24». */
+    private fun tempText(driver: Float?, pass: Float?): String {
+        if (driver == null || pass == null) return RetroClimateIcons.setpointDeg(driver)
+        val d = RetroClimateIcons.setpoint(driver)
+        val p = RetroClimateIcons.setpoint(pass)
+        return if (p == d) RetroClimateIcons.setpointDeg(driver) else "$d·$p"
+    }
+
+    /** Чёрная пластина таблички в хромированной рамке, как у селектора. */
+    private fun plate(c: Canvas, left: Float, top: Float) {
+        rect.set(left, top, left + CLIMATE_W, top + 58f)
+        c.drawRoundRect(rect, 10f, 10f, hood)
+        bezel.strokeWidth = 2.5f
+        c.drawRoundRect(rect, 10f, 10f, bezel)
     }
 
     /** Цвет «лампы»: R янтарная, N голубая, P зелёная, цифры — тёплый белый. */
@@ -390,5 +462,8 @@ class RetroSpeedometerView(context: Context) : View(context) {
         const val GAUGE_REST = -0.08f
         const val NEEDLE_TAU_MS = 120f
         val RED_MARKS = listOf(60f, 90f)
+        /** Таблички климата: левая от [CLIMATE_LEFT_X], правая зеркально. */
+        const val CLIMATE_LEFT_X = 24f
+        const val CLIMATE_W = 220f
     }
 }

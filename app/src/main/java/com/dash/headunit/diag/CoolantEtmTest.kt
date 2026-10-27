@@ -6,6 +6,7 @@ import android.os.Looper
 import android.util.Log
 import android.widget.Toast
 import com.dash.headunit.car.ClusterParser
+import com.dash.headunit.car.CoolantEtm
 import com.dash.headunit.car.QnxLauncher
 import com.dash.headunit.elm.ElmHub
 import java.io.File
@@ -16,12 +17,8 @@ import java.util.Locale
 /**
  * Проверка «ОЖ в °C от приборки через инженерное меню». Кнопка в CarDebugActivity.
  *
- * Из реверса sva.cluster (QNX-хост 192.168.2.1, образ qnx_system из OTA Cherry
- * Inside, см. «tenet t7/cherry inside info/07_qnx/QNX_SYSTEM.md»):
- *  - в a000 у ОЖ только стрелка (на этой машине «цифровой» слот = стрелке);
- *  - °C есть в a0ff (ETM MCU data 2: b14|b15 × 0.75 − 48), но MCU шлёт его только
- *    после «входа в ETM»: RcDataSendETMEntryState(1) → в /var/pps/spi_service/tx
- *    атрибут xA101 = [0, 0xA1, 0x01, 52, 0] + rc_msg_send_t{u32 0x37, 1, state, 0…}.
+ * Протокол входа/выхода общий с боевым стартом: [CoolantEtm] шлёт вход в tx,
+ * MCU начинает слать a0ff (ETM MCU data 2: b14|b15 × 0.75 − 48).
  *
  * Тест: показывает текущий tx (сверка формата с тем, что пишет sva.cluster),
  * шлёт вход, [TICKS] с читает a0fe/a0ff, шлёт выход. Это запись в MCU — только
@@ -102,15 +99,8 @@ object CoolantEtmTest {
         return "ОЖ через ETM: $res. Отчёт: ${file.name}"
     }
 
-    /** Строка PPS для tx: вход (state=1) / выход (0) из ETM. */
-    internal fun entry(state: Int): String {
-        val msg = IntArray(MSG_LEN)
-        msg[0] = MSG_ETM_ENTRY
-        msg[4] = 1
-        msg[5] = state
-        val data = intArrayOf(0, CMD shr 8, CMD and 0xFF, MSG_LEN, 0) + msg
-        return "xA101:json:{\"data\":[${data.joinToString(",")}]}"
-    }
+    /** Строка PPS для tx: вход (state=1) / выход (0) из ETM — общий [CoolantEtm]. */
+    internal fun entry(state: Int): String = CoolantEtm.entry(state)
 
     private fun save(app: Context, sb: StringBuilder): File {
         val dir = File(app.getExternalFilesDir(null), "cluster").apply { mkdirs() }
@@ -127,13 +117,6 @@ object CoolantEtmTest {
     private val STAMP = SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US)
     private val FILE_STAMP = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US)
     private const val TAG = "CoolantEtm"
-    private const val DIR = "/var/pps/spi_service"
+    private val DIR = CoolantEtm.DIR
     private const val TICKS = 10
-
-    /** Атрибут xA101 = команда 0xA101 (RcDataSendThread, тип сообщения < 0x200). */
-    private const val CMD = 0xA101
-    /** sizeof(rc_msg_send_t). */
-    private const val MSG_LEN = 52
-    /** rc_msg_send_type для RcDataSendETMEntryState. */
-    private const val MSG_ETM_ENTRY = 0x37
 }

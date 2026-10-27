@@ -1,5 +1,6 @@
 package com.dash.headunit.diag
 
+import com.dash.headunit.car.CoolantEtm
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -17,5 +18,12 @@ class CoolantEtmTestTest {
             "xA101:json:{\"data\":[0,161,1,52,0,55,0,0,0,1,0,$zeros]}",
             CoolantEtmTest.entry(0)
         )
+    }
+
+    /** Диагностический тест и боевой старт шлют одинаковые строки. */
+    @Test
+    fun entryMatchesRunningCoolantEtm() {
+        assertEquals(CoolantEtm.entry(1), CoolantEtmTest.entry(1))
+        assertEquals(CoolantEtm.entry(0), CoolantEtmTest.entry(0))
     }
 }

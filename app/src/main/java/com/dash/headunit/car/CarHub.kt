@@ -62,6 +62,7 @@ object CarHub {
             desay = DesayCarReader(app)
             vhal = VhalReader(app)
             CoolantCalibration.init(app)
+            CoolantEtm.init(app)
         }
     }
 

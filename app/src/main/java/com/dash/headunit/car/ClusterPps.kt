@@ -19,7 +19,9 @@ import java.util.Locale
  * изменений «.all?wait,delta» (a000 со скоростью/оборотами приходит
  * ~10 раз в секунду, запись ГУ 2026-10-14); если поток не пошёл —
  * опросом раз в секунду. Скорость и обороты сразу уходят в [onLive].
- * На T18FL3 градусов ОЖ в них пока не нашли — только стрелку.
+ * На T18FL3 градусов ОЖ в a000/a5a5 нет — только стрелка; честные °C шлёт
+ * MCU в a0ff, но только после входа в инженерное меню — [CoolantEtm]
+ * входит при каждом подключении ([ensureEnter] из [session]).
  *
  * Разбор кадров — [ClusterParser]. Поток стартует из [CarHub].
  */
@@ -40,6 +42,14 @@ object ClusterPps {
 
     /** Последние статусы (unix-время мс + текст) — для «Логи для Claude». */
     fun statusHistory(): List<String> = synchronized(history) { history.toList() }
+
+    /** Добавить строку в историю статусов, не меняя текущий [lastStatus]. */
+    internal fun logEvent(message: String) {
+        synchronized(history) {
+            history.add("${System.currentTimeMillis()} $message")
+            while (history.size > HISTORY_MAX) history.removeAt(0)
+        }
+    }
 
     private val parser = ClusterParser()
 
@@ -151,6 +161,10 @@ object ClusterPps {
             lastStatus = "на приборке нет утилит: sh=$sh cat=$cat sleep=$sleep"
             return false
         }
+        // Вход в ETM: без него MCU вообще не шлёт a0ff с °C ОЖ
+        // (см. [CoolantEtm]; троттлинг внутри).
+        val etm = CoolantEtm.ensureEnter()
+        if (etm.isNotEmpty()) logEvent(etm)
         if (!streamFailed) {
             // Поток изменений всего каталога: сначала все объекты целиком,
             // дальше — каждое изменение («@объект» + строки атрибутов).

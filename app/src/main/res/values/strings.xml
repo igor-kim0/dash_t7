@@ -31,6 +31,9 @@
     <string name="speed_style_retro">Стрелочный (ретро)</string>
     <string name="speed_style_vaz">Классика (ВАЗ, с тахометром)</string>
     <string name="speed_style_digital">Цифровой: обороты и передача</string>
+    <string name="climate_style_title">Вид климата</string>
+    <string name="climate_style_text">Текстом</string>
+    <string name="climate_style_icons">Иконками (ретро)</string>
     <string name="settings_cluster_navi">Маршрут навигатора на приборке</string>
     <string name="settings_cluster_mode">Приборка: показывать %s</string>
     <string name="cluster_mode_title">Как показывать маршрут на приборке</string>
@@ -48,6 +51,7 @@
         <item>5. Как 2 + подсказка повторяется каждые 2 с</item>
     </string-array>
     <string name="settings_shade_resume">Открывать шторку при старте, если была открыта в конце поездки</string>
+    <string name="settings_etm_coolant">Температура ОЖ: вход в инженерное меню приборки при старте (запись в tx)</string>
     <string name="settings_trip_journal_keep">Журнал поездок: хранить %s</string>
     <string name="journal_keep_title">Сколько хранить журнал поездок</string>
     <string name="journal_keep_week">неделю (7 дней)</string>
@@ -66,7 +70,6 @@
     <string name="clear_confirm_title">Убрать все блоки?</string>
     <string name="clear_confirm_text">Дашборд останется пустым — блоки придётся добавить заново.</string>
     <string name="clear_confirm_ok">Убрать</string>
-    <string name="cd_debug">Диагностика</string>
     <string name="cd_navi_demo">Демо-маршрут на приборке (30 сек)</string>
     <string name="navi_demo_started">Демо-маршрут подан на приборку</string>
     <string name="navi_demo_failed">Демо не запустилось: %1$s</string>
@@ -154,14 +157,9 @@
     <string name="no_location">Координаты недоступны — показан fallback</string>
     <string name="widget_climate">Климат</string>
     <string name="widget_reference">Справочник</string>
-    <string name="widget_learn">Обучение кнопкам</string>
     <string name="widget_buttons">Кнопки</string>
-    <string name="buttons_send_title">Записать команду в CAN</string>
     <string name="picker_main">Основные</string>
     <string name="picker_debug">Отладка</string>
-    <string name="learn_pick">Какое действие выучить</string>
-    <string name="learn_try_title">Попробовать выполнить</string>
-    <string name="learn_try_go">Выполнить</string>
     <string name="widget_heat">Подогрев</string>
     <string name="widget_outside">За бортом</string>
     <string name="widget_elm">OBD (ELM)</string>
@@ -190,8 +188,6 @@
     <string name="elm_picked">Выбран: %1$s</string>
     <string name="elm_paired_none">спаренных BT-устройств нет</string>
     <string name="widget_speed">Спидометр</string>
-    <string name="widget_push_test">Тест push (Desay)</string>
-    <string name="set_push_title">Push: набор подписок</string>
     <string name="speed_unit">км/ч</string>
     <string name="speed_rpm_unit">×1000</string>
     <string name="heat_driver">Водитель</string>
@@ -202,14 +198,17 @@
     <string name="heat_glass">Стекло</string>
     <string name="heat_zone_unknown">Зона: адрес шины неизвестен</string>
     <string name="heat_wheel_unknown">Обогрев руля: адрес шины неизвестен</string>
-    <string name="cl_temp">Температура</string>
+    <string name="cl_temp_driver">Темп. вод.</string>
+    <string name="cl_temp_pass">Темп. пасс.</string>
     <string name="cl_fan">Вентилятор</string>
     <string name="cl_ac">A/C</string>
     <string name="cl_auto">AUTO</string>
     <string name="cl_mode_face">Лицо</string>
     <string name="cl_mode_feet">Ноги</string>
+    <string name="cl_mode_face_feet">Лицо+ноги</string>
+    <string name="cl_mode_feet_windshield">Ноги+лобовое</string>
     <string name="cl_mode_windshield">Лобовое</string>
-    <string name="cl_mode">Режим</string>
+    <string name="cl_mode">Обдув</string>
     <string name="cl_on">вкл</string>
     <string name="cl_off">выкл</string>
     <string name="widget_wifi">Wi-Fi</string>

@@ -85,6 +85,19 @@ object AppSettings {
         prefs(context).edit().putBoolean(KEY_SHADE_RESUME, enabled).apply()
     }
 
+    /**
+     * Вход в инженерное меню (ETM) приборки ради °C ОЖ
+     * ([com.dash.headunit.car.CoolantEtm]): запись в tx при старте и
+     * переподключениях к приборке. Вкл по умолчанию — осознанная запись
+     * в MCU ради честной температуры ОЖ.
+     */
+    fun etmCoolant(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_ETM_COOLANT, true)
+
+    fun setEtmCoolant(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_ETM_COOLANT, enabled).apply()
+    }
+
     const val CLUSTER_NATIVE = 0
     const val CLUSTER_OVERLAY = 1
     const val CLUSTER_VARIANTS = 5
@@ -100,6 +113,7 @@ object AppSettings {
     private const val KEY_CLUSTER_VARIANT = "cluster_variant"
     private const val KEY_JOURNAL_KEEP_DAYS = "journal_keep_days"
     private const val KEY_SHADE_RESUME = "shade_resume"
+    private const val KEY_ETM_COOLANT = "etm_coolant"
 
     /** Срок хранения журнала поездок по умолчанию, дней. */
     private const val JOURNAL_KEEP_DEFAULT = 7
