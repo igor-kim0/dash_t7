@@ -36,8 +36,15 @@ jobs:
       - name: Build prod release APK
         run: ./gradlew :app:assembleProdRelease
 
+      - name: Release notes from CHANGELOG.md
+        run: |
+          ver="${GITHUB_REF_NAME#v}"; ver="${ver%-dev}"
+          awk -v v="$ver" '/^\[/{f=0} /^## \[/{f=index($0,"## ["v"]")==1; next} f' CHANGELOG.md > release-notes.md
+          cat release-notes.md
+
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
           files: app/build/outputs/apk/prod/release/*.apk
+          body_path: release-notes.md
           generate_release_notes: true
