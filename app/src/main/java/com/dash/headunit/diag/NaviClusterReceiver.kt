@@ -17,6 +17,7 @@ import com.dash.headunit.navi.cluster.ClusterWarnings
 import com.dash.headunit.navi.cluster.Guidance
 import com.dash.headunit.navi.cluster.GuidanceHub
 import com.dash.headunit.navi.cluster.Maneuver
+import com.dash.headunit.navi.cluster.ManeuverGrab
 import com.dash.headunit.navi.cluster.NaviAccessibilityService
 import com.dash.headunit.navi.cluster.YandexNotificationParser
 import com.dash.headunit.settings.AppSettings
@@ -100,11 +101,13 @@ class NaviClusterReceiver : BroadcastReceiver() {
                 if (!NaviUnderlay.peek(sec)) Log.w(TAG, "peek: выреза нет (дашборд не создан?)")
             }
             "demo" -> {
+                // Родной режим: демо идёт подсказками приборки сами (GuidanceHub → ClusterOverlay).
+                val overlay = !ClusterOverlay.isNative(app)
                 GuidanceHub.setDemo(DEMO)
-                ClusterOverlay.show(announce = true)
+                if (overlay) ClusterOverlay.show(announce = true)
                 Handler(Looper.getMainLooper()).postDelayed({
                     GuidanceHub.setDemo(null)
-                    if (GuidanceHub.current == null) ClusterOverlay.hide(announce = true)
+                    if (overlay && GuidanceHub.current == null) ClusterOverlay.hide(announce = true)
                 }, intent.getIntExtra("sec", 30) * 1000L)
             }
             "setup", "dump" -> {
@@ -134,6 +137,9 @@ class NaviClusterReceiver : BroadcastReceiver() {
             .append(SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS Z", Locale.US).format(Date()))
             .append('\n')
         sb.append("настройка «на приборке»: ").append(AppSettings.clusterNavi(context))
+            .append(", режим: ").append(if (ClusterOverlay.isNative(context)) "родной интерфейс" else "своё окно")
+            .append(", TBT идёт: ").append(ClusterTbt.isActive)
+            .append(", вариант: ").append(AppSettings.clusterVariant(context))
             .append(", ширина ").append(AppSettings.clusterWidth(context)).append('\n')
         sb.append("оверлей: ").append(Settings.canDrawOverlays(context))
             .append(", спец. возможности: ").append(ClusterSetup.isA11yEnabled(context))
@@ -153,6 +159,7 @@ class NaviClusterReceiver : BroadcastReceiver() {
 
         sb.append("\n== ведение сейчас\n")
         sb.append(GuidanceHub.current?.let(YandexNotificationParser::describe) ?: "нет").append('\n')
+        sb.append("\n== стрелка с экрана\n").append(ManeuverGrab.lastDump).append('\n')
         sb.append("\n== последнее уведомление навигатора\n").append(GuidanceHub.lastNotificationDump).append('\n')
         sb.append("\n== окна у службы спец. возможностей\n")
             .append(NaviAccessibilityService.instance?.describeWindows() ?: "служба не подключена").append('\n')

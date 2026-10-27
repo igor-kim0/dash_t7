@@ -54,7 +54,7 @@ object YandexNotificationParser {
             if (rv == null) continue
             val root = inflate(context, rv, dump, name) ?: continue
             dumpTree(root, ids, dump, "  ")
-            val g = fromTree(root, ids)
+            val g = fromTree(context, root, ids)
             if (g != null) result = result?.orElse(g) ?: g
         }
         if (result == null) {
@@ -86,7 +86,7 @@ object YandexNotificationParser {
                 .append(rv.layoutId.toString(16)).append("]\n")
         }
 
-    private fun fromTree(root: View, ids: IdLookup): Guidance? {
+    private fun fromTree(context: Context, root: View, ids: IdLookup): Guidance? {
         fun text(name: String): String? =
             (ids.find(root, name) as? TextView)?.takeIf { it.visibility == View.VISIBLE }
                 ?.text?.toString()?.trim()?.takeIf { it.isNotEmpty() }
@@ -94,8 +94,9 @@ object YandexNotificationParser {
         val icon = listOf("nextManeuverView", "nextManeuverViewTinted")
             .mapNotNull { ids.find(root, it) as? ImageView }
             .firstOrNull { it.visibility == View.VISIBLE && it.drawable != null }
+        val iconBmp = icon?.let { render(it) }
         var g = Guidance(
-            maneuverIcon = icon?.let { render(it) },
+            maneuverIcon = iconBmp,
             distance = text("titleView"),
             street = text("descriptionView"),
             remainingDistance = text("remainingDistanceView"),
@@ -104,6 +105,7 @@ object YandexNotificationParser {
         )
         val title = text("notificationTitle")
         g = g.copy(maneuver = GuidanceText.classify(icon?.contentDescription?.toString())
+            ?: iconBmp?.let { ManeuverMatcher.fromIcon(context, it).maneuver }
             ?: GuidanceText.classify(title) ?: GuidanceText.classify(g.street))
         if (g.hasManeuver || g.remainingDistance != null) return g
 

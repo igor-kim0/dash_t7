@@ -15,7 +15,8 @@ import com.dash.headunit.settings.Autostart
  * (view_notification_speedcamera_*), остаток маршрута (textview_eta_*) и
  * карточку манёвра (contextmaneuverview: text_maneuverballoon_distance/metrics,
  * text_nextstreet). Так есть данные, даже когда навигатор на экране и
- * фонового уведомления ведения нет.
+ * фонового уведомления ведения нет. Тип манёвра — по снимку стрелки
+ * ([ManeuverGrab]).
  *
  * Яндекс 14.8 (эмулятор, 2026-10-21): карточка-view видна не всегда — часто
  * манёвр (с полосами) рисуется прямо в карте, тогда его тут нет; у картинки
@@ -110,15 +111,21 @@ class NaviAccessibilityService : AccessibilityService() {
         val limit = SPEED_LIMIT_IDS.firstNotNullOfOrNull { GuidanceText.speedLimit(text(it)) }
         val dist = text("text_maneuverballoon_distance")
         val metrics = text("text_maneuverballoon_metrics")
-        val arrowDesc = node("image_maneuverballoon_maneuver")?.contentDescription?.toString()
+        val arrow = node("image_maneuverballoon_maneuver")
+        val arrowDesc = arrow?.contentDescription?.toString()
         val street = text("text_nextstreet")
+        // Описания у стрелки нет — узнаём её по снимку экрана.
+        val maneuver = GuidanceText.classify(arrowDesc) ?: arrow?.let {
+            val r = android.graphics.Rect().also { b -> it.getBoundsInScreen(b) }
+            ManeuverGrab.maneuver(this, r, street, dist)
+        }
         val camDist = text("view_notification_speedcamera_distance")
         val camLabel = text("view_notification_speedcamera_distance_label")
         val g = Guidance(
             remainingDistance = text("textview_eta_distance"),
             remainingTime = text("textview_eta_time"),
             arrival = text("textview_eta_arrival"),
-            maneuver = GuidanceText.classify(arrowDesc),
+            maneuver = maneuver,
             distance = dist?.let { if (metrics != null) "$it $metrics" else it },
             street = street,
             speedLimit = limit,

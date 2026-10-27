@@ -29,6 +29,30 @@ object AppSettings {
         prefs(context).edit().putBoolean(KEY_CLUSTER_NAVI, enabled).apply()
     }
 
+    /**
+     * Как показывать маршрут на приборке: [CLUSTER_NATIVE] — родной
+     * интерфейс приборки (стрелка, расстояние, улица, знак лимита) или
+     * [CLUSTER_OVERLAY] — своё окно в виде «Карты» приборки.
+     */
+    fun clusterMode(context: Context): Int =
+        prefs(context).getInt(KEY_CLUSTER_MODE, CLUSTER_NATIVE)
+
+    fun setClusterMode(context: Context, mode: Int) {
+        prefs(context).edit().putInt(KEY_CLUSTER_MODE, mode).apply()
+    }
+
+    /**
+     * Вариант родного интерфейса для подбора на ГУ ([CLUSTER_VARIANTS]):
+     * что слать, когда тип манёвра неизвестен (Яндекс на экране), слать ли
+     * знак лимита и повторять ли подсказку. По умолчанию 2.
+     */
+    fun clusterVariant(context: Context): Int =
+        prefs(context).getInt(KEY_CLUSTER_VARIANT, 2).coerceIn(1, CLUSTER_VARIANTS)
+
+    fun setClusterVariant(context: Context, variant: Int) {
+        prefs(context).edit().putInt(KEY_CLUSTER_VARIANT, variant).apply()
+    }
+
     /** Ширина центральной полосы картинки на приборке, px (по бокам — шкалы приборки). */
     fun clusterWidth(context: Context): Int =
         prefs(context).getInt(KEY_CLUSTER_WIDTH, 1100)
@@ -61,6 +85,10 @@ object AppSettings {
         prefs(context).edit().putBoolean(KEY_SHADE_RESUME, enabled).apply()
     }
 
+    const val CLUSTER_NATIVE = 0
+    const val CLUSTER_OVERLAY = 1
+    const val CLUSTER_VARIANTS = 5
+
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
 
@@ -68,6 +96,8 @@ object AppSettings {
     private const val KEY_BAR_LEFT = "bar_side_left"
     private const val KEY_CLUSTER_NAVI = "cluster_navi"
     private const val KEY_CLUSTER_WIDTH = "cluster_width"
+    private const val KEY_CLUSTER_MODE = "cluster_mode"
+    private const val KEY_CLUSTER_VARIANT = "cluster_variant"
     private const val KEY_JOURNAL_KEEP_DAYS = "journal_keep_days"
     private const val KEY_SHADE_RESUME = "shade_resume"
 

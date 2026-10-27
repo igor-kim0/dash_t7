@@ -54,6 +54,8 @@ object CarLanTest {
 
     fun startLimit(context: Context) = start(context, "лимит") { app, sb ->
         CarLanClient.showNaviArea(app, true)
+        // Без паузы первый 4100/4 приборка теряла (ГУ 2026-10-26: знак со шага 2).
+        Thread.sleep(PANEL_WAIT_MS)
         STEPS.forEachIndexed { i, s ->
             val json = CarLanClient.Json.cameraInfo(s[0], s[1], s[2], s[3])
             val label = "шаг ${i + 1}/${STEPS.size}: CameraType=${s[0]} SpeedingInfo=${s[2]} WarningMessage=${s[3]}"
@@ -136,5 +138,6 @@ object CarLanTest {
     )
     private const val VIDEO_SEC = 30
     private const val STEP_SEC = 6
+    private const val PANEL_WAIT_MS = 1500L
     private const val TAG = "CarLanTest"
 }

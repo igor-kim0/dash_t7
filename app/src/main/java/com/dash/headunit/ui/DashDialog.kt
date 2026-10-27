@@ -57,7 +57,7 @@ class DashDialog private constructor() {
          * строка-переход: тап вызывает слушателя, но состояние не меняет
          * (пункт настроек, открывающий вложенный выбор значения).
          */
-        private var multiRouter = -1
+        private var multiRouters = emptySet<Int>()
         private val buttons = arrayOfNulls<Pair<CharSequence, ((DialogInterface, Int) -> Unit)?>>(3)
 
         fun setTitle(res: Int) = apply { title = context.getString(res) }
@@ -88,11 +88,12 @@ class DashDialog private constructor() {
             list: Array<out CharSequence>,
             checked: BooleanArray?,
             routerIndex: Int = -1,
+            routers: Set<Int> = emptySet(),
             listener: ((DialogInterface, Int, Boolean) -> Unit)?
         ) = apply {
             items = list
             multiChecked = checked ?: BooleanArray(list.size)
-            multiRouter = routerIndex
+            multiRouters = routers + routerIndex
             multiListener = listener
             choiceMode = CHOICE_MULTI
         }
@@ -220,7 +221,7 @@ class DashDialog private constructor() {
                             itemsListener?.invoke(dialog, index)
                         }
                     }
-                    CHOICE_MULTI -> if (index == multiRouter) {
+                    CHOICE_MULTI -> if (index in multiRouters) {
                         TextView(context).apply {
                             setOnClickListener { multiListener?.invoke(dialog, index, true) }
                         }

@@ -43,7 +43,6 @@ import com.dash.headunit.navi.NaviUnderlay
 import com.dash.headunit.ui.DashDialog
 import com.dash.headunit.navi.cluster.ClusterOverlay
 import com.dash.headunit.navi.cluster.ClusterSetup
-import com.dash.headunit.navi.cluster.GuidanceHub
 import com.dash.headunit.settings.AppSettings
 import com.dash.headunit.theme.DashTheme
 import com.dash.headunit.theme.ThemeCard
@@ -252,11 +251,15 @@ class MainActivity : AppCompatActivity() {
 
     /** Настройки приложения: автозапуск, сторона колонки, приборка, шторка, журнал поездок. */
     private fun showSettingsDialog() {
-        val journalKeepRow = 4
+        val clusterModeRow = 3
+        val clusterVariantRow = 4
+        val journalKeepRow = 6
         val items = arrayOf(
             getString(R.string.settings_autostart),
             getString(R.string.settings_bar_left),
             getString(R.string.settings_cluster_navi),
+            getString(R.string.settings_cluster_mode, clusterModeLabel(AppSettings.clusterMode(this))),
+            getString(R.string.settings_cluster_variant, AppSettings.clusterVariant(this)),
             getString(R.string.settings_shade_resume),
             getString(
                 R.string.settings_trip_journal_keep,
@@ -267,18 +270,28 @@ class MainActivity : AppCompatActivity() {
             AppSettings.autostart(this),
             AppSettings.barSideLeft(this),
             AppSettings.clusterNavi(this),
+            false,
+            false,
             AppSettings.shadeResume(this),
             false
         )
         DashDialog.Builder(this)
             .setTitle(R.string.settings_title)
-            .setMultiChoiceItems(items, checked, routerIndex = journalKeepRow) { dlg, which, isChecked ->
-                if (which == journalKeepRow) {
-                    checked[which] = false
-                    dlg.dismiss()
-                    showJournalKeepDialog()
-                } else {
-                    checked[which] = isChecked
+            .setMultiChoiceItems(items, checked, routers = setOf(clusterModeRow, clusterVariantRow, journalKeepRow)) { dlg, which, isChecked ->
+                when (which) {
+                    clusterModeRow -> {
+                        dlg.dismiss()
+                        showClusterModeDialog()
+                    }
+                    clusterVariantRow -> {
+                        dlg.dismiss()
+                        showClusterVariantDialog()
+                    }
+                    journalKeepRow -> {
+                        dlg.dismiss()
+                        showJournalKeepDialog()
+                    }
+                    else -> checked[which] = isChecked
                 }
             }
             .setPositiveButton(R.string.edit_done) { _, _ ->
@@ -287,7 +300,7 @@ class MainActivity : AppCompatActivity() {
                 applyBarSide()
                 applyClusterNavi(checked[2])
                 // Шторка: настройка проверяется при следующем старте.
-                AppSettings.setShadeResume(this, checked[3])
+                AppSettings.setShadeResume(this, checked[5])
             }
             .setNegativeButton(R.string.dialog_cancel, null)
             .showFullScreen()
@@ -325,6 +338,65 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton(R.string.dialog_cancel) { _, _ -> showSettingsDialog() }
             .showFullScreen()
     }
+
+    /**
+     * Как показывать маршрут на приборке ([AppSettings.clusterMode]):
+     * родной интерфейс или своё окно в «Картах». Если маршрут на приборке
+     * включён — сразу переключаем ([ClusterOverlay.applySettings]).
+     */
+    private fun showClusterModeDialog() {
+        val modes = intArrayOf(AppSettings.CLUSTER_NATIVE, AppSettings.CLUSTER_OVERLAY)
+        val labels = arrayOf(
+            getString(R.string.cluster_mode_native_full),
+            getString(R.string.cluster_mode_overlay_full)
+        )
+        var selected = modes.indexOf(AppSettings.clusterMode(this)).coerceAtLeast(0)
+        DashDialog.Builder(this)
+            .setTitle(R.string.cluster_mode_title)
+            .setSingleChoiceItems(labels, selected) { _, which ->
+                selected = which
+            }
+            .setPositiveButton(R.string.edit_done) { _, _ ->
+                if (modes[selected] != AppSettings.clusterMode(this)) {
+                    AppSettings.setClusterMode(this, modes[selected])
+                    ClusterOverlay.init(applicationContext)
+                    ClusterOverlay.applySettings()
+                }
+                showSettingsDialog()
+            }
+            .setNegativeButton(R.string.dialog_cancel) { _, _ -> showSettingsDialog() }
+            .showFullScreen()
+    }
+
+    /**
+     * Вариант родного интерфейса приборки ([AppSettings.clusterVariant]) —
+     * подбор на ГУ, почему подсказки пропадают с Яндексом на экране.
+     * Применяется сразу ([ClusterOverlay.applySettings]).
+     */
+    private fun showClusterVariantDialog() {
+        val labels = resources.getStringArray(R.array.cluster_variants)
+        var selected = AppSettings.clusterVariant(this) - 1
+        DashDialog.Builder(this)
+            .setTitle(R.string.cluster_variant_title)
+            .setSingleChoiceItems(labels, selected) { _, which ->
+                selected = which
+            }
+            .setPositiveButton(R.string.edit_done) { _, _ ->
+                if (selected + 1 != AppSettings.clusterVariant(this)) {
+                    AppSettings.setClusterVariant(this, selected + 1)
+                    ClusterOverlay.init(applicationContext)
+                    ClusterOverlay.applySettings()
+                }
+                showSettingsDialog()
+            }
+            .setNegativeButton(R.string.dialog_cancel) { _, _ -> showSettingsDialog() }
+            .showFullScreen()
+    }
+
+    /** «родной интерфейс / своё окно» — для строки настроек. */
+    private fun clusterModeLabel(mode: Int): String = getString(
+        if (mode == AppSettings.CLUSTER_OVERLAY) R.string.cluster_mode_overlay else R.string.cluster_mode_native
+    )
 
     /** «неделю / 2 недели / месяц / всегда» — для строки настроек. */
     private fun journalKeepLabel(days: Int): String = getString(
@@ -377,7 +449,8 @@ class MainActivity : AppCompatActivity() {
             val report = ClusterSetup.ensureAll(app)
             runOnUiThread {
                 Toast.makeText(app, report, Toast.LENGTH_LONG).show()
-                ClusterOverlay.show(announce = GuidanceHub.current != null)
+                ClusterOverlay.init(app)
+                ClusterOverlay.applySettings()
             }
         }.start()
     }
@@ -1089,8 +1162,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Настройки «Часов»: масштаб текста (×0.5 … ×2.0)
-     * и жирный шрифт времени (см. [ComboWidgetView.OPT_SCALE]).
+     * Настройки «Часов»: масштаб текста (×0.5 … ×2.0), жирный шрифт времени
+     * и перекидной вид как у HTC (см. [ComboWidgetView.OPT_SCALE]).
      */
     private fun showClockSettings(widgetId: String) {
         val scales = ComboWidgetView.SCALES
@@ -1098,6 +1171,8 @@ class MainActivity : AppCompatActivity() {
             settingsStore.getOption(widgetId, ComboWidgetView.OPT_SCALE, ComboWidgetView.DEFAULT_SCALE)
         ).coerceAtLeast(0)
         var bold = ComboWidgetView.boldValue(settingsStore, widgetId)
+        var flip = ComboWidgetView.styleValue(settingsStore, widgetId) == ComboWidgetView.STYLE_FLIP
+        var invert = ComboWidgetView.invertValue(settingsStore, widgetId)
 
         val pad = (16 * resources.displayMetrics.density).toInt()
         val root = android.widget.LinearLayout(this).apply {
@@ -1130,6 +1205,24 @@ class MainActivity : AppCompatActivity() {
                 setOnCheckedChangeListener { _, isCheckedNow -> bold = isCheckedNow }
             }
         )
+        root.addView(
+            android.widget.CheckBox(this).apply {
+                text = getString(R.string.clock_flip)
+                textSize = 18f
+                setTextColor(theme.primaryText)
+                isChecked = flip
+                setOnCheckedChangeListener { _, isCheckedNow -> flip = isCheckedNow }
+            }
+        )
+        root.addView(
+            android.widget.CheckBox(this).apply {
+                text = getString(R.string.clock_flip_invert)
+                textSize = 18f
+                setTextColor(theme.primaryText)
+                isChecked = invert
+                setOnCheckedChangeListener { _, isCheckedNow -> invert = isCheckedNow }
+            }
+        )
 
         DashDialog.Builder(this)
             .setTitle(R.string.set_clock_title)
@@ -1138,6 +1231,13 @@ class MainActivity : AppCompatActivity() {
                 settingsStore.setOption(widgetId, ComboWidgetView.OPT_SCALE, scales[selected])
                 settingsStore.setOption(
                     widgetId, ComboWidgetView.OPT_BOLD, if (bold) "1" else "0"
+                )
+                settingsStore.setOption(
+                    widgetId, ComboWidgetView.OPT_STYLE,
+                    if (flip) ComboWidgetView.STYLE_FLIP else ComboWidgetView.STYLE_DIGITAL
+                )
+                settingsStore.setOption(
+                    widgetId, ComboWidgetView.OPT_INVERT, if (invert) "1" else "0"
                 )
                 buildWidgets(readSpecs())
             }

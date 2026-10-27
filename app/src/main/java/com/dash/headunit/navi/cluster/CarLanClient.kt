@@ -37,8 +37,12 @@ import android.util.Log
 @SuppressLint("StaticFieldLeak") // только applicationContext
 object CarLanClient {
 
-    /** Слать ли в CarLan из маршрута (до перезапуска процесса; adb NAVI_CLUSTER cmd carlan_on). */
-    @Volatile var enabled = false
+    /**
+     * Слать ли в CarLan из маршрута. На ГУ 2026-10-26 подтверждены видео
+     * (2+5) и знак лимита (4) — включено; выключить для проверки до
+     * перезапуска процесса: adb NAVI_CLUSTER cmd carlan_on --ez on false.
+     */
+    @Volatile var enabled = true
 
     private val thread = HandlerThread("CarLan").apply { start() }
     private val worker = Handler(thread.looper)

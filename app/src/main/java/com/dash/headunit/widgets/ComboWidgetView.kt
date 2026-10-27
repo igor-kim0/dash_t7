@@ -19,7 +19,8 @@ import java.util.Locale
  * Забортная температура живёт отдельным виджетом ([OutsideWidgetView]).
  *
  * Время тикает каждую секунду. Размер текста умножается на настройку
- * масштаба [OPT_SCALE].
+ * масштаба [OPT_SCALE]. Опция [OPT_STYLE] = [STYLE_FLIP] — перекидные
+ * карточки как у HTC ([FlipClockView]), они заполняют виджет целиком.
  */
 class ComboWidgetView(
     context: Context,
@@ -30,6 +31,7 @@ class ComboWidgetView(
 
     private val timeView = TextView(context)
     private val dateView = TextView(context)
+    private var flipView: FlipClockView? = null
 
     private val locale = Locale("ru")
     private val handler = Handler(Looper.getMainLooper())
@@ -57,14 +59,23 @@ class ComboWidgetView(
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f * scale)
             gravity = Gravity.CENTER
         }
-        addView(timeView, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
+        if (settings != null && styleValue(settings, widgetId) == STYLE_FLIP) {
+            val flip = FlipClockView(context, theme, bold, invertValue(settings, widgetId))
+            flipView = flip
+            addView(flip, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+        } else {
+            addView(timeView, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
+        }
         addView(dateView, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
 
         renderClock(Date())
     }
 
     private fun renderClock(now: Date) {
-        timeView.text = SimpleDateFormat("HH:mm", locale).format(now)
+        val time = SimpleDateFormat("HH:mm", locale).format(now)
+        val flip = flipView
+        if (flip != null) flip.setTime(time.substring(0, 2), time.substring(3, 5))
+        else timeView.text = time
         dateView.text = SimpleDateFormat("EEEE, d MMMM", locale).format(now)
             .replaceFirstChar { it.uppercaseChar() }
     }
@@ -92,6 +103,20 @@ class ComboWidgetView(
         /** Значение масштаба [widgetId]; повреждённое опускается до 1.0. */
         fun scaleValue(settings: WidgetSettingsStore, widgetId: String): Float =
             settings.getOption(widgetId, OPT_SCALE, DEFAULT_SCALE).toFloatOrNull() ?: 1f
+
+        /** Опция «Вид»: [STYLE_DIGITAL] (обычный текст) / [STYLE_FLIP] (перекидные, HTC). */
+        const val OPT_STYLE = "style"
+        const val STYLE_DIGITAL = "digital"
+        const val STYLE_FLIP = "flip"
+
+        fun styleValue(settings: WidgetSettingsStore, widgetId: String): String =
+            settings.getOption(widgetId, OPT_STYLE, STYLE_DIGITAL)
+
+        /** Опция «Инверсия» перекидных часов: "1" — тёмные карточки, светлые цифры. */
+        const val OPT_INVERT = "invert"
+
+        fun invertValue(settings: WidgetSettingsStore, widgetId: String): Boolean =
+            settings.getOption(widgetId, OPT_INVERT, "0") == "1"
 
         fun boldValue(settings: WidgetSettingsStore, widgetId: String): Boolean =
             settings.getOption(widgetId, OPT_BOLD, DEFAULT_BOLD) == "1"
