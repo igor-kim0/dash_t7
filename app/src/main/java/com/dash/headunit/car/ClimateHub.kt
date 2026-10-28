@@ -28,7 +28,8 @@ import kotlinx.coroutines.withContext
  *   16,18  климат активен     1=работает (AC_SWITCH)
  *   16,24  обдув лобового     1=вкл (AC_MAX_DEFROST_STATE)
  *   16,65  обогрев лобового   1=вкл (AC_FRONT_WINDSHIELD_HEATING, как в Jarvis)
- *   0,95   подогрев сиденья вод. 0..3
+ *   0,95   подогрев сиденья вод. 0..3 (0,96 — пасс.)
+ *   16,70  подогрев руля     1=вкл
  *
  * Температура: PRIMARY — Desay raw 16,10/16,13 со шкалой [scaleTemp]
  * («1°»: raw 10 = 25 °C, сверено с панелью на машине). Фолбэк — VHAL
@@ -39,7 +40,7 @@ import kotlinx.coroutines.withContext
  * Доп. канальные значения (чтение): 4,15 дверь, 0,100..102 окна,
  * 4,79 аварийка, 4,75 ручник, 0,27 двигатель запущен.
  *
- * Записи здесь нет (команды в шину — в тех виджетах, которым они нужны):
+ * Записи здесь нет (команды в шину — [ClimateControl], HeatWidgetView):
  * - Request-ячейки (16,22/16,23 AC_DRIVER/PASSENGER_TEMP_SET, 16,2 WIND_MODE,
  *   16,24 WIND_LEVEL_SET скорость, 16,1 AUTO, 16,0 AC_SWITCH, 16,45/46
  *   BLOWER_OPEN/CLOSE) подтверждаются read-back по Response-ячейкам.
@@ -98,7 +99,11 @@ object ClimateHub {
         /** Обогрев лобового стекла (16,65). */
         val windshieldHeat: Boolean? = null,
         /** Подогрев сиденья водителя 0..3 (0,95). */
-        val seatHeatDriver: Int? = null
+        val seatHeatDriver: Int? = null,
+        /** Подогрев сиденья пассажира 0..3 (0,96). */
+        val seatHeatPass: Int? = null,
+        /** Подогрев руля (16,70). */
+        val wheelHeat: Boolean? = null
     ) {
         companion object {
             val EMPTY = ClimateState(
@@ -215,7 +220,9 @@ object ClimateHub {
             // Jarvis: SYNC читается с 16,3 (0 = вкл), обогрев лобового — 16,65.
             sync = boolOr(desay.readInt(G, 3))?.not(),
             windshieldHeat = boolOr(desay.readInt(G, 65)),
-            seatHeatDriver = desay.readInt(0, 95).takeIf { it in 0..3 }
+            seatHeatDriver = desay.readInt(0, 95).takeIf { it in 0..3 },
+            seatHeatPass = desay.readInt(0, 96).takeIf { it in 0..3 },
+            wheelHeat = boolOr(desay.readInt(G, 70))
         )
     }
 

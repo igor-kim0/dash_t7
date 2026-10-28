@@ -31,6 +31,8 @@ class WidgetFrame(
     val widgetType: WidgetType,
     private var editing: Boolean = false,
     private val theme: com.dash.headunit.theme.DashTheme = com.dash.headunit.theme.DashTheme.DARK,
+    /** Вид «Ретро» ([com.dash.headunit.theme.RetroLook]): фон — табличка в рамке. */
+    private val retro: Boolean = false,
     var onGeometryChanged: (() -> Unit)? = null,
     var onDelete: (() -> Unit)? = null,
     var onSettings: (() -> Unit)? = null
@@ -145,7 +147,7 @@ class WidgetFrame(
     }
 
     init {
-        background = com.dash.headunit.theme.ThemeCard.widget(context, theme)
+        background = baseBackground()
         // Бейдж наполовину выступает за край — не обрезаем его.
         clipChildren = false
         clipToPadding = false
@@ -190,9 +192,14 @@ class WidgetFrame(
      * видно, за что тянуть.
      */
     fun restoreBackground() {
-        background = if (editing) com.dash.headunit.theme.ThemeCard.card(context, theme)
-        else com.dash.headunit.theme.ThemeCard.widget(context, theme)
+        background = if (editing && !retro) com.dash.headunit.theme.ThemeCard.card(context, theme)
+        else baseBackground()
     }
+
+    /** Фон вне редактирования: ретро-табличка или карточка темы (в плоской — нет). */
+    private fun baseBackground() =
+        if (retro) com.dash.headunit.theme.RetroLook.panel(context)
+        else com.dash.headunit.theme.ThemeCard.widget(context, theme)
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {

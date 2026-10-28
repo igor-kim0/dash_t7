@@ -36,6 +36,7 @@ import com.dash.headunit.dashboard.WidgetSpec
 import com.dash.headunit.dashboard.WidgetType
 import com.dash.headunit.elm.ElmHub
 import com.dash.headunit.car.CoolantEtm
+import com.dash.headunit.car.HvacShade
 import com.dash.headunit.car.TripTracker
 import com.dash.headunit.navi.HoleBackground
 import com.dash.headunit.navi.NaviUnderlay
@@ -44,6 +45,7 @@ import com.dash.headunit.navi.cluster.ClusterOverlay
 import com.dash.headunit.navi.cluster.ClusterSetup
 import com.dash.headunit.settings.AppSettings
 import com.dash.headunit.theme.DashTheme
+import com.dash.headunit.theme.RetroLook
 import com.dash.headunit.theme.ThemeCard
 import com.dash.headunit.theme.ThemeStore
 import com.dash.headunit.widgets.CarWidgetView
@@ -57,6 +59,7 @@ import com.dash.headunit.widgets.AppWidgetView
 import com.dash.headunit.widgets.ButtonsWidgetView
 import com.dash.headunit.widgets.NavApps
 import com.dash.headunit.widgets.TripWidgetView
+import com.dash.headunit.widgets.ClimateControlView
 import com.dash.headunit.widgets.ClimateIconsView
 import com.dash.headunit.widgets.ClimateWidgetView
 import com.dash.headunit.widgets.HeatWidgetView
@@ -180,6 +183,8 @@ class MainActivity : AppCompatActivity() {
         // Навигатор мог остаться в границах блока после падения.
         NaviUnderlay.resetOnStart(this)
         NaviUnderlay.installCrashReset(this)
+        // Штатная служба климата могла остаться остановленной (HvacShade).
+        HvacShade.restoreOnStart(this)
 
         buildWidgets(store.load())
         updateStatusIcons()
@@ -200,6 +205,7 @@ class MainActivity : AppCompatActivity() {
         // вернуть экран целиком, навигатор под нами больше не гарантирован.
         underlayPkg = null
         NaviUnderlay.setHole(this, null)
+        ClusterOverlay.naviVisible(false)
     }
 
     /**
@@ -489,7 +495,14 @@ class MainActivity : AppCompatActivity() {
         }
         if (message != null) {
             view?.showMessage(message)
+            // Канал разрешали раньше и он вот-вот подключится — запустить
+            // навигатор уже сейчас: его холодный старт — самое долгое на
+            // запуске дашборда, пусть идёт параллельно с adb и первым кадром.
+            if (view != null && pkg.isNotEmpty() && !editMode && view.installed(pkg) &&
+                (connecting || NaviUnderlay.shellReady == null) && NaviUnderlay.isAuthorized(this)
+            ) launchNavi(pkg)
             setNaviHole(null)
+            ClusterOverlay.naviVisible(false)
             // Без блока навигатора экран должен быть целым.
             if (!editMode) NaviUnderlay.setHole(this, null)
             // Канал уже разрешали раньше — подключаемся сами, без касания.
@@ -499,14 +512,10 @@ class MainActivity : AppCompatActivity() {
             return
         }
         view!!
-        if (underlayPkg != pkg) {
-            if (!NaviUnderlay.launchUnder(this, pkg)) {
-                view.showMessage(getString(R.string.navi_failed, NaviUnderlay.lastStatus))
-                return
-            }
-            underlayPkg = pkg
-            underlayLaunchedAt = System.currentTimeMillis()
-            resumeKickPending = true
+        if (!launchNavi(pkg)) {
+            view.showMessage(getString(R.string.navi_failed, NaviUnderlay.lastStatus))
+            ClusterOverlay.naviVisible(false)
+            return
         }
         view.showActive()
         // Границы блока известны только после раскладки.
@@ -524,6 +533,17 @@ class MainActivity : AppCompatActivity() {
         frame.getLocationInWindow(loc)
         val inWindow = Rect(loc[0], loc[1], loc[0] + frame.width, loc[1] + frame.height)
         setNaviHole(inWindow, view.expandButton)
+        ClusterOverlay.naviVisible(true)
+    }
+
+    /** Запустить навигатор [pkg] под дашбордом, если он там ещё не запущен. */
+    private fun launchNavi(pkg: String): Boolean {
+        if (underlayPkg == pkg) return true
+        if (!NaviUnderlay.launchUnder(this, pkg)) return false
+        underlayPkg = pkg
+        underlayLaunchedAt = System.currentTimeMillis()
+        resumeKickPending = true
+        return true
     }
 
     /**
@@ -606,45 +626,56 @@ class MainActivity : AppCompatActivity() {
         specs.forEach { spec ->
             // Продовая сборка игнорирует виджеты вне утверждённого набора.
             if (!WidgetAvailability.isEnabled(spec.type)) return@forEach
+            // Общий вид «Ретро» — у виджетов без своей ретро-отрисовки.
+            val retro = spec.type !in OWN_RETRO && RetroLook.isOn(settingsStore, spec.widgetId)
+            val wTheme = if (retro) RetroLook.THEME else theme
             val content: View = when (spec.type) {
-                WidgetType.CLOCK -> ClockWidgetView(this, theme)
-                WidgetType.COMBO -> ComboWidgetView(this, spec.widgetId, theme, settingsStore)
-                WidgetType.WEATHER -> ForecastStripView(this, spec.widgetId, theme, settingsStore)
-                WidgetType.CAR -> CarWidgetView(this, theme, spec.widgetId, settingsStore)
-                WidgetType.MUSIC -> MusicWidgetView(this, theme)
-                WidgetType.WIFI -> WifiWidgetView(this, theme)
-                WidgetType.APP -> AppWidgetView(this, spec.widgetId, theme, settingsStore).apply {
+                WidgetType.CLOCK -> ClockWidgetView(this, wTheme)
+                WidgetType.COMBO -> ComboWidgetView(this, spec.widgetId, wTheme, settingsStore)
+                WidgetType.WEATHER -> ForecastStripView(this, spec.widgetId, wTheme, settingsStore)
+                WidgetType.CAR -> CarWidgetView(this, wTheme, spec.widgetId, settingsStore)
+                WidgetType.MUSIC -> MusicWidgetView(this, wTheme)
+                WidgetType.WIFI -> WifiWidgetView(this, wTheme)
+                WidgetType.APP -> AppWidgetView(this, spec.widgetId, wTheme, settingsStore).apply {
                     onTapIdle = { if (!editMode) connectShell() }
                     onExpand = { openNaviFull() }
                 }
-                WidgetType.TRIP -> TripWidgetView(this, theme)
+                WidgetType.TRIP -> TripWidgetView(this, wTheme)
                 WidgetType.CLIMATE ->
                     if (settingsStore.getOption(spec.widgetId, OPT_CLIMATE_STYLE, CLIMATE_TEXT) == CLIMATE_ICONS) {
                         ClimateIconsView(this)
                     } else {
-                        ClimateWidgetView(this, theme)
+                        ClimateWidgetView(this, wTheme)
                     }
-                WidgetType.REFERENCE -> ReferenceWidgetView(this, theme)
-                WidgetType.HEAT -> HeatWidgetView(this, theme)
-                WidgetType.OUTSIDE -> OutsideWidgetView(this, theme)
-                WidgetType.ELM -> ElmWidgetView(this, theme, spec.widgetId, settingsStore)
+                WidgetType.CLIMATE_CONTROL -> ClimateControlView(
+                    this, wTheme,
+                    retro = settingsStore.getOption(
+                        spec.widgetId, ClimateControlView.OPT_THEME, ClimateControlView.THEME_CLASSIC
+                    ) == ClimateControlView.THEME_RETRO,
+                    items = ClimateControlView.selected(settingsStore, spec.widgetId)
+                )
+                WidgetType.REFERENCE -> ReferenceWidgetView(this, wTheme)
+                WidgetType.HEAT -> HeatWidgetView(this, wTheme)
+                WidgetType.OUTSIDE -> OutsideWidgetView(this, wTheme)
+                WidgetType.ELM -> ElmWidgetView(this, wTheme, spec.widgetId, settingsStore)
                 WidgetType.SPEED ->
                     when (settingsStore.getOption(spec.widgetId, OPT_SPEED_STYLE, SPEED_RETRO)) {
-                        SPEED_DIGITAL -> SpeedWidgetView(this, theme)
+                        SPEED_DIGITAL -> SpeedWidgetView(this, wTheme)
                         SPEED_VAZ -> VazClusterView(this)
                         else -> RetroSpeedometerView(this)
                     }
-                WidgetType.BUTTONS -> ButtonsWidgetView(this, theme)
+                WidgetType.BUTTONS -> ButtonsWidgetView(this, wTheme)
             }
             val frame = WidgetFrame(
                 context = this,
                 widgetId = spec.widgetId,
                 widgetType = spec.type,
                 editing = editMode,
-                theme = theme,
+                theme = wTheme,
+                retro = retro,
                 onGeometryChanged = { persistLayout() },
                 onDelete = { removeWidget(spec.widgetId) },
-                // Настройки: погода, приложение и метрики «Автомобиля».
+                // Настройки: свои у части виджетов, у остальных — только вид.
                 onSettings = when (spec.type) {
                     WidgetType.WEATHER -> {
                         { showWeatherSettings(spec.widgetId) }
@@ -664,13 +695,19 @@ class MainActivity : AppCompatActivity() {
                     WidgetType.CLIMATE -> {
                         { showClimateSettings(spec.widgetId) }
                     }
+                    WidgetType.CLIMATE_CONTROL -> {
+                        { showClimateControlSettings(spec.widgetId) }
+                    }
                     WidgetType.COMBO -> {
                         { showClockSettings(spec.widgetId) }
                     }
-                    else -> null
+                    else -> {
+                        { showLookSettings(spec.widgetId) }
+                    }
                 }
             )
             frame.setContent(content)
+            if (retro) RetroLook.applyText(content)
             val lp = DashboardGridLayout.LayoutParams(spec.x, spec.y, spec.w, spec.h)
             dashboard.addView(frame, lp)
             if (spec.type == WidgetType.APP) {
@@ -742,12 +779,13 @@ class MainActivity : AppCompatActivity() {
         PickerItem(WidgetType.TRIP, R.string.widget_trip, R.drawable.ic_journal),
         PickerItem(WidgetType.SPEED, R.string.widget_speed, R.drawable.ic_gauge),
         PickerItem(WidgetType.OUTSIDE, R.string.widget_outside, R.drawable.ic_thermo),
+        PickerItem(WidgetType.CLIMATE, R.string.widget_climate, R.drawable.ic_fan),
+        PickerItem(WidgetType.CLIMATE_CONTROL, R.string.widget_climate_control, R.drawable.ic_fan),
+        PickerItem(WidgetType.BUTTONS, R.string.widget_buttons, R.drawable.ic_grid),
         // Отладочная секция: в prod не попадают (WidgetAvailability).
-        PickerItem(WidgetType.CLIMATE, R.string.widget_climate, R.drawable.ic_fan, debug = true),
         PickerItem(WidgetType.REFERENCE, R.string.widget_reference, R.drawable.ic_book, debug = true),
         PickerItem(WidgetType.HEAT, R.string.widget_heat, R.drawable.ic_seat_heat, debug = true),
         PickerItem(WidgetType.ELM, R.string.widget_elm, R.drawable.ic_obd, debug = true),
-        PickerItem(WidgetType.BUTTONS, R.string.widget_buttons, R.drawable.ic_grid, debug = true),
     ).filter { WidgetAvailability.isEnabled(it.type) }
 
     /**
@@ -906,6 +944,7 @@ class MainActivity : AppCompatActivity() {
             WidgetType.APP -> 92 to 40
             WidgetType.TRIP -> 92 to 24
             WidgetType.CLIMATE -> 92 to 40
+            WidgetType.CLIMATE_CONTROL -> 92 to 24
             WidgetType.REFERENCE -> 56 to 40
             WidgetType.HEAT -> 60 to 32
             WidgetType.OUTSIDE -> 40 to 20
@@ -1020,6 +1059,8 @@ class MainActivity : AppCompatActivity() {
         units.addView(radioC)
         units.addView(radioF)
         root.addView(units)
+        val (lookView, look) = lookPicker(widgetId)
+        root.addView(lookView, 0)
 
         DashDialog.Builder(this)
             .setTitle(R.string.set_title)
@@ -1028,6 +1069,7 @@ class MainActivity : AppCompatActivity() {
                 settingsStore.setDays(widgetId, days)
                 settingsStore.setHours(widgetId, hours)
                 settingsStore.setUnit(widgetId, unit)
+                settingsStore.setOption(widgetId, RetroLook.OPT_LOOK, look())
                 buildWidgets(readSpecs())
             }
             .setNegativeButton(R.string.dialog_cancel, null)
@@ -1040,6 +1082,54 @@ class MainActivity : AppCompatActivity() {
      * Видимость — [CarWidgetView.OPT_ITEMS] (пусто = все),
      * порядок всех метрик — [CarWidgetView.OPT_ORDER].
      */
+    /** Настройки виджета без своих опций — только вид ([RetroLook]). */
+    private fun showLookSettings(widgetId: String) {
+        val (picker, look) = lookPicker(widgetId)
+        DashDialog.Builder(this)
+            .setTitle(R.string.set_look_title)
+            .setView(picker)
+            .setPositiveButton(R.string.edit_done) { _, _ ->
+                settingsStore.setOption(widgetId, RetroLook.OPT_LOOK, look())
+                buildWidgets(readSpecs())
+            }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .showFullScreen()
+    }
+
+    /**
+     * Выбор вида «Обычный / Ретро» для диалога настроек: вью и выбранное
+     * значение [RetroLook.OPT_LOOK] на момент «Готово».
+     */
+    private fun lookPicker(widgetId: String): Pair<View, () -> String> {
+        val looks = listOf(RetroLook.LOOK_CLASSIC, RetroLook.LOOK_RETRO)
+        var sel = settingsStore.getOption(widgetId, RetroLook.OPT_LOOK, RetroLook.LOOK_CLASSIC)
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        val root = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(pad, pad / 2, pad, pad / 2)
+        }
+        root.addView(android.widget.TextView(this).apply {
+            text = getString(R.string.look_title)
+            textSize = 14f
+            setTextColor(theme.secondaryText)
+        })
+        val group = android.widget.RadioGroup(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+        }
+        listOf(R.string.look_classic, R.string.look_retro).forEachIndexed { i, res ->
+            group.addView(android.widget.RadioButton(this).apply {
+                id = View.generateViewId()
+                text = getString(res)
+                textSize = 16f
+                setTextColor(theme.primaryText)
+                isChecked = looks[i] == sel || (i == 0 && sel !in looks)
+                setOnCheckedChangeListener { _, on -> if (on) sel = looks[i] }
+            })
+        }
+        root.addView(group)
+        return root to { sel }
+    }
+
     /** Вид «Спидометра»: ретро-стрелочный, классика ВАЗ или цифровой. */
     private fun showSpeedSettings(widgetId: String) {
         val styles = listOf(SPEED_RETRO, SPEED_VAZ, SPEED_DIGITAL)
@@ -1083,6 +1173,111 @@ class MainActivity : AppCompatActivity() {
             }
             .setPositiveButton(R.string.edit_done) { _, _ ->
                 settingsStore.setOption(widgetId, OPT_CLIMATE_STYLE, styles[selected])
+                buildWidgets(readSpecs())
+            }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .showFullScreen()
+    }
+
+    /**
+     * Настройки «Управления климатом»: тема (классическая / ретро) и
+     * состав кнопок с порядком — как у «Автомобиля» ([showCarSettings]).
+     */
+    private fun showClimateControlSettings(widgetId: String) {
+        val themes = listOf(ClimateControlView.THEME_CLASSIC, ClimateControlView.THEME_RETRO)
+        var themeSel = settingsStore.getOption(widgetId, ClimateControlView.OPT_THEME, ClimateControlView.THEME_CLASSIC)
+        val order = ClimateControlView.order(settingsStore, widgetId).toMutableList()
+        val checked = ClimateControlView.selected(settingsStore, widgetId).toMutableSet()
+
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        val content = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(pad, pad / 2, pad, pad / 2)
+        }
+        fun header(res: Int) = android.widget.TextView(this).apply {
+            text = getString(res)
+            textSize = 14f
+            setTextColor(theme.secondaryText)
+            setPadding(0, pad / 2, 0, pad / 4)
+        }
+        content.addView(header(R.string.cc_theme_title))
+        val themeRow = android.widget.RadioGroup(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+        }
+        listOf(R.string.cc_theme_classic, R.string.cc_theme_retro).forEachIndexed { i, res ->
+            themeRow.addView(android.widget.RadioButton(this).apply {
+                id = View.generateViewId()
+                text = getString(res)
+                textSize = 16f
+                setTextColor(theme.primaryText)
+                isChecked = themes[i] == themeSel
+                setOnCheckedChangeListener { _, on -> if (on) themeSel = themes[i] }
+            })
+        }
+        content.addView(themeRow)
+        content.addView(header(R.string.cc_items_title))
+        val list = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+        }
+        content.addView(list)
+        fun rebuild() {
+            list.removeAllViews()
+            order.forEachIndexed { index, item ->
+                val row = android.widget.LinearLayout(this).apply {
+                    orientation = android.widget.LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                }
+                val box = android.widget.CheckBox(this).apply {
+                    isChecked = item in checked
+                    setOnCheckedChangeListener { _, on ->
+                        if (on) checked.add(item) else checked.remove(item)
+                    }
+                }
+                val label = android.widget.TextView(this).apply {
+                    text = getString(item.labelRes)
+                    textSize = 16f
+                    setTextColor(theme.primaryText)
+                }
+                val up = android.widget.Button(this).apply {
+                    text = "↑"
+                    isEnabled = index > 0
+                    setOnClickListener {
+                        order[index] = order[index - 1].also { order[index - 1] = order[index] }
+                        rebuild()
+                    }
+                }
+                val down = android.widget.Button(this).apply {
+                    text = "↓"
+                    isEnabled = index < order.size - 1
+                    setOnClickListener {
+                        order[index] = order[index + 1].also { order[index + 1] = order[index] }
+                        rebuild()
+                    }
+                }
+                row.addView(box)
+                row.addView(
+                    label,
+                    android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                )
+                row.addView(up)
+                row.addView(down)
+                list.addView(row)
+            }
+        }
+        rebuild()
+
+        DashDialog.Builder(this)
+            .setTitle(R.string.cc_settings_title)
+            .setView(content)
+            .setPositiveButton(R.string.edit_done) { _, _ ->
+                settingsStore.setOption(widgetId, ClimateControlView.OPT_THEME, themeSel)
+                settingsStore.setOption(
+                    widgetId, ClimateControlView.OPT_ORDER, order.joinToString(",") { it.key }
+                )
+                settingsStore.setOption(
+                    widgetId, ClimateControlView.OPT_ITEMS,
+                    order.filter { it in checked }.joinToString(",") { it.key }
+                )
                 buildWidgets(readSpecs())
             }
             .setNegativeButton(R.string.dialog_cancel, null)
@@ -1151,6 +1346,8 @@ class MainActivity : AppCompatActivity() {
                 setOnCheckedChangeListener { _, isCheckedNow -> invert = isCheckedNow }
             }
         )
+        val (lookView, look) = lookPicker(widgetId)
+        root.addView(lookView, 0)
 
         DashDialog.Builder(this)
             .setTitle(R.string.set_clock_title)
@@ -1167,6 +1364,7 @@ class MainActivity : AppCompatActivity() {
                 settingsStore.setOption(
                     widgetId, ComboWidgetView.OPT_INVERT, if (invert) "1" else "0"
                 )
+                settingsStore.setOption(widgetId, RetroLook.OPT_LOOK, look())
                 buildWidgets(readSpecs())
             }
             .setNegativeButton(R.string.dialog_cancel, null)
@@ -1244,10 +1442,16 @@ class MainActivity : AppCompatActivity() {
             }
         }
         rebuild()
+        val (lookView, look) = lookPicker(widgetId)
+        val content = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            addView(lookView)
+            addView(list)
+        }
 
         DashDialog.Builder(this)
             .setTitle(R.string.set_car_title)
-            .setView(list)
+            .setView(content)
             .setPositiveButton(R.string.edit_done) { _, _ ->
                 settingsStore.setOption(
                     widgetId, CarWidgetView.OPT_ORDER, order.joinToString(",")
@@ -1256,6 +1460,7 @@ class MainActivity : AppCompatActivity() {
                     widgetId, CarWidgetView.OPT_ITEMS,
                     order.filter { it in checked }.joinToString(",")
                 )
+                settingsStore.setOption(widgetId, RetroLook.OPT_LOOK, look())
                 buildWidgets(readSpecs())
             }
             .setNegativeButton(R.string.dialog_cancel, null)
@@ -1274,8 +1479,10 @@ class MainActivity : AppCompatActivity() {
         ) + ElmWidgetView.ITEM_KEYS.map { getString(checkNotNull(ElmWidgetView.labelRes(it))) }
         val selected = ElmWidgetView.selectedIds(settingsStore, widgetId).toMutableSet()
         val checked = BooleanArray(items.size) { i -> i > 0 && ElmWidgetView.ITEM_KEYS[i - 1] in selected }
+        val (lookView, look) = lookPicker(widgetId)
         DashDialog.Builder(this)
             .setTitle(R.string.set_elm_title)
+            .setView(lookView)
             .setMultiChoiceItems(items, checked, routerIndex = 0) { dlg, which, on ->
                 if (which == 0) {
                     dlg.dismiss()
@@ -1294,6 +1501,7 @@ class MainActivity : AppCompatActivity() {
                     ElmWidgetView.OPT_ITEMS,
                     if (items.isEmpty()) ElmWidgetView.NONE_ITEMS else items.joinToString(",")
                 )
+                settingsStore.setOption(widgetId, RetroLook.OPT_LOOK, look())
                 buildWidgets(readSpecs())
             }
             .setNegativeButton(R.string.dialog_cancel, null)
@@ -1395,8 +1603,10 @@ class MainActivity : AppCompatActivity() {
         ) + apps.filter { it.first != packageName }
             .map { it.second to it.first }
         var selected = options.indexOfFirst { it.second == current }.takeIf { it >= 0 } ?: 0
+        val (lookView, look) = lookPicker(widgetId)
         DashDialog.Builder(this)
             .setTitle(R.string.set_app_title)
+            .setView(lookView)
             .setSingleChoiceItems(
                 options.map { it.first }.toTypedArray(), selected
             ) { _, which ->
@@ -1406,6 +1616,7 @@ class MainActivity : AppCompatActivity() {
                 settingsStore.setOption(
                     widgetId, AppWidgetView.OPT_PKG, options[selected].second
                 )
+                settingsStore.setOption(widgetId, RetroLook.OPT_LOOK, look())
                 buildWidgets(readSpecs())
             }
             .setNegativeButton(R.string.dialog_cancel, null)
@@ -1492,5 +1703,8 @@ class MainActivity : AppCompatActivity() {
         private const val OPT_CLIMATE_STYLE = "style"
         private const val CLIMATE_TEXT = "text"
         private const val CLIMATE_ICONS = "icons"
+
+        /** Виджеты со своим ретро-видом в настройках — общий [RetroLook] им не нужен. */
+        private val OWN_RETRO = setOf(WidgetType.SPEED, WidgetType.CLIMATE, WidgetType.CLIMATE_CONTROL)
     }
 }

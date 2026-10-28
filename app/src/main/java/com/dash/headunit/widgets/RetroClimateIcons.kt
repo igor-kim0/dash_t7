@@ -15,7 +15,7 @@ import kotlin.math.sin
 /**
  * Ретро-символы климата для чёрных табличек ([RetroSpeedometerView],
  * [ClimateIconsView]): вентилятор, режим обдува, A/C, рециркуляция,
- * обдув лобового. Символ рисуется гравировкой ([ENGRAVED]) или «лампой» —
+ * обдув лобового, питание, подогревы. Символ рисуется гравировкой ([ENGRAVED]) или «лампой» —
  * цветом с ореолом, как буквы селектора; цвет задаёт [lamp] перед рисованием.
  * Иконки — в коробке ~40×36 вокруг центра; крупнее — через `Canvas.scale`.
  * Ореол рисуется только с `LAYER_TYPE_SOFTWARE` у вида.
@@ -44,13 +44,23 @@ class RetroClimateIcons(private val hole: Paint) {
     private val path = Path()
     private val rect = RectF()
 
-    /** Цвет символа: включён — «лампа» с ореолом, иначе гравировка. */
+    /** Ореол у горящей «лампы» (ретро); классическая тема — без него. */
+    var glow = true
+
+    /** Цвет негорящего символа (ретро — гравировка). */
+    var offColor = ENGRAVED
+
+    /** Текущая лампа с ореолом (для [seat]: Paint.shadowLayerRadius — только API 29). */
+    private var glowing = false
+
+    /** Цвет символа: включён — «лампа» с ореолом, иначе [offColor]. */
     fun lamp(lit: Boolean, color: Int) {
-        val col = if (lit) color else ENGRAVED
+        glowing = lit && glow
+        val col = if (lit) color else offColor
         icon.color = col
         iconFill.color = col
         text.color = col
-        if (lit) {
+        if (lit && glow) {
             icon.setShadowLayer(10f, 0f, 0f, color)
             iconFill.setShadowLayer(10f, 0f, 0f, color)
             text.setShadowLayer(12f, 0f, 0f, color)
@@ -201,6 +211,93 @@ class RetroClimateIcons(private val hole: Paint) {
             path.cubicTo(x - 3f, cy + 3f, x + 3f, cy - 1f, x, cy - 6f)
             c.drawPath(path, icon)
             arrowHead(c, x, cy - 6f, -Math.PI / 2, 4f)
+        }
+    }
+
+    /** Питание: разомкнутое кольцо и черта сверху. */
+    fun power(c: Canvas, cx: Float, cy: Float) {
+        icon.strokeWidth = 3f
+        val r = 13f
+        rect.set(cx - r, cy - r + 2f, cx + r, cy + r + 2f)
+        c.drawArc(rect, -60f, 300f, false, icon)
+        c.drawLine(cx, cy - 15f, cx, cy - 1f, icon)
+    }
+
+    /**
+     * Сиденье с тремя волнами подогрева: горят первые [level] волн цветом
+     * текущей лампы, остальные — [offColor]. Контур — цветом текущей лампы.
+     */
+    fun seat(c: Canvas, cx: Float, cy: Float, level: Int) {
+        icon.strokeWidth = 2.5f
+        path.reset()
+        // Спинка и подушка, сиденье смотрит влево.
+        path.moveTo(cx + 2f, cy - 16f)
+        path.quadTo(cx + 7f, cy - 17f, cx + 7f, cy - 12f)
+        path.lineTo(cx + 9f, cy + 6f)
+        path.quadTo(cx + 9f, cy + 10f, cx + 5f, cy + 10f)
+        path.lineTo(cx - 12f, cy + 10f)
+        path.quadTo(cx - 15f, cy + 10f, cx - 15f, cy + 7f)
+        path.quadTo(cx - 15f, cy + 4f, cx - 12f, cy + 4f)
+        path.lineTo(cx + 2f, cy + 4f)
+        path.close()
+        c.drawPath(path, icon)
+        val litColor = icon.color
+        for (i in 1..3) {
+            if (i > level) {
+                icon.color = offColor
+                icon.clearShadowLayer()
+            }
+            val x = cx - 14f + i * 5.5f
+            path.reset()
+            path.moveTo(x, cy + 1f)
+            path.cubicTo(x - 3f, cy - 3f, x + 3f, cy - 7f, x, cy - 12f)
+            c.drawPath(path, icon)
+        }
+        icon.color = litColor
+        if (glowing) icon.setShadowLayer(10f, 0f, 0f, litColor)
+    }
+
+    /** Руль с тремя волнами подогрева над ним. */
+    fun wheel(c: Canvas, cx: Float, cy: Float) {
+        icon.strokeWidth = 2.5f
+        val oy = cy + 5f
+        c.drawCircle(cx, oy, 12f, icon)
+        c.drawCircle(cx, oy, 3.5f, icon)
+        c.drawLine(cx - 12f, oy, cx - 3.5f, oy, icon)
+        c.drawLine(cx + 3.5f, oy, cx + 12f, oy, icon)
+        c.drawLine(cx, oy + 3.5f, cx, oy + 12f, icon)
+        icon.strokeWidth = 2f
+        for (dx in listOf(-6f, 0f, 6f)) {
+            val x = cx + dx
+            path.reset()
+            path.moveTo(x, cy - 9f)
+            path.cubicTo(x - 2.5f, cy - 12f, x + 2.5f, cy - 14f, x, cy - 18f)
+            c.drawPath(path, icon)
+        }
+    }
+
+    /** Обогрев лобового: стекло и зигзаг нити нагрева поперёк. */
+    fun windshieldHeat(c: Canvas, cx: Float, cy: Float) {
+        icon.strokeWidth = 2.5f
+        path.reset()
+        path.moveTo(cx - 18f, cy - 9f)
+        path.quadTo(cx, cy - 15f, cx + 18f, cy - 9f)
+        path.lineTo(cx + 13f, cy + 12f)
+        path.quadTo(cx, cy + 9f, cx - 13f, cy + 12f)
+        path.close()
+        c.drawPath(path, icon)
+        icon.strokeWidth = 2f
+        for (y in listOf(cy - 4f, cy + 4f)) {
+            path.reset()
+            path.moveTo(cx - 12f, y)
+            var x = cx - 12f
+            var up = true
+            while (x < cx + 12f) {
+                x += 4f
+                path.lineTo(x, if (up) y - 2.5f else y + 2.5f)
+                up = !up
+            }
+            c.drawPath(path, icon)
         }
     }
 

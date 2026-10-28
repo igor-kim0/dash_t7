@@ -16,10 +16,10 @@ import com.dash.headunit.settings.AppSettings
  * {тип 0x37, …, state, 0…}. Без входа на T18FL3 a0ff не появляется —
  * у ОЖ только «глупая» стрелка (см. [ClusterParser]).
  *
- * [ClusterPps.session] зовёт [ensureEnter] при каждом подключении к
- * приборке — с троттлингом [RESEND_MS]; если MCU сбросил состояние после
- * сна/цикла зажигания, вход повторяется, и a0ff снова появляется в
- * потоке, который читает [ClusterPps]. Это запись в MCU — осознанная:
+ * [ClusterPps] зовёт [ensureEnter] при подключении к приборке и, пока
+ * свежего a0ff нет, раз в [RESEND_MS] во время чтения; если MCU сбросил
+ * состояние после сна/цикла зажигания, вход повторяется, и a0ff снова
+ * появляется в потоке, который читает [ClusterPps]. Это запись в MCU — осознанная:
  * включается настройкой (по умолчанию вкл), выключение настройки шлёт
  * выход (state=0). Все вызовы блокирующие — только из фонового потока.
  */
@@ -58,7 +58,8 @@ object CoolantEtm {
         if (!on) return ""
         synchronized(this) {
             val now = SystemClock.uptimeMillis()
-            if (now - lastSentAt < RESEND_MS) return ""
+            val last = lastSentAt
+            if (last != null && now - last < RESEND_MS) return ""
             lastSentAt = now
             return if (send(1)) "ETM: вход послан ради a0ff" else lastStatus
         }
@@ -106,8 +107,15 @@ object CoolantEtm {
         return "xA101:json:{\"data\":[${data.joinToString(",")}]}"
     }
 
-    private var lastSentAt = 0L
+    /**
+     * Время последней записи; null — ещё не слали. Не 0L: uptimeMillis сразу
+     * после загрузки ГУ меньше [RESEND_MS], и первый вход молча пропускался.
+     */
+    private var lastSentAt: Long? = null
 
-    /** Минимальный интервал между записями в tx (см. [ensureEnter]). */
-    internal const val RESEND_MS = 5 * 60_000L
+    /**
+     * Минимальный интервал между записями в tx (см. [ensureEnter]). Зовут
+     * только пока a0ff нет — повтор нужен, если MCU сбросил ETM.
+     */
+    internal const val RESEND_MS = 60_000L
 }

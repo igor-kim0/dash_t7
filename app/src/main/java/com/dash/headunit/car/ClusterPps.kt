@@ -21,7 +21,7 @@ import java.util.Locale
  * опросом раз в секунду. Скорость и обороты сразу уходят в [onLive].
  * На T18FL3 градусов ОЖ в a000/a5a5 нет — только стрелка; честные °C шлёт
  * MCU в a0ff, но только после входа в инженерное меню — [CoolantEtm]
- * входит при каждом подключении ([ensureEnter] из [session]).
+ * входит при подключении и повторяет, пока a0ff нет ([enterEtmIfNoCoolant]).
  *
  * Разбор кадров — [ClusterParser]. Поток стартует из [CarHub].
  */
@@ -163,8 +163,7 @@ object ClusterPps {
         }
         // Вход в ETM: без него MCU вообще не шлёт a0ff с °C ОЖ
         // (см. [CoolantEtm]; троттлинг внутри).
-        val etm = CoolantEtm.ensureEnter()
-        if (etm.isNotEmpty()) logEvent(etm)
+        enterEtmIfNoCoolant()
         if (!streamFailed) {
             // Поток изменений всего каталога: сначала все объекты целиком,
             // дальше — каждое изменение («@объект» + строки атрибутов).
@@ -226,6 +225,7 @@ object ClusterPps {
                         // История и статус — не чаще раза в CYCLE_MS (кадры идут ~10/с).
                         if (now - lastCycle >= CYCLE_MS) {
                             lastCycle = now
+                            enterEtmIfNoCoolant()
                             lastStatus = "данные приборки ($label): ${describe()}"
                             recordCycle()
                         }
@@ -235,6 +235,27 @@ object ClusterPps {
         }
         return frames > 0
     }
+
+    /**
+     * Свежего a0ff нет — послать вход в ETM ([CoolantEtm], троттлинг внутри).
+     * Запись блокирующая (отдельное соединение qconn), поэтому из фонового
+     * потока, чтобы не задерживать чтение; повторный запуск отсекает [etmBusy].
+     */
+    private fun enterEtmIfNoCoolant() {
+        if (coolantC() != null || etmBusy) return
+        etmBusy = true
+        Thread({
+            try {
+                val etm = CoolantEtm.ensureEnter()
+                if (etm.isNotEmpty()) logEvent(etm)
+            } finally {
+                etmBusy = false
+            }
+        }, "dash-cluster-etm").apply { isDaemon = true }.start()
+    }
+
+    @Volatile
+    private var etmBusy = false
 
     /**
      * Заголовок объекта в выводе PPS: «@a000», в потоке .all возможны

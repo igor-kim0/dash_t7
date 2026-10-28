@@ -20,6 +20,8 @@ enum class WidgetType(val id: String) {
     TRIP("trip"),
     /** Климат: температура, вентилятор, A/C, режимы, окна/двери. */
     CLIMATE("climate"),
+    /** Управление климатом: кнопки HVAC и подогревов с записью в шину. */
+    CLIMATE_CONTROL("climate_control"),
     /** Справочник: свойства VHAL (AOSP + вендор) с ID и живыми значениями. */
     REFERENCE("reference"),
     /** За бортом: крупная забортная температура (была в «Часах»). */

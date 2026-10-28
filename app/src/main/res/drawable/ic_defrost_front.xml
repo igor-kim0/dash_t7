@@ -2,11 +2,33 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp" android:height="24dp"
     android:viewportWidth="24" android:viewportHeight="24">
+    <!-- Обогрев лобового: стекло дугой сверху и три волны со стрелками. -->
     <path
         android:fillColor="#00000000"
         android:strokeColor="#FFEDEDED"
-        android:strokeWidth="2"
+        android:strokeWidth="1.5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M4,16c0,-4 3,-6 6,-7v7c0,1 -1,2 -2,2H4zM14,16c0,-4 3,-6 6,-7v7c0,1 -1,2 -2,2h-4zM4,20h16M9,7l1,-3M19,7l1,-3" />
+        android:pathData="M2.5,7.2 Q12,1.8 21.5,7.2 L17.8,19.5 H6.2 Z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFEDEDED"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M8.5,18 c-0.8,-0.6 -0.8,-1.73 0,-2.33 s0.8,-1.73 0,-2.33 s-0.8,-1.73 0,-2.33 V9.3 M7.3,10.5 L8.5,9.3 L9.7,10.5" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFEDEDED"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M12,18 c-0.8,-0.6 -0.8,-1.73 0,-2.33 s0.8,-1.73 0,-2.33 s-0.8,-1.73 0,-2.33 V9.3 M10.8,10.5 L12,9.3 L13.2,10.5" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFEDEDED"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M15.5,18 c-0.8,-0.6 -0.8,-1.73 0,-2.33 s0.8,-1.73 0,-2.33 s-0.8,-1.73 0,-2.33 V9.3 M14.3,10.5 L15.5,9.3 L16.7,10.5" />
 </vector>

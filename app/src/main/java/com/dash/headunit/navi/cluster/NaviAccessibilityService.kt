@@ -2,6 +2,7 @@ package com.dash.headunit.navi.cluster
 
 import android.accessibilityservice.AccessibilityService
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
@@ -26,12 +27,19 @@ import com.dash.headunit.settings.Autostart
  * Включается в enabled_accessibility_services — см. [ClusterSetup].
  * Окно навигатора не обязательно активное (он под дашбордом в блоке),
  * поэтому ищем его среди всех окон (flagRetrieveInteractiveWindows).
+ *
+ * Чтение окна — синхронные вызовы в процесс навигатора: пока он занят
+ * (холодный старт), каждый ждёт до нескольких секунд. Поэтому сканирование
+ * идёт в своём потоке — в главном оно морозило дашборд и откладывало
+ * «пинок» навигатора на старте (эмулятор 2026-10-27: до 4 с).
  */
 class NaviAccessibilityService : AccessibilityService() {
 
     private val main = Handler(Looper.getMainLooper())
-    private var lastScan = 0L
-    private var scheduled = false
+    private val thread = HandlerThread("NaviA11y").apply { start() }
+    private val bg = Handler(thread.looper)
+    @Volatile private var lastScan = 0L
+    @Volatile private var scheduled = false
     private val scan = Runnable {
         scheduled = false
         scanNow()
@@ -42,7 +50,7 @@ class NaviAccessibilityService : AccessibilityService() {
         instance = this
         ClusterOverlay.init(this)
         Autostart.onServiceBound(this, "спец. возможности")
-        main.post(scan)
+        bg.post(scan)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -52,30 +60,32 @@ class NaviAccessibilityService : AccessibilityService() {
         if (scheduled) return
         scheduled = true
         val wait = (lastScan + SCAN_MS - SystemClock.uptimeMillis()).coerceAtLeast(0)
-        main.postDelayed(scan, wait)
+        bg.postDelayed(scan, wait)
     }
 
     override fun onInterrupt() {}
 
     override fun onDestroy() {
-        main.removeCallbacks(scan)
-        main.removeCallbacks(poll)
+        bg.removeCallbacks(scan)
+        bg.removeCallbacks(poll)
+        thread.quitSafely()
         scheduled = false
         if (instance === this) instance = null
-        GuidanceHub.setFromA11y(null)
+        main.post { GuidanceHub.setFromA11y(null) }
         super.onDestroy()
     }
 
+    /** В потоке [bg]; результат — в [GuidanceHub] через главный поток. */
     private fun scanNow() {
         lastScan = SystemClock.uptimeMillis()
         // Перечитываем и без событий: пока тексты навигатора не меняются
         // (стоим в пробке, навигатор под дашбордом), событий нет, а данные
         // в [GuidanceHub] через A11Y_FRESH_MS протухают — маршрут пропадал.
-        main.removeCallbacks(poll)
+        bg.removeCallbacks(poll)
         val root = naviRoot()
         if (root == null) {
-            GuidanceHub.setFromA11y(null)
-            main.postDelayed(poll, IDLE_POLL_MS)
+            publish(null)
+            bg.postDelayed(poll, IDLE_POLL_MS)
             return
         }
         val g = try {
@@ -84,8 +94,13 @@ class NaviAccessibilityService : AccessibilityService() {
             Log.w(TAG, "scan", e)
             null
         }
-        GuidanceHub.setFromA11y(g)
-        main.postDelayed(poll, if (g != null) ROUTE_POLL_MS else IDLE_POLL_MS)
+        publish(g)
+        bg.postDelayed(poll, if (g != null) ROUTE_POLL_MS else IDLE_POLL_MS)
+    }
+
+    /** Скан, закончившийся после onDestroy, не перетирает сброс. */
+    private fun publish(g: Guidance?) {
+        main.post { if (instance === this) GuidanceHub.setFromA11y(g) }
     }
 
     private fun naviRoot(): AccessibilityNodeInfo? {

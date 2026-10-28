@@ -43,6 +43,7 @@ object NaviUnderlay {
     var lastStatus: String = "не запускалось"
         private set(value) {
             field = value
+            Log.i(TAG, value)
             synchronized(history) {
                 history.add("${System.currentTimeMillis()} $value")
                 while (history.size > HISTORY_MAX) history.removeAt(0)

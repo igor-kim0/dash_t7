@@ -36,6 +36,7 @@ object AdbShell {
     var lastStatus: String = "не подключались"
         private set(value) {
             field = value
+            Log.i(TAG, value)
             // История статусов — для отчёта «Логи для Claude».
             synchronized(history) {
                 history.add("${System.currentTimeMillis()} $value")
