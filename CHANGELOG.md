@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [1.5] — 2026-10-28
+
 ### Добавлено
 - Вид «Ретро» у всех виджетов: в настройках каждого виджета — «Вид:
   Обычный / Ретро» (у виджетов без своих настроек появился значок настроек).
@@ -131,6 +133,7 @@
 - Wi-Fi, обучатель кнопок, маршрут на приборке.
 - Релизная сборка prod: подпись debug-ключом (обновление поверх установленной).
 
-[Unreleased]: https://github.com/igor-kim0/dash_t7/compare/v1.4...HEAD
+[Unreleased]: https://github.com/igor-kim0/dash_t7/compare/v1.5...HEAD
+[1.5]: https://github.com/igor-kim0/dash_t7/compare/v1.4...v1.5
 [1.4]: https://github.com/igor-kim0/dash_t7/compare/v1.3...v1.4
 [1.3]: https://github.com/igor-kim0/dash_t7/releases/tag/v1.3
