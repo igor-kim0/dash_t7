@@ -67,12 +67,10 @@ Android 9 (API 28), устанавливается сайдлоадом (вне 
 | Wi-Fi | Статус подключения ГУ (SSID, IP, уровень сигнала) и вкл/выкл; тап — диалог: сохранённые и видимые сети, добавление сети по SSID/паролю, «забыть». |
 | OBD (ELM) | Показания с Bluetooth-сканера ELM327: ОЖ, бортсеть, обороты, нагрузка, температура впускного воздуха, дроссель, топливные балансировки (B1), давление впускного коллектора, уровень топлива. Набор показателей выбирается в настройках плитки (multi-choice), отображаются только отмеченные. Тап — панель Bluetooth-диагностики: скан, спаривание, выбор адаптера, тест подключения, журнал статуса. |
 
-Часы, погода, автомобиль, спидометр, бортовой компьютер, музыка, навигатор
-входят в утверждённый набор сборки `prod` (релизы на GitHub). Wi-Fi и
-экспериментальные/диагностические виджеты сборки `dev` (климат, OBD/ELM —
-показатели с ELM327 с настраиваемым набором и диагностика Bluetooth
-адаптера; «Кнопки» — стёкла, люк и шторка по шине Desay SV) — в релиз они
-не входят.
+Все виджеты выше входят в сборку (релизы на GitHub). Ориентировочный костяк
+дашборда — часы, погода, автомобиль, спидометр, бортовой компьютер, музыка,
+навигатор; остальное (климат, OBD/ELM, «Кнопки», справочник) добавляется по
+желанию кнопкой «+ Добавить блок».
 
 ## Сборка
 
@@ -82,16 +80,14 @@ SDK. Ключ OpenWeatherMap (необязательно) кладётся в `l
 хранится.
 
 ```bash
-./gradlew :app:assembleDevDebug     # все виджеты, отладочная
-./gradlew :app:assembleProdDebug    # продовый набор, отладочная
-./gradlew :app:assembleProdRelease  # продовый набор, подписанный релиз
+./gradlew :app:assembleDebug    # отладочная сборка
+./gradlew :app:assembleRelease  # подписанная релизная сборка
 ```
 
-Артефакты (имя APK: `tenet_t7_dash-<flavor>-<buildType>.apk`):
+Артефакты (имя APK: `tenet_t7_dash-<buildType>.apk`):
 
-- `app/build/outputs/apk/dev/debug/tenet_t7_dash-dev-debug.apk`
-- `app/build/outputs/apk/prod/debug/tenet_t7_dash-prod-debug.apk`
-- `app/build/outputs/apk/prod/release/tenet_t7_dash-prod-release.apk`
+- `app/build/outputs/apk/debug/tenet_t7_dash-debug.apk`
+- `app/build/outputs/apk/release/tenet_t7_dash-release.apk`
 
 Релиз подписывается стандартным debug-ключом (`keystore/debug.keystore`), чтобы
 APK обновлялся поверх ранее установленной сборки без удаления. Это осознанное
@@ -99,23 +95,17 @@ APK обновлялся поверх ранее установленной сб
 
 Релизы собирает и GitHub Actions:
 
-- `.github/workflows/prod-release.yml` — тег `v*` запускает юнит-тесты,
-  `assembleProdRelease` и публикует GitHub Release с APK;
-- `.github/workflows/dev-release.yml` — тег `v*-dev` (например `v1.4-dev`)
-  собирает flavor `dev` (все виджеты) и публикует его как prerelease.
+- `.github/workflows/release.yml` — тег `v*` запускает юнит-тесты,
+  `assembleRelease` и публикует GitHub Release с APK (у тега с суффиксом
+  `-dev`, например `v1.5-dev`, релиз помечается как prerelease).
 
 Подпись — тем же debug-ключом, поэтому CI- и локальные сборки
 взаимозаменяемы.
 
-### Варианты поставки
-
-- **dev** — все виджеты (разработка и отладка).
-- **prod** — утверждённый набор повседневных виджетов.
-
 ## Установка
 
 ```bash
-adb install -r app/build/outputs/apk/prod/release/tenet_t7_dash-prod-release.apk
+adb install -r app/build/outputs/apk/release/tenet_t7_dash-release.apk
 adb shell am start -n com.dash.headunit/.MainActivity
 ```
 

@@ -230,9 +230,9 @@ class RetroClimateIcons(private val hole: Paint) {
     fun seat(c: Canvas, cx: Float, cy: Float, level: Int) {
         icon.strokeWidth = 2.5f
         path.reset()
-        // Спинка и подушка, сиденье смотрит влево.
-        path.moveTo(cx + 2f, cy - 16f)
-        path.quadTo(cx + 7f, cy - 17f, cx + 7f, cy - 12f)
+        // Спинка (откинута назад) и подушка, сиденье смотрит влево.
+        path.moveTo(cx + 6f, cy - 16f)
+        path.quadTo(cx + 11f, cy - 17f, cx + 12f, cy - 12f)
         path.lineTo(cx + 9f, cy + 6f)
         path.quadTo(cx + 9f, cy + 10f, cx + 5f, cy + 10f)
         path.lineTo(cx - 12f, cy + 10f)
@@ -247,10 +247,11 @@ class RetroClimateIcons(private val hole: Paint) {
                 icon.color = offColor
                 icon.clearShadowLayer()
             }
-            val x = cx - 14f + i * 5.5f
+            // Волны над подушкой левее спинки (её край — cx + 2), с зазором от обеих.
+            val x = cx - 19f + i * 5f
             path.reset()
-            path.moveTo(x, cy + 1f)
-            path.cubicTo(x - 3f, cy - 3f, x + 3f, cy - 7f, x, cy - 12f)
+            path.moveTo(x, cy - 1f)
+            path.cubicTo(x - 3f, cy - 4f, x + 3f, cy - 7f, x, cy - 10f)
             c.drawPath(path, icon)
         }
         icon.color = litColor

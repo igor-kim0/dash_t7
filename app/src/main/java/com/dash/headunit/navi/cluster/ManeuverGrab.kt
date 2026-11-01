@@ -67,6 +67,9 @@ object ManeuverGrab {
         return cached
     }
 
+    /** Последний узнанный манёвр, если он был для улицы [street]; без снимка. */
+    fun known(street: String?): Maneuver? = cached?.takeIf { key?.substringAfter('|') == street.toString() }
+
     /** Маршрут кончился — забыть. */
     fun reset() {
         cached = null

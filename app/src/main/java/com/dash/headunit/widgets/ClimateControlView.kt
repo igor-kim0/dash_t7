@@ -8,6 +8,7 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
+import android.os.SystemClock
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
@@ -52,7 +53,11 @@ class ClimateControlView(
         WINDSHIELD_HEAT("windshield_heat", 1, R.string.cc_windshield_heat, Cmd.WINDSHIELD_HEAT),
         WHEEL_HEAT("wheel_heat", 1, R.string.cc_wheel_heat, Cmd.WHEEL_HEAT),
         SEAT_DRIVER("seat_driver", 1, R.string.cc_seat_driver, Cmd.SEAT_DRIVER),
-        SEAT_PASS("seat_pass", 1, R.string.cc_seat_pass, Cmd.SEAT_PASS)
+        SEAT_PASS("seat_pass", 1, R.string.cc_seat_pass, Cmd.SEAT_PASS),
+        SEAT_REAR_LEFT("seat_rear_left", 1, R.string.cc_seat_rear_left, Cmd.SEAT_REAR_LEFT),
+        SEAT_REAR_RIGHT("seat_rear_right", 1, R.string.cc_seat_rear_right, Cmd.SEAT_REAR_RIGHT);
+
+        val isSeat get() = this == SEAT_DRIVER || this == SEAT_PASS || this == SEAT_REAR_LEFT || this == SEAT_REAR_RIGHT
     }
 
     private class Cell(val item: Item, val rect: RectF)
@@ -65,6 +70,12 @@ class ClimateControlView(
     private val panel = Paint(Paint.ANTI_ALIAS_FLAG)
     private val bezel = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val button = Paint(Paint.ANTI_ALIAS_FLAG)
+    /** Подпись сиденья под иконкой — как «ВОДИТЕЛЬ» в ретро-«Климате». */
+    private val caption = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = if (retro) Color.rgb(0xB8, 0xB0, 0x9C) else theme.secondaryText
+        textAlign = Paint.Align.CENTER
+        typeface = Typeface.create("sans-serif-condensed", Typeface.NORMAL)
+    }
     private val icons = RetroClimateIcons(hood).apply {
         if (!retro) {
             glow = false
@@ -82,7 +93,18 @@ class ClimateControlView(
 
     /** Значения из тапов, пока шина их не подтвердила (логические, как в [Cmd]). */
     private val optimistic = mutableMapOf<Item, Int>()
-    private val pending = mutableMapOf<Item, Int>()
+
+    /** Время последнего тапа: значение тапа держим [SETTLE_MS] после записи. */
+    private val lastTap = mutableMapOf<Item, Long>()
+
+    /**
+     * Уровень сиденья из тапов: 1-й тап — 1 волна, 2-й — 2, 3-й — 3, 4-й — выкл.
+     * Кодировка ячеек чтения сидений не подтверждена (задние читаются из ячейки
+     * записи), поэтому шине верим, только когда она сама меняется после
+     * [SEAT_HOLD_MS] без тапов (штатная панель): [seatBus] — последнее виденное.
+     */
+    private val seatLevel = mutableMapOf<Item, Int>()
+    private val seatBus = mutableMapOf<Item, Int?>()
 
     init {
         // Ореол «ламп» рисуется только программно.
@@ -273,10 +295,18 @@ class ClimateControlView(
                 lamp(v == 1, RetroClimateIcons.LAMP_AMBER, HEAT_ON)
                 scaled(c, cx, cy, k) { icons.wheel(c, cx, cy) }
             }
-            Item.SEAT_DRIVER, Item.SEAT_PASS -> {
+            Item.SEAT_DRIVER, Item.SEAT_PASS, Item.SEAT_REAR_LEFT, Item.SEAT_REAR_RIGHT -> {
                 val level = v ?: 0
                 lamp(level > 0, RetroClimateIcons.LAMP_AMBER, HEAT_ON)
-                scaled(c, cx, cy, k) { icons.seat(c, cx, cy, level) }
+                // Сиденья одинаковые — подпись снизу, иконка чуть выше центра.
+                val iy = cy - unit * 0.08f
+                scaled(c, cx, iy, k * 0.9f) { icons.seat(c, cx, iy, level) }
+                caption.textSize = unit * 0.13f
+                val label = SEAT_CAPTIONS.getValue(cell.item)
+                val tw = caption.measureText(label)
+                val maxW = r.width() * 0.9f
+                if (tw > maxW) caption.textSize *= maxW / tw
+                c.drawText(label, cx, r.bottom - unit * 0.1f, caption)
             }
         }
     }
@@ -319,8 +349,26 @@ class ClimateControlView(
 
     /** Логическое значение кнопки: из тапа (пока не подтверждено) или из шины. */
     private fun value(item: Item, s: ClimateHub.ClimateState?): Int? {
+        if (item.isSeat) return seatValue(item, s?.let { busValue(item, it) })
         optimistic[item]?.let { return it }
         if (s == null) return null
+        return busValue(item, s)
+    }
+
+    private fun seatValue(item: Item, bus: Int?): Int? {
+        val local = seatLevel[item] ?: return bus.also { seatBus[item] = it }
+        val quiet = SystemClock.uptimeMillis() - (lastTap[item] ?: 0L) >= SEAT_HOLD_MS
+        if (quiet && bus != null && seatBus.containsKey(item) && bus != seatBus[item]) {
+            seatLevel.remove(item)
+            seatBus[item] = bus
+            return bus
+        }
+        // Пока держим тап, шина «догоняет» запись — её значение просто запоминаем.
+        if (!quiet || !seatBus.containsKey(item)) seatBus[item] = bus
+        return local
+    }
+
+    private fun busValue(item: Item, s: ClimateHub.ClimateState): Int? {
         fun b(v: Boolean?) = v?.let { if (it) 1 else 0 }
         return when (item) {
             Item.TEMP_DRIVER -> s.tempDriverC?.let { ClimateControl.tempRaw(it) }
@@ -337,6 +385,8 @@ class ClimateControlView(
             Item.WHEEL_HEAT -> b(s.wheelHeat)
             Item.SEAT_DRIVER -> s.seatHeatDriver
             Item.SEAT_PASS -> s.seatHeatPass
+            Item.SEAT_REAR_LEFT -> s.seatHeatRearLeft
+            Item.SEAT_REAR_RIGHT -> s.seatHeatRearRight
         }
     }
 
@@ -382,6 +432,14 @@ class ClimateControlView(
 
     private fun tap(item: Item, zone: Int) {
         val cur = value(item, ClimateHub.data)
+        if (item.isSeat) {
+            val next = ((cur ?: 0).coerceIn(0, 3) + 1) % 4
+            seatLevel[item] = next
+            lastTap[item] = SystemClock.uptimeMillis()
+            invalidate()
+            ClimateControl.send(context, item.cmd, next)
+            return
+        }
         val next = when (item) {
             Item.TEMP_DRIVER, Item.TEMP_PASS -> {
                 if (cur == null || zone == 0) return
@@ -393,24 +451,20 @@ class ClimateControlView(
             }
             // 1 лицо, 2 ноги, 3 лицо+ноги, 4 ноги+стекло; 5 (стекло) — кнопка MAX.
             Item.MODE -> (cur ?: 0).coerceIn(0, 4) % 4 + 1
-            Item.SEAT_DRIVER, Item.SEAT_PASS -> ((cur ?: 0) + 1) % 4
             else -> if (cur == 1) 0 else 1
         }
         if (next == cur) return
         optimistic[item] = next
-        pending[item] = (pending[item] ?: 0) + 1
+        lastTap[item] = SystemClock.uptimeMillis()
         invalidate()
         ClimateControl.send(context, item.cmd, next) {
             // Шина перечитывается асинхронно — даём ей время, потом отпускаем значение тапа.
+            // Повторные тапы ClimateControl схлопывает (onDone — один раз), поэтому по времени.
             postDelayed({
-                val left = (pending[item] ?: 1) - 1
-                if (left <= 0) {
-                    pending.remove(item)
+                if (SystemClock.uptimeMillis() - (lastTap[item] ?: 0L) >= SETTLE_MS) {
                     optimistic.remove(item)
-                } else {
-                    pending[item] = left
+                    invalidate()
                 }
-                invalidate()
             }, SETTLE_MS)
         }
     }
@@ -428,6 +482,19 @@ class ClimateControlView(
             Item.AC, Item.RECIRC, Item.MODE, Item.MAX_DEFROST
         )
 
+        /** Набор виджета «Подогрев» (тот же вид, только подогревы). */
+        val HEAT_ITEMS = listOf(
+            Item.WINDSHIELD_HEAT, Item.WHEEL_HEAT, Item.SEAT_DRIVER,
+            Item.SEAT_PASS, Item.SEAT_REAR_LEFT, Item.SEAT_REAR_RIGHT
+        )
+
+        private val SEAT_CAPTIONS = mapOf(
+            Item.SEAT_DRIVER to "ВОДИТЕЛЬ",
+            Item.SEAT_PASS to "ПАССАЖИР",
+            Item.SEAT_REAR_LEFT to "ЗАДНИЙ Л",
+            Item.SEAT_REAR_RIGHT to "ЗАДНИЙ П"
+        )
+
         /** Символы [RetroClimateIcons] — в коробке ~40 единиц. */
         private const val ICON_BOX = 40f
 
@@ -435,6 +502,9 @@ class ClimateControlView(
         private const val SIDE = 0.28f
 
         private const val SETTLE_MS = 1500L
+
+        /** Сколько после тапа сиденья не верить шине (опрос [ClimateHub] — 4 с). */
+        private const val SEAT_HOLD_MS = 10_000L
 
         /** Включённый подогрев в классической теме — жёлтый, как в «Подогреве». */
         private val HEAT_ON = 0xFFFDD835.toInt()

@@ -28,7 +28,7 @@ object GuidanceHub {
     @Volatile private var a11yAt = 0L
     @Volatile private var notifAt = 0L
 
-    /** Склеенное состояние; null — маршрута нет. */
+    /** Склеенное состояние; без маршрута — только предупреждения ([Guidance.freeDrive]); null — нечего показать. */
     @Volatile
     var current: Guidance? = null
         private set
@@ -72,21 +72,31 @@ object GuidanceHub {
             " · окно навигатора: ${when {
                 a == null -> "не видно"
                 a.onRoute -> "маршрут"
+                a.freeDrive() != null -> "без маршрута, предупреждения"
                 else -> "без маршрута"
             }} (${ago(a11yAt)})" +
-            " · итог: ${if (current != null) "маршрут" else "нет маршрута"}"
+            " · итог: ${when {
+                current == null -> "пусто"
+                current?.onRoute == true -> "маршрут"
+                else -> "предупреждения"
+            }}"
     }
 
     private val expire = Runnable { publish() }
 
+    /** Стрелка, пока источник её не даёт (снимок ещё не готов, карточка невидима). */
+    private val arrow = ManeuverMemory()
+
+    @Synchronized
     private fun publish() {
         val a11y = fromA11y?.takeIf { SystemClock.uptimeMillis() - a11yAt < A11Y_FRESH_MS }
         val notif = fromNotification
-        val merged = when {
+        val merged = arrow.apply(when {
             notif != null -> notif.orElse(a11y)
             a11y != null && a11y.onRoute -> a11y
-            else -> null
-        }
+            // Без маршрута — ограничение, близкая камера, светофор.
+            else -> a11y?.freeDrive()
+        })
         // Служба спец. возможностей опрашивает окно и без маршрута —
         // повторное «нет маршрута» не рассылаем (иначе ClusterOverlay
         // каждый раз откладывал бы конец маршрута).

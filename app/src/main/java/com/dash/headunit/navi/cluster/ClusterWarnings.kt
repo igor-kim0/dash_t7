@@ -3,28 +3,25 @@ package com.dash.headunit.navi.cluster
 import android.content.Context
 
 /**
- * Ограничение скорости и камеры навигатора → штатный CameraInfo приборки
- * (CarLan 4100/4, [CarLanClient]). ISA через mapservice на этой ГУ закрыт
- * (part.number), а в TBT-канале 201 полей лимита нет — остаётся CarLan.
+ * Штатный CameraInfo приборки (CarLan 4100/4, [CarLanClient]) — всегда
+ * «навигация выключена» (NaviStatus 4, без лимита).
  *
- * SpeedingInfo — лимит камеры, иначе лимит участка; приборка рисует его
- * знаком при CameraType 3 и WarningMessage 1 (ГУ 2026-10-26), без лимита
- * WarningMessage -1. Знак виден, пока поднята панель навигации (2+5).
+ * Раньше слали лимит с NaviStatus 3 (так приборка рисует свой знак, ГУ
+ * 2026-10-26), но NaviStatus 3 включает и штатную строку подсказки
+ * манёвра над «Картами»: без данных TurboDog там висело «0 м Войти» (ГУ
+ * 2026-11-01). Свой знак лимита рисует карточка ([ClusterGuidanceView]),
+ * а штатный в режиме «Карт» отдельно не виден — поэтому только сброс.
  */
 object ClusterWarnings {
 
     private var last: String? = null
 
-    /** CameraInfo для ведения [g] (null — маршрута нет). Чистая функция. */
-    fun json(g: Guidance?): String {
-        if (g == null) return CarLanClient.Json.cameraInfo(CAMERA_TYPE, NAVI_OFF, 0, -1)
-        val limit = g.cameraLimit ?: g.speedLimit ?: 0
-        return CarLanClient.Json.cameraInfo(CAMERA_TYPE, NAVI_ON, limit, if (limit > 0) WARN_SHOW else -1)
-    }
+    /** CameraInfo «навигация выключена». Чистая функция. */
+    fun json(): String = CarLanClient.Json.cameraInfo(CAMERA_TYPE, NAVI_OFF, 0, -1)
 
-    /** Новое состояние ведения (главный поток); шлёт только изменения. */
-    fun update(ctx: Context, g: Guidance?) {
-        val j = json(g)
+    /** Сбросить штатную навигацию приборки (главный поток); шлёт только раз после [reset]. */
+    fun update(ctx: Context) {
+        val j = json()
         if (j == last) return
         last = j
         CarLanClient.send(ctx, CarLanClient.SUB_CAMERA, j)
@@ -36,7 +33,5 @@ object ClusterWarnings {
     }
 
     private const val CAMERA_TYPE = 3
-    private const val WARN_SHOW = 1
-    private const val NAVI_ON = 3
     private const val NAVI_OFF = 4
 }

@@ -59,14 +59,14 @@ class CarScalingTest {
     }
 
     @Test
-    fun outsideTemp_minus120() {
-        // При погоде 4–9 °C ячейка даёт 125–128; Oct12 134→14.
-        // Формула TiggoBridge (raw × 0.5 − 40) дала бы тут +22…+27.
-        assertEquals(5f, CarScaling.outsideTemp(125)!!, 0.001f)
-        assertEquals(8f, CarScaling.outsideTemp(128)!!, 0.001f)
-        assertEquals(14f, CarScaling.outsideTemp(134)!!, 0.001f)
-        assertNull(CarScaling.outsideTemp(69))
-        assertNull(CarScaling.outsideTemp(171))
+    fun outsideTemp_halfMinus55() {
+        // Формула приборки: 133 → 11,5 (приборка 2026-10-25), 128 → 9 (метка 2026-10-14).
+        assertEquals(11.5f, CarScaling.outsideTemp(133)!!, 0.001f)
+        assertEquals(9f, CarScaling.outsideTemp(128)!!, 0.001f)
+        assertEquals(0f, CarScaling.outsideTemp(110)!!, 0.001f)
+        assertEquals(-20f, CarScaling.outsideTemp(70)!!, 0.001f)
+        assertNull(CarScaling.outsideTemp(251))
+        assertNull(CarScaling.outsideTemp(-1))
     }
 
     @Test

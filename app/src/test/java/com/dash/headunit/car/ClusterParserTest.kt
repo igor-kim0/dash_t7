@@ -158,36 +158,40 @@ class ClusterParserTest {
         assertNull(p.trip(0))
     }
 
-    /** Приборка 2026-10-25 16:04: 11,5 °C — 7902 = [11,1,103,248], 7926 = [115,0]. */
+    /** a006 с приборки 2026-10-14 15:09 (52 байта): b3 = 128 → 9 °C. */
+    private val a006 = intArrayOf(
+        7, 0, 0, 128, 0, 0, 56, 34, 6, 1, 18, 140, 0, 0, 115, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 206, 7, 65, 8, 182, 8, 61, 9, 31, 0, 233, 127, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0
+    )
+
     @Test
-    fun pps7902GivesOutsideTemp() {
+    fun a006GivesOutsideTemp() {
         val p = ClusterParser()
-        p.onFrame("7902", frame(11, 1, 103, 248), 0)
-        assertEquals(11.5f, p.outsideTempC(0)!!, 0.01f)
+        p.onFrame("a006", frame(*a006), 0)
+        assertEquals(9f, p.outsideTempC(0)!!, 0.01f)
         assertNull(p.outsideTempC(15 * 60_000L))
+        // 2026-10-25: b3 = 133 — на приборке 11,5.
+        p.onFrame("a006", frame(*a006.copyOf().also { it[3] = 133 }), 1_000)
+        assertEquals(11.5f, p.outsideTempC(1_000)!!, 0.01f)
     }
 
     @Test
-    fun pps7902HasPriority7926IsFallback() {
+    fun a006InvalidOrFailIgnored() {
+        val p = ClusterParser()
+        // b3 > 250 — приборка рисует «--».
+        p.onFrame("a006", frame(*a006.copyOf().also { it[3] = 255 }), 0)
+        assertNull(p.outsideTempC(0))
+        // b6 бит 1 — датчик неисправен.
+        p.onFrame("a006", frame(*a006.copyOf().also { it[6] = 2 }), 0)
+        assertNull(p.outsideTempC(0))
+    }
+
+    /** 7902/7926 — константы (11,5 °C во всех записях 13–25.10), не датчик. */
+    @Test
+    fun pps7902Ignored() {
         val p = ClusterParser()
         p.onFrame("7902", frame(11, 1, 103, 248), 0)
-        // 7902 свежий — 7926 не перебивает.
-        p.onFrame("7926", frame(150, 0), 1_000)
-        assertEquals(11.5f, p.outsideTempC(1_000)!!, 0.01f)
-        // 7902 замолчал — запасной 7926.
-        p.onFrame("7926", frame(150, 0), 10_000)
-        assertEquals(15.0f, p.outsideTempC(10_000)!!, 0.01f)
-        // 7902 вернулся — снова он.
-        p.onFrame("7902", frame(11, 1, 103, 248), 11_000)
-        assertEquals(11.5f, p.outsideTempC(11_000)!!, 0.01f)
-    }
-
-    @Test
-    fun ppsOutsideOutOfRangeIgnored() {
-        val p = ClusterParser()
-        // 7902: b2 = 255 → 87,5 °C; 7926: 0xFFFF — «нет данных».
-        p.onFrame("7902", frame(11, 1, 255, 248), 0)
-        p.onFrame("7926", frame(255, 255), 0)
+        p.onFrame("7926", frame(115, 0), 0)
         assertNull(p.outsideTempC(0))
     }
 }

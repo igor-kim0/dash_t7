@@ -23,6 +23,8 @@ import java.util.concurrent.Executors
  *   вентилятор  16,24 → 16,12 (0..7)
  *   обдув       16,2  → 16,6  (запись 0..3 = чтение 1..4; 5 = лобовое, это MAX)
  *   сиденья     0,83 / 0,84 (запасные 0,135 / 0,136) → 0,95 / 0,96, значение = уровень + 1
+ *   задние      0,139 / 0,141 → те же ячейки (Request = Response по таблице; уровень + 1,
+ *               запасной — сам уровень; HU-непроверено)
  *
  * Значения — из штатного SVHvac (класс команд com.desaysv.svhvac.g.c, разбор
  * quickened cdex 2026-10-28): тогглы питание/AUTO/A/C/рецирк./SYNC/MAX/обогрев
@@ -70,7 +72,9 @@ object ClimateControl {
         FAN("вентилятор", 16 to 12, listOf(Variant(16, 24) { it }, Variant(16, 24) { it + 1 })),
         MODE("обдув", 16 to 6, listOf(Variant(16, 2) { it - 1 }, Variant(16, 2) { it })),
         SEAT_DRIVER("сиденье вод.", 0 to 95, listOf(Variant(0, 83) { it + 1 }, Variant(0, 135) { it + 1 })),
-        SEAT_PASS("сиденье пасс.", 0 to 96, listOf(Variant(0, 84) { it + 1 }, Variant(0, 136) { it + 1 }))
+        SEAT_PASS("сиденье пасс.", 0 to 96, listOf(Variant(0, 84) { it + 1 }, Variant(0, 136) { it + 1 })),
+        SEAT_REAR_LEFT("сиденье ЗЛ", 0 to 139, listOf(Variant(0, 139) { it + 1 }, Variant(0, 139) { it })),
+        SEAT_REAR_RIGHT("сиденье ЗП", 0 to 141, listOf(Variant(0, 141) { it + 1 }, Variant(0, 141) { it }))
     }
 
     private val WRITER = Executors.newSingleThreadExecutor()

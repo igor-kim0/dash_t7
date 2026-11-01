@@ -12,6 +12,8 @@ import android.graphics.Rect
 import android.graphics.Region
 import android.net.wifi.WifiManager
 import android.widget.ScrollView
+import android.text.InputType
+import android.widget.EditText
 import android.os.Bundle
 import android.util.TypedValue
 import android.view.Gravity
@@ -31,10 +33,10 @@ import com.dash.headunit.dashboard.DashboardGridLayout
 import com.dash.headunit.dashboard.DashboardStore
 import com.dash.headunit.dashboard.WidgetFrame
 import com.dash.headunit.dashboard.WidgetSettingsStore
-import com.dash.headunit.dashboard.WidgetAvailability
 import com.dash.headunit.dashboard.WidgetSpec
 import com.dash.headunit.dashboard.WidgetType
 import com.dash.headunit.elm.ElmHub
+import com.dash.headunit.car.CarHub
 import com.dash.headunit.car.CoolantEtm
 import com.dash.headunit.car.HvacShade
 import com.dash.headunit.car.TripTracker
@@ -62,7 +64,6 @@ import com.dash.headunit.widgets.TripWidgetView
 import com.dash.headunit.widgets.ClimateControlView
 import com.dash.headunit.widgets.ClimateIconsView
 import com.dash.headunit.widgets.ClimateWidgetView
-import com.dash.headunit.widgets.HeatWidgetView
 import com.dash.headunit.widgets.OutsideWidgetView
 import com.dash.headunit.widgets.ElmWidgetView
 import com.dash.headunit.widgets.RetroSpeedometerView
@@ -137,10 +138,10 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btn_done).setOnClickListener { setEditMode(false) }
         findViewById<View>(R.id.btn_clear).setOnClickListener { confirmClearDashboard() }
         findViewById<View>(R.id.btn_add).setOnClickListener { showAddDialog() }
-        // Диагностика: CAN/VHAL, приборка, ОЖ через ETM — только dev.
-        val debug = findViewById<View>(R.id.btn_debug)
-        debug.visibility = if (BuildConfig.PROD_BUILD) View.GONE else View.VISIBLE
-        debug.setOnClickListener { startActivity(android.content.Intent(this, com.dash.headunit.car.CarDebugActivity::class.java)) }
+        // Диагностика: CAN/VHAL, приборка, ОЖ через ETM.
+        findViewById<View>(R.id.btn_debug).setOnClickListener {
+            startActivity(android.content.Intent(this, com.dash.headunit.car.CarDebugActivity::class.java))
+        }
         findViewById<View>(R.id.btn_cluster_calibration).setOnClickListener {
             val on = ClusterOverlay.toggleCalibration()
             Toast.makeText(
@@ -257,35 +258,44 @@ class MainActivity : AppCompatActivity() {
             .showFullScreen()
     }
 
-    /** Настройки приложения: автозапуск, сторона колонки, приборка, шторка, журнал поездок. */
+    /** Настройки приложения: автозапуск, сторона колонки, приборка, шторка, журнал поездок, бак. */
     private fun showSettingsDialog() {
-        val journalKeepRow = 4
+        val journalKeepRow = 5
+        val tankRow = 7
         val items = arrayOf(
             getString(R.string.settings_autostart),
             getString(R.string.settings_bar_left),
             getString(R.string.settings_cluster_navi),
+            getString(R.string.settings_cluster_traffic_lights),
             getString(R.string.settings_shade_resume),
             getString(
                 R.string.settings_trip_journal_keep,
                 journalKeepLabel(AppSettings.journalKeepDays(this))
             ),
-            getString(R.string.settings_etm_coolant)
+            getString(R.string.settings_etm_coolant),
+            getString(R.string.settings_tank, CarHub.tankLiters(this))
         )
         val checked = booleanArrayOf(
             AppSettings.autostart(this),
             AppSettings.barSideLeft(this),
             AppSettings.clusterNavi(this),
+            AppSettings.clusterTrafficLights(this),
             AppSettings.shadeResume(this),
             false,
-            AppSettings.etmCoolant(this)
+            AppSettings.etmCoolant(this),
+            false
         )
         DashDialog.Builder(this)
             .setTitle(R.string.settings_title)
-            .setMultiChoiceItems(items, checked, routers = setOf(journalKeepRow)) { dlg, which, isChecked ->
+            .setMultiChoiceItems(items, checked, routers = setOf(journalKeepRow, tankRow)) { dlg, which, isChecked ->
                 when (which) {
                     journalKeepRow -> {
                         dlg.dismiss()
                         showJournalKeepDialog()
+                    }
+                    tankRow -> {
+                        dlg.dismiss()
+                        showTankDialog()
                     }
                     else -> checked[which] = isChecked
                 }
@@ -295,13 +305,14 @@ class MainActivity : AppCompatActivity() {
                 AppSettings.setBarSideLeft(this, checked[1])
                 applyBarSide()
                 applyClusterNavi(checked[2])
+                AppSettings.setClusterTrafficLights(this, checked[3])
                 // Шторка: настройка проверяется при следующем старте.
-                AppSettings.setShadeResume(this, checked[3])
+                AppSettings.setShadeResume(this, checked[4])
                 // ETM: отключили — посылаем приборке выход из инженерного
                 // меню (вернуть как было). Вход идёт при каждом
                 // подключении [ClusterPps] к qconn.
-                AppSettings.setEtmCoolant(this, checked[5])
-                if (!checked[5]) Thread { runCatching { CoolantEtm.send(0) } }.start()
+                AppSettings.setEtmCoolant(this, checked[6])
+                if (!checked[6]) Thread { runCatching { CoolantEtm.send(0) } }.start()
             }
             .setNegativeButton(R.string.dialog_cancel, null)
             .showFullScreen()
@@ -333,6 +344,40 @@ class MainActivity : AppCompatActivity() {
                 AppSettings.setJournalKeepDays(this, options[selected])
                 if (options[selected] > 0) {
                     TripTracker.applyJournalKeep(applicationContext, options[selected])
+                }
+                showSettingsDialog()
+            }
+            .setNegativeButton(R.string.dialog_cancel) { _, _ -> showSettingsDialog() }
+            .showFullScreen()
+    }
+
+    /**
+     * Объём бака ([CarHub.tankLiters]) — из него литры остатка и расход
+     * по процентам топлива. Вне [CarHub.TANK_RANGE_L] не сохраняем.
+     */
+    private fun showTankDialog() {
+        val range = CarHub.TANK_RANGE_L
+        val input = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            isSingleLine = true
+            textSize = 22f
+            setText(CarHub.tankLiters(this@MainActivity).toString())
+            setSelectAllOnFocus(true)
+        }
+        DashDialog.Builder(this)
+            .setTitle(R.string.tank_title)
+            .setMessage(getString(R.string.tank_hint, range.first, range.last, CarHub.DEFAULT_TANK_L))
+            .setView(input)
+            .setPositiveButton(R.string.edit_done) { _, _ ->
+                val liters = input.text.toString().trim().toIntOrNull()
+                if (liters != null && liters in range) {
+                    CarHub.setTankLiters(this, liters)
+                } else {
+                    Toast.makeText(
+                        this,
+                        getString(R.string.tank_invalid, range.first, range.last),
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
                 showSettingsDialog()
             }
@@ -624,8 +669,6 @@ class MainActivity : AppCompatActivity() {
     private fun buildWidgets(specs: List<WidgetSpec>) {
         dashboard.removeAllViews()
         specs.forEach { spec ->
-            // Продовая сборка игнорирует виджеты вне утверждённого набора.
-            if (!WidgetAvailability.isEnabled(spec.type)) return@forEach
             // Общий вид «Ретро» — у виджетов без своей ретро-отрисовки.
             val retro = spec.type !in OWN_RETRO && RetroLook.isOn(settingsStore, spec.widgetId)
             val wTheme = if (retro) RetroLook.THEME else theme
@@ -655,7 +698,12 @@ class MainActivity : AppCompatActivity() {
                     items = ClimateControlView.selected(settingsStore, spec.widgetId)
                 )
                 WidgetType.REFERENCE -> ReferenceWidgetView(this, wTheme)
-                WidgetType.HEAT -> HeatWidgetView(this, wTheme)
+                // Тот же вид, что «Управление климатом», только подогревы; «Ретро» — его своя тема.
+                WidgetType.HEAT -> ClimateControlView(
+                    this, wTheme,
+                    retro = RetroLook.isOn(settingsStore, spec.widgetId),
+                    items = ClimateControlView.HEAT_ITEMS
+                )
                 WidgetType.OUTSIDE -> OutsideWidgetView(this, wTheme)
                 WidgetType.ELM -> ElmWidgetView(this, wTheme, spec.widgetId, settingsStore)
                 WidgetType.SPEED ->
@@ -761,12 +809,11 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, R.string.msg_cleared, Toast.LENGTH_SHORT).show()
     }
 
-    /** Один пункт выбора виджета: тип, подпись, иконка; [debug] — секция «Отладка». */
+    /** Один пункт выбора виджета: тип, подпись, иконка. */
     private class PickerItem(
         val type: WidgetType,
         val labelRes: Int,
-        val iconRes: Int,
-        val debug: Boolean = false
+        val iconRes: Int
     )
 
     private fun pickerItems(): List<PickerItem> = listOf(
@@ -782,11 +829,10 @@ class MainActivity : AppCompatActivity() {
         PickerItem(WidgetType.CLIMATE, R.string.widget_climate, R.drawable.ic_fan),
         PickerItem(WidgetType.CLIMATE_CONTROL, R.string.widget_climate_control, R.drawable.ic_fan),
         PickerItem(WidgetType.BUTTONS, R.string.widget_buttons, R.drawable.ic_grid),
-        // Отладочная секция: в prod не попадают (WidgetAvailability).
-        PickerItem(WidgetType.REFERENCE, R.string.widget_reference, R.drawable.ic_book, debug = true),
-        PickerItem(WidgetType.HEAT, R.string.widget_heat, R.drawable.ic_seat_heat, debug = true),
-        PickerItem(WidgetType.ELM, R.string.widget_elm, R.drawable.ic_obd, debug = true),
-    ).filter { WidgetAvailability.isEnabled(it.type) }
+        PickerItem(WidgetType.REFERENCE, R.string.widget_reference, R.drawable.ic_book),
+        PickerItem(WidgetType.HEAT, R.string.widget_heat, R.drawable.ic_seat_heat),
+        PickerItem(WidgetType.ELM, R.string.widget_elm, R.drawable.ic_obd),
+    )
 
     /**
      * Диалог «+ Добавить блок»: сетка карточек с иконкой и подписью.
@@ -808,8 +854,6 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * Сетка карточек; [onPick] вызывается по тапу. Уже добавленные — отмечены.
-     * Отладочные виджеты идут отдельной секцией «Отладка» после «Основных»
-     * (в prod их нет — тогда и заголовки секций не рисуем).
      */
     private fun buildPickerGrid(
         items: List<PickerItem>,
@@ -851,32 +895,12 @@ class MainActivity : AppCompatActivity() {
                 )
             }
         }
-        val main = items.filter { !it.debug }
-        val debug = items.filter { it.debug }
-        if (debug.isEmpty()) {
-            // Prod-набор: секций нет — плоская сетка как раньше.
-            rows(items)
-        } else {
-            container.addView(sectionTitle(R.string.picker_main))
-            rows(main)
-            container.addView(sectionTitle(R.string.picker_debug), LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(12) })
-            rows(debug)
-        }
+        rows(items)
         // Вертикальная прокрутка: пунктов больше, чем влезает на экран.
         return ScrollView(this).apply {
             isVerticalScrollBarEnabled = true
             addView(container)
         }
-    }
-
-    /** Небольшой заголовок секции пикера («Основные» / «Отладка»). */
-    private fun sectionTitle(res: Int) = TextView(this).apply {
-        text = getString(res)
-        setTextColor(theme.secondaryText)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
     }
 
     /** Карточка виджета: иконка сверху, подпись, отметка «Уже на главной». */
@@ -1705,6 +1729,6 @@ class MainActivity : AppCompatActivity() {
         private const val CLIMATE_ICONS = "icons"
 
         /** Виджеты со своим ретро-видом в настройках — общий [RetroLook] им не нужен. */
-        private val OWN_RETRO = setOf(WidgetType.SPEED, WidgetType.CLIMATE, WidgetType.CLIMATE_CONTROL)
+        private val OWN_RETRO = setOf(WidgetType.SPEED, WidgetType.CLIMATE, WidgetType.CLIMATE_CONTROL, WidgetType.HEAT)
     }
 }

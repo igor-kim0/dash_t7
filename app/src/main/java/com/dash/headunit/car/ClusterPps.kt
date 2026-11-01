@@ -288,7 +288,7 @@ object ClusterPps {
 
     private const val TAG = "ClusterPps"
     private const val DIR = "/var/pps/spi_service"
-    private val OBJECTS = listOf("a000", "a001", "a0ff", "a5a5", "7902", "7926")
+    private val OBJECTS = listOf("a000", "a001", "a0ff", "a5a5", "a006")
     private const val DATA_PREFIX = "data:json:"
     private const val HISTORY_MAX = 50
     private const val FRAME_HISTORY_MAX = 200
@@ -405,19 +405,15 @@ class ClusterParser {
                     u16(bytes, 6).takeIf { it <= MAX_RPM }?.let { setRpm(it, "a5a5", now) }
                 }
             }
-            // Забортная температура (которую показывает приборка, шаг 0,5 °C;
-            // срез 2026-10-25): 7902 = [11,1,103,248] — b2×0.5−40 (11.5),
-            // 7926 = [115,0] — LE16×0.1 (11.5). 7902 главный, 7926 запасной.
-            "7902" -> if (bytes.size >= 4) {
-                bytes[2].let { c: Int -> c * 0.5f - 40f }
-                    .takeIf { it in MIN_OUTSIDE_C..MAX_OUTSIDE_C }
-                    ?.let { setOutside(it, "7902", now) }
-            }
-            "7926" -> if (bytes.size >= 2 && (outsideSource != "7902" || now - outsideAt >= FALLBACK_MS)) {
-                val raw = u16(bytes, 0)
-                if (raw != NO_DATA_U16) {
-                    (raw * 0.1f).takeIf { it in MIN_OUTSIDE_C..MAX_OUTSIDE_C }
-                        ?.let { setOutside(it, "7926", now) }
+            // Забортная температура — ровно как её считает сама приборка
+            // (sva.cluster, RcMTopBottomAmbientTempUpdate, разбор 2026-10-30):
+            // a006 b3 × 0.5 − 55 °C; b3 > 250 — «--», b6 бит 1 — датчик неисправен.
+            // То же сырое значение, что Desay 16,19 (133 → 11.5 = приборка 25.10).
+            "a006" -> if (bytes.size >= 7) {
+                val raw = bytes[3]
+                if (raw <= MAX_OUTSIDE_RAW && (bytes[6] and 0x02) == 0) {
+                    (raw * 0.5f - 55f).takeIf { it in MIN_OUTSIDE_C..MAX_OUTSIDE_C }
+                        ?.let { setOutside(it, "a006", now) }
                 }
             }
         }
@@ -483,7 +479,8 @@ class ClusterParser {
         /** Разумный диапазон забортной температуры между −40 и +60 °C. */
         private const val MIN_OUTSIDE_C = -40f
         private const val MAX_OUTSIDE_C = 60f
-        private const val NO_DATA_U16 = 0xFFFF
+        /** Больше — приборка рисует «--» (нет данных). */
+        private const val MAX_OUTSIDE_RAW = 250
         private const val MAX_SPEED = 300
         private const val MAX_RPM = 10_000
         private const val A5A5_MARKER = 0x55AA

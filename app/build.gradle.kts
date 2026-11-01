@@ -70,22 +70,6 @@ android {
         }
     }
 
-    // Два варианта поставки:
-    //   dev  — как сейчас: все виджеты (для разработки);
-    //   prod — продовый: только часы, погода, автомобиль, музыка,
-    //          навигатор, бортовой компьютер, спидометр.
-    // Набор продовых виджетов — WidgetAvailability (флаг PROD_BUILD).
-    flavorDimensions += "channel"
-    productFlavors {
-        create("dev") {
-            dimension = "channel"
-            buildConfigField("boolean", "PROD_BUILD", "false")
-        }
-        create("prod") {
-            dimension = "channel"
-            buildConfigField("boolean", "PROD_BUILD", "true")
-        }
-    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
@@ -98,7 +82,7 @@ android {
     }
 }
 
-// Имя APK: tenet_t7_dash-<flavor>-<buildType>.apk вместо app-….apk.
+// Имя APK: tenet_t7_dash-<buildType>.apk вместо app-….apk.
 base {
     archivesName = "tenet_t7_dash"
 }

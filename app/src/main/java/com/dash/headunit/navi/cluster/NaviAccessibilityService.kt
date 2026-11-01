@@ -8,6 +8,7 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import com.dash.headunit.settings.AppSettings
 import com.dash.headunit.settings.Autostart
 
 /**
@@ -15,7 +16,7 @@ import com.dash.headunit.settings.Autostart
  * ограничение скорости (layout_map_speedlimit → text_speedlimit), камеры
  * (view_notification_speedcamera_*), остаток маршрута (textview_eta_*) и
  * карточку манёвра (contextmaneuverview: text_maneuverballoon_distance/metrics,
- * text_nextstreet). Так есть данные, даже когда навигатор на экране и
+ * text_nextstreet), светофор (button_trafficlight → [TrafficLightGrab]). Так есть данные, даже когда навигатор на экране и
  * фонового уведомления ведения нет. Тип манёвра — по снимку стрелки
  * ([ManeuverGrab]).
  *
@@ -116,9 +117,17 @@ class NaviAccessibilityService : AccessibilityService() {
     }
 
     private fun read(root: AccessibilityNodeInfo): Guidance? {
-        fun node(id: String): AccessibilityNodeInfo? =
-            root.findAccessibilityNodeInfosByViewId("$YANDEX_NAVI:id/$id")
-                ?.firstOrNull { it.isVisibleToUser }
+        // В блоке под дашбордом (ГУ 2026-10-31) кнопки карты с карточкой
+        // манёвра и лимитом у Яндекса «не видны» (isVisibleToUser = false у
+        // всей ветки от buttons_container), хотя тексты в них есть, а
+        // уведомления ведения в это время нет. Поэтому видимый узел — если
+        // есть, иначе любой.
+        fun nodes(id: String): List<AccessibilityNodeInfo> =
+            root.findAccessibilityNodeInfosByViewId("$YANDEX_NAVI:id/$id").orEmpty()
+
+        fun visible(id: String): AccessibilityNodeInfo? = nodes(id).firstOrNull { it.isVisibleToUser }
+
+        fun node(id: String): AccessibilityNodeInfo? = nodes(id).let { l -> l.firstOrNull { it.isVisibleToUser } ?: l.firstOrNull() }
 
         fun text(id: String): String? =
             node(id)?.let { it.text ?: it.contentDescription }?.toString()?.trim()?.takeIf { it.isNotEmpty() }
@@ -129,10 +138,23 @@ class NaviAccessibilityService : AccessibilityService() {
         val arrow = node("image_maneuverballoon_maneuver")
         val arrowDesc = arrow?.contentDescription?.toString()
         val street = text("text_nextstreet")
-        // Описания у стрелки нет — узнаём её по снимку экрана.
-        val maneuver = GuidanceText.classify(arrowDesc) ?: arrow?.let {
+        // Описания у стрелки нет — узнаём её по снимку экрана. Невидимую
+        // стрелку снимать бессмысленно — тогда последняя узнанная для этой улицы.
+        val maneuver = GuidanceText.classify(arrowDesc) ?: when {
+            arrow == null -> null
+            arrow.isVisibleToUser -> {
+                val r = android.graphics.Rect().also { b -> arrow.getBoundsInScreen(b) }
+                ManeuverGrab.maneuver(this, r, street, dist)
+            }
+            else -> ManeuverGrab.known(street)
+        }
+        // Светофор (настройка): цвет только по снимку видимой кнопки (в блоке кнопки не рисуются).
+        val tl = visible("button_trafficlight")?.takeIf { AppSettings.clusterTrafficLights(this) }?.let {
             val r = android.graphics.Rect().also { b -> it.getBoundsInScreen(b) }
-            ManeuverGrab.maneuver(this, r, street, dist)
+            TrafficLightGrab.light(this, r)
+        } ?: run {
+            TrafficLightGrab.reset()
+            null
         }
         val camDist = text("view_notification_speedcamera_distance")
         val camLabel = text("view_notification_speedcamera_distance_label")
@@ -146,17 +168,25 @@ class NaviAccessibilityService : AccessibilityService() {
             speedLimit = limit,
             cameraDistance = camDist?.let { if (camLabel != null) "$it $camLabel" else it },
             cameraLimit = GuidanceText.speedLimit(text("view_notification_speedcamera_limit")),
-            overspeed = node("view_speedlimit_alarm") != null,
+            overspeed = visible("view_speedlimit_alarm") != null,
+            trafficLight = tl,
         )
-        return g.takeIf { it.onRoute || it.speedLimit != null || it.cameraDistance != null }
+        return g.takeIf { it.onRoute || it.hasWarnings }
     }
 
-    /** Окна, которые система отдаёт службе (заголовок, пакет, границы), — для диагностики. */
+    /**
+     * Окна, которые система отдаёт службе (заголовок, пакет, границы, фокус,
+     * класс корня — DecorView активности или диалога), — для диагностики.
+     */
     fun describeWindows(): String = try {
         windows.joinToString("\n") { w ->
             val b = android.graphics.Rect().also { w.getBoundsInScreen(it) }
+            val root = w.root
             "id=${w.id} type=${w.type} layer=${w.layer} ${w.title ?: "-"} " +
-                "pkg=${w.root?.packageName ?: "?"} $b"
+                "pkg=${root?.packageName ?: "?"} $b" +
+                (if (w.isFocused) " focused" else "") + (if (w.isActive) " active" else "") +
+                " root=${root?.className?.toString()?.substringAfterLast('.') ?: "?"}" +
+                "/${root?.childCount ?: 0}"
         }.ifEmpty { "(пусто)" }
     } catch (e: Exception) {
         "ошибка: ${e.javaClass.simpleName}: ${e.message}"

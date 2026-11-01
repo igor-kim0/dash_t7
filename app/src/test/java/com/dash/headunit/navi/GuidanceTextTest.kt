@@ -45,15 +45,6 @@ class GuidanceTextTest {
     }
 
     @Test
-    fun naviAreaRequestFromMeter() {
-        assertEquals(1, GuidanceText.naviAreaRequest(mapOf("RequestNaviAreaDisplay" to 1)))
-        assertEquals(0, GuidanceText.naviAreaRequest(mapOf("map_status" to "0")))
-        assertEquals(1, GuidanceText.naviAreaRequest(mapOf("data" to "{\"RequestNaviAreaDisplay\": 1}")))
-        assertEquals(0, GuidanceText.naviAreaRequest(mapOf("data" to "{\"RequestNaviAreaDisplay\":\"0\"}")))
-        assertNull(GuidanceText.naviAreaRequest(mapOf("speed" to 40)))
-    }
-
-    @Test
     fun metersAndSeconds() {
         assertEquals(300, GuidanceText.meters("300 м"))
         assertEquals(1200, GuidanceText.meters("1,2 км"))

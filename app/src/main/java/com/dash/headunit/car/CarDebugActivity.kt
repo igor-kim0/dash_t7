@@ -58,6 +58,7 @@ class CarDebugActivity : AppCompatActivity() {
         val btnTripSim = Button(this).apply { text = "Журнал: записать тест-поездку" }
         val btnEtm = Button(this).apply { text = "ОЖ °C через инженерное меню приборки (~20 с)" }
         val btnView = Button(this).apply { text = "Вид навигации на приборке: область 1 → 2 → 1 (~50 с)" }
+        val btnNaviProbe = Button(this).apply { text = "Маршрут на приборке при Яндексе на экране: проба (~100 с)" }
         val markText = EditText(this).apply {
             hint = "что на приборке: «ОЖ 65», «расход 8.4», «передача 3»"
             isSingleLine = true
@@ -81,6 +82,7 @@ class CarDebugActivity : AppCompatActivity() {
         root.addView(btnTripSim)
         root.addView(btnEtm)
         root.addView(btnView)
+        root.addView(btnNaviProbe)
         root.addView(recStatus)
         root.addView(
             scroll,
@@ -96,6 +98,7 @@ class CarDebugActivity : AppCompatActivity() {
         btnTripSim.setOnClickListener { simulateTrip() }
         btnEtm.setOnClickListener { com.dash.headunit.diag.CoolantEtmTest.start(this) }
         btnView.setOnClickListener { com.dash.headunit.diag.ClusterViewTest.start(this) }
+        btnNaviProbe.setOnClickListener { com.dash.headunit.diag.ClusterNaviProbe.start(this) }
         btnRec.setOnClickListener {
             if (ClusterRecorder.running) ClusterRecorder.stop() else ClusterRecorder.start(this)
         }

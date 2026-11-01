@@ -24,28 +24,11 @@ class CarLanJsonTest {
     }
 
     @Test
-    fun warningsNoRoute() {
+    fun warningsAlwaysNaviOff() {
+        // NaviStatus 3 включал штатную строку манёвра «0 м Войти» (ГУ 2026-11-01).
         assertEquals(
             "{\"CameraType\":3,\"NaviStatus\":4,\"SpeedingInfo\":0,\"WarningMessage\":-1}",
-            ClusterWarnings.json(null),
-        )
-    }
-
-    @Test
-    fun warningsLimitAndCamera() {
-        val road = Guidance(remainingTime = "5 мин", speedLimit = 90)
-        assertEquals(
-            "{\"CameraType\":3,\"NaviStatus\":3,\"SpeedingInfo\":90,\"WarningMessage\":1}",
-            ClusterWarnings.json(road),
-        )
-        // Лимит камеры важнее лимита участка.
-        assertEquals(
-            "{\"CameraType\":3,\"NaviStatus\":3,\"SpeedingInfo\":60,\"WarningMessage\":1}",
-            ClusterWarnings.json(road.copy(cameraLimit = 60)),
-        )
-        assertEquals(
-            "{\"CameraType\":3,\"NaviStatus\":3,\"SpeedingInfo\":0,\"WarningMessage\":-1}",
-            ClusterWarnings.json(Guidance(remainingTime = "5 мин")),
+            ClusterWarnings.json(),
         )
     }
 
@@ -55,5 +38,13 @@ class CarLanJsonTest {
         val b = Guidance(overspeed = true)
         assertEquals(true, a.orElse(b).overspeed)
         assertEquals(false, a.orElse(null).overspeed)
+    }
+
+    @Test
+    fun naviAreaRequest() {
+        assertEquals(1, CarLanClient.Json.naviAreaRequest("{\"RequestNaviAreaDisplay\":1}"))
+        assertEquals(0, CarLanClient.Json.naviAreaRequest("{ \"RequestNaviAreaDisplay\" : \"0\" }"))
+        assertEquals(null, CarLanClient.Json.naviAreaRequest("{\"NaviDisplayArea\":1}"))
+        assertEquals(null, CarLanClient.Json.naviAreaRequest(null))
     }
 }

@@ -24,7 +24,10 @@ import android.view.View
  *   │  ↰   │  300 м
  *   │      │  ▓▓▓▓▓▓▓▓░░░░   — сколько осталось до манёвра
  *   ╰──────╯  ул. Ленина          камера 60 · 350 м
- *   12 км · 18 мин · прибытие 14:35
+ *   12 км · 18 мин · прибытие 14:35                  ▮ светофор
+ *
+ * Без маршрута ([Guidance.freeDrive]) карточки нет — по центру строка
+ * предупреждений: знак ограничения, камера, светофор.
  *
  * Чёрный фон: на приборке он сливается с рамкой. Без маршрута окно
  * остаётся пустым чёрным — иначе на дисплей 1 вернётся зеркало главного
@@ -176,7 +179,8 @@ class ClusterGuidanceView(context: Context) : View(context) {
             bigText.textSize = 104f * s
             g.distance?.let { canvas.drawText(fit(it, bigText, distRight - tx), tx, top + pad + 96f * s, bigText) }
             val frac = progress.update(
-                "${g.maneuver}|${g.street}",
+                // Без типа манёвра: он появляется со снимком через секунды — отсчёт не сбрасываем.
+                g.street.orEmpty(),
                 GuidanceText.meters(g.distance)
             )
             if (frac != null) {
@@ -194,7 +198,15 @@ class ClusterGuidanceView(context: Context) : View(context) {
             g.street?.let { canvas.drawText(fit(it, midText, streetRight - tx), tx, bottom - pad - 6f * s, midText) }
         }
 
+        if (!g.hasManeuver) {
+            drawWarningsRow(canvas, g, left, right, signCy, signR, s)
+            return
+        }
         limit?.let { drawSign(canvas, it, g.overspeed, signCx, signCy, signR) }
+        g.trafficLight?.let {
+            val th = 120f * s
+            drawTrafficLight(canvas, it, right - pad - th * TL_ASPECT / 2, bottom + 24f * s + th / 2, th)
+        }
 
         // Под карточкой: остаток маршрута и время прибытия.
         smallText.textSize = 38f * s
@@ -203,7 +215,49 @@ class ClusterGuidanceView(context: Context) : View(context) {
             g.remainingTime,
             g.arrival?.let { "прибытие $it" }
         ).joinToString("  ·  ")
-        if (eta.isNotEmpty()) canvas.drawText(fit(eta, smallText, cw - 2 * pad), left + pad, bottom + 70f * s, smallText)
+        val etaW = cw - 2 * pad - if (g.trafficLight != null) 120f * s * TL_ASPECT + 24f * s else 0f
+        if (eta.isNotEmpty()) canvas.drawText(fit(eta, smallText, etaW), left + pad, bottom + 70f * s, smallText)
+    }
+
+    /** Без маршрута: знак, камера, светофор — в ряд по центру полосы. */
+    private fun drawWarningsRow(canvas: Canvas, g: Guidance, left: Float, right: Float, cy: Float, r: Float, s: Float) {
+        val gap = 48f * s
+        val th = 2 * r
+        midText.textSize = 52f * s
+        midText.color = amber
+        val cam = g.cameraDistance?.let { d ->
+            listOfNotNull("камера", g.cameraLimit?.toString(), d).joinToString(" · ")
+        }
+        val widths = listOfNotNull(
+            g.speedLimit?.let { 2 * r },
+            cam?.let { midText.measureText(it) },
+            g.trafficLight?.let { th * TL_ASPECT },
+        )
+        var x = (left + right) / 2 - (widths.sum() + gap * (widths.size - 1)) / 2
+        g.speedLimit?.let {
+            drawSign(canvas, it, g.overspeed, x + r, cy, r)
+            x += 2 * r + gap
+        }
+        cam?.let {
+            val fm = midText.fontMetrics
+            canvas.drawText(fit(it, midText, right - x), x, cy - (fm.ascent + fm.descent) / 2, midText)
+            x += midText.measureText(it) + gap
+        }
+        midText.color = white
+        g.trafficLight?.let { drawTrafficLight(canvas, it, x + th * TL_ASPECT / 2, cy, th) }
+    }
+
+    /** Светофор высотой [h] с центром (cx, cy): горит лампа [light], остальные тусклые. */
+    private fun drawTrafficLight(canvas: Canvas, light: TrafficLight, cx: Float, cy: Float, h: Float) {
+        val w = h * TL_ASPECT
+        dst.set(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)
+        canvas.drawRoundRect(dst, w * 0.3f, w * 0.3f, tileFill)
+        val lr = w * 0.32f
+        val step = h / 3
+        TrafficLight.entries.forEachIndexed { i, l ->
+            signFill.color = if (l == light) LAMP_ON[i] else LAMP_OFF
+            canvas.drawCircle(cx, cy - h / 2 + step * (i + 0.5f), lr, signFill)
+        }
     }
 
     /** Стрелка: картинка навигатора, иначе своя по типу манёвра. */
@@ -377,6 +431,11 @@ class ClusterGuidanceView(context: Context) : View(context) {
     }
 
     private companion object {
+        /** Ширина светофора к высоте. */
+        const val TL_ASPECT = 0.42f
+        /** Лампы сверху вниз — в порядке [TrafficLight]: красная, жёлтая, зелёная. */
+        val LAMP_ON = intArrayOf(Color.rgb(0xE5, 0x52, 0x45), Color.rgb(0xFF, 0xDF, 0x61), Color.rgb(0x85, 0xCC, 0x3D))
+        val LAMP_OFF = Color.rgb(0x3A, 0x40, 0x4A)
         /** Цвета полос A–H (приглушённые, как в grid.png). */
         val BANDS = intArrayOf(
             Color.rgb(0x50, 0x00, 0x00), Color.rgb(0x50, 0x28, 0x00),

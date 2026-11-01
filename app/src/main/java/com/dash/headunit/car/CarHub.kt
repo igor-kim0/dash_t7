@@ -300,26 +300,27 @@ object CarHub {
             // POLL_MS значения прыгали бы между источниками.
             speedKmh = ClusterPps.speedKmh()?.toFloat() ?: merged.speedKmh,
             rpm = ClusterPps.rpm() ?: merged.rpm,
-            // Забортная — с приборки (PPS 7902/7926, шаг 0,5 °C): шина Desay
-            // (16,19, шаг 1 °C) отстаёт/расходится на ~1,5 °C с приборкой
-            // и OWM (срез 2026-10-25). Приборка — первой, как и ОЖ выше.
+            // Забортная — с приборки (PPS a006 b3 × 0.5 − 55, как в её прошивке):
+            // то же сырое значение, что Desay 16,19, но a006 приходит чаще.
+            // Приборка — первой, как и ОЖ выше.
             outsideTempC = ClusterPps.outsideTempC() ?: merged.outsideTempC
         )
     }
 
-    fun tankLiters(): Int {
-        val ctx = appContext ?: return DEFAULT_TANK_L
-        return try {
-            ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getInt(KEY_TANK, DEFAULT_TANK_L)
-        } catch (e: Exception) {
-            DEFAULT_TANK_L
-        }
+    fun tankLiters(): Int = appContext?.let { tankLiters(it) } ?: DEFAULT_TANK_L
+
+    /** Объём бака из настроек приложения; читается на каждом опросе — смена применяется сразу. */
+    fun tankLiters(ctx: Context): Int = try {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getInt(KEY_TANK, DEFAULT_TANK_L)
+            .takeIf { it in TANK_RANGE_L } ?: DEFAULT_TANK_L
+    } catch (e: Exception) {
+        DEFAULT_TANK_L
     }
 
-    fun setTankLiters(liters: Int) {
-        appContext?.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            ?.edit()?.putInt(KEY_TANK, liters)?.apply()
+    fun setTankLiters(ctx: Context, liters: Int) {
+        ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putInt(KEY_TANK, liters.coerceIn(TANK_RANGE_L)).apply()
     }
 
     /** Для тестов. */
@@ -350,4 +351,5 @@ object CarHub {
     private const val PREFS = "car_prefs"
     private const val KEY_TANK = "tankLiters"
     const val DEFAULT_TANK_L = 51
+    val TANK_RANGE_L = 20..150
 }

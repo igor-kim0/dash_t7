@@ -28,7 +28,7 @@ import kotlinx.coroutines.withContext
  *   16,18  климат активен     1=работает (AC_SWITCH)
  *   16,24  обдув лобового     1=вкл (AC_MAX_DEFROST_STATE)
  *   16,65  обогрев лобового   1=вкл (AC_FRONT_WINDSHIELD_HEATING, как в Jarvis)
- *   0,95   подогрев сиденья вод. 0..3 (0,96 — пасс.)
+ *   0,95   подогрев сиденья вод. 0..3 (0,96 — пасс., 0,139 / 0,141 — задние)
  *   16,70  подогрев руля     1=вкл
  *
  * Температура: PRIMARY — Desay raw 16,10/16,13 со шкалой [scaleTemp]
@@ -40,11 +40,11 @@ import kotlinx.coroutines.withContext
  * Доп. канальные значения (чтение): 4,15 дверь, 0,100..102 окна,
  * 4,79 аварийка, 4,75 ручник, 0,27 двигатель запущен.
  *
- * Записи здесь нет (команды в шину — [ClimateControl], HeatWidgetView):
+ * Записи здесь нет (команды в шину — [ClimateControl]):
  * - Request-ячейки (16,22/16,23 AC_DRIVER/PASSENGER_TEMP_SET, 16,2 WIND_MODE,
  *   16,24 WIND_LEVEL_SET скорость, 16,1 AUTO, 16,0 AC_SWITCH, 16,45/46
  *   BLOWER_OPEN/CLOSE) подтверждаются read-back по Response-ячейкам.
- * - Подогрев сиденья/лобового пишет HeatWidgetView напрямую.
+ * - Подогревы (виджеты «Подогрев» и «Управление климатом») — тоже через [ClimateControl].
  */
 object ClimateHub {
 
@@ -103,7 +103,10 @@ object ClimateHub {
         /** Подогрев сиденья пассажира 0..3 (0,96). */
         val seatHeatPass: Int? = null,
         /** Подогрев руля (16,70). */
-        val wheelHeat: Boolean? = null
+        val wheelHeat: Boolean? = null,
+        /** Подогрев задних сидений 0..3 (0,139 / 0,141). */
+        val seatHeatRearLeft: Int? = null,
+        val seatHeatRearRight: Int? = null
     ) {
         companion object {
             val EMPTY = ClimateState(
@@ -222,7 +225,9 @@ object ClimateHub {
             windshieldHeat = boolOr(desay.readInt(G, 65)),
             seatHeatDriver = desay.readInt(0, 95).takeIf { it in 0..3 },
             seatHeatPass = desay.readInt(0, 96).takeIf { it in 0..3 },
-            wheelHeat = boolOr(desay.readInt(G, 70))
+            wheelHeat = boolOr(desay.readInt(G, 70)),
+            seatHeatRearLeft = desay.readInt(0, 139).takeIf { it in 0..3 },
+            seatHeatRearRight = desay.readInt(0, 141).takeIf { it in 0..3 }
         )
     }
 

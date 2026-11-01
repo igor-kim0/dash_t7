@@ -21,7 +21,7 @@ data class CarData(
     val gearboxTempC: Float?,
     /** Забортная температура, °C (Desay шина 16 id 19). */
     val outsideTempC: Float?,
-    /** Сырое значение ячейки 16,19 (dash: raw−120; Jarvis: прямые °C). */
+    /** Сырое значение ячейки 16,19 (dash: raw × 0.5 − 55; Jarvis: прямые °C). */
     val outsideRaw: Int? = null,
     /** Одометр, км (Desay шина 4 id 71) — для борткомпьютера. */
     val odoKm: Int?,

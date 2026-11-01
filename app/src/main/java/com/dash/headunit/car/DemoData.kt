@@ -18,7 +18,7 @@ object DemoData {
         engineTempC = 90f,
         gearboxTempC = null,
         outsideTempC = 14f,
-        outsideRaw = 134, // 14 + 120, как с шины
+        outsideRaw = 138, // (14 + 55) × 2, как с шины
         odoKm = null,
         rpm = 800,
         speedKmh = 46f,
