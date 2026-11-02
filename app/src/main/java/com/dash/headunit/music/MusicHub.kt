@@ -243,6 +243,9 @@ object MusicHub {
         val album = md.getString(MediaMetadata.METADATA_KEY_ALBUM)?.takeIf { it.isNotBlank() }
         var art = md.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
         if (art == null) art = md.getBitmap(MediaMetadata.METADATA_KEY_ART)
+        // BT AVRCP bitmap не передаёт — плееры присылают ссылку на обложку.
+        val artUri = md.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
+            ?: md.getString(MediaMetadata.METADATA_KEY_ART_URI)
         val state = try {
             c.playbackState
         } catch (e: Exception) {
@@ -264,7 +267,8 @@ object MusicHub {
             sourceLabel = pkg,
             playing = playing,
             positionMs = pos,
-            durationMs = if (dur > 0) dur else -1
+            durationMs = if (dur > 0) dur else -1,
+            artUri = artUri?.takeIf { it.isNotBlank() }
         )
     }
 

@@ -39,8 +39,9 @@ object ManeuverGrab {
     /**
      * Манёвр стрелки в [bounds] (экранные координаты); null — пока не
      * узнали. [street]/[distance] — тексты карточки, по ним видно смену манёвра.
+     * [retryMs] — как часто переснимать, пока не узнали.
      */
-    fun maneuver(ctx: Context, bounds: Rect, street: String?, distance: String?): Maneuver? {
+    fun maneuver(ctx: Context, bounds: Rect, street: String?, distance: String?, retryMs: Long = RETRY_MS): Maneuver? {
         if (bounds.width() < MIN_PX || bounds.height() < MIN_PX) return null
         val now = SystemClock.uptimeMillis()
         val k = "${bounds.flattenToString()}|$street"
@@ -49,7 +50,7 @@ object ManeuverGrab {
         lastMeters = meters
         val changed = k != key || (meters != null && prev != null && meters > prev + GROW_M)
         if (changed) cached = null
-        val stale = now - grabbedAt > (if (cached == null) RETRY_MS else REFRESH_MS)
+        val stale = now - grabbedAt > (if (cached == null) retryMs else REFRESH_MS)
         if ((changed || stale) && !busy && now - failedAt > CHANNEL_BACKOFF_MS) {
             key = k
             grabbedAt = now
@@ -123,6 +124,8 @@ object ManeuverGrab {
     private const val GROW_M = 50
     private const val REFRESH_MS = 15_000L
     private const val RETRY_MS = 3_000L
+    /** Пересъёмка «невидимой» стрелки (навигатор в блоке): карточки на экране может и не быть. */
+    const val HIDDEN_RETRY_MS = 10_000L
     private const val CHANNEL_BACKOFF_MS = 60_000L
     private const val TAG = "ManeuverGrab"
 }

@@ -13,5 +13,7 @@ data class MusicData(
     val playing: Boolean,
     /** Позиция/длительность для прогресса, мс (-1 если неизвестно). */
     val positionMs: Long = -1,
-    val durationMs: Long = -1
+    val durationMs: Long = -1,
+    /** URI обложки трека, если плеер прислал только ссылку (Яндекс Музыка). */
+    val artUri: String? = null
 )

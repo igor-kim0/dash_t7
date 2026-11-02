@@ -4,6 +4,9 @@ import android.app.Notification
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
 import android.service.notification.StatusBarNotification
 import android.util.Log
 import android.view.View
@@ -129,9 +132,15 @@ object YandexNotificationParser {
         )
     }
 
-    /** Картинку манёвра — в свой битмап (векторные рисуем крупно). */
+    /**
+     * Картинку манёвра — в свой битмап (векторные рисуем крупно), сразу
+     * белой по альфе: оттенок навигатора (tint ImageView) сбрасываем и
+     * красим здесь, на CPU, а не фильтром при выводе на приборку.
+     */
     private fun render(view: ImageView): Bitmap? = try {
-        val d = view.drawable.constantState?.newDrawable()?.mutate() ?: view.drawable
+        val d = (view.drawable.constantState?.newDrawable() ?: view.drawable).mutate()
+        d.setTintList(null)
+        d.colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
         val iw = d.intrinsicWidth.takeIf { it > 0 } ?: ICON_PX
         val ih = d.intrinsicHeight.takeIf { it > 0 } ?: ICON_PX
         val scale = ICON_PX.toFloat() / maxOf(iw, ih)

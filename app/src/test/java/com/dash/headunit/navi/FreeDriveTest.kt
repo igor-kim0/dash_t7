@@ -1,6 +1,7 @@
 package com.dash.headunit.navi
 
 import com.dash.headunit.navi.cluster.Guidance
+import com.dash.headunit.navi.cluster.GuidanceText
 import com.dash.headunit.navi.cluster.Maneuver
 import com.dash.headunit.navi.cluster.TrafficLight
 import com.dash.headunit.navi.cluster.TrafficLightGrab
@@ -31,6 +32,14 @@ class FreeDriveTest {
         assertNull(Guidance(cameraDistance = "камера").freeDrive())
         assertEquals(60, Guidance(speedLimit = 60, cameraDistance = "800 м").freeDrive()!!.speedLimit)
         assertNull(Guidance(speedLimit = 60, cameraDistance = "800 м").freeDrive()!!.cameraDistance)
+    }
+
+    @Test
+    fun currentStreetAlone() {
+        assertEquals("Рижский просп.", Guidance(currentStreet = "Рижский просп.", remainingDistance = "5 км").freeDrive()!!.currentStreet)
+        assertEquals("Рижский просп.", GuidanceText.currentStreet(" Рижский просп. "))
+        assertNull(GuidanceText.currentStreet("Поиск GPS"))
+        assertNull(GuidanceText.currentStreet(""))
     }
 
     @Test

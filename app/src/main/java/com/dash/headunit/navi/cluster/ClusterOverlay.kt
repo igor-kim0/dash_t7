@@ -194,7 +194,7 @@ object ClusterOverlay {
      * устаревает (камера, светофор), — нет. Без маршрута держать нечего.
      */
     private fun Guidance.frozen(): Guidance? =
-        takeIf { it.onRoute }?.copy(cameraDistance = null, cameraLimit = null, trafficLight = null)
+        takeIf { it.onRoute }?.copy(cameraDistance = null, cameraLimit = null, trafficLight = null, lanes = null)
 
     /** Настройку выключили: убрать окно и панель навигации. */
     fun remove() {
@@ -231,6 +231,7 @@ object ClusterOverlay {
         lastGuidance = null
         ManeuverGrab.reset()
         TrafficLightGrab.reset()
+        LaneGrab.reset()
         view?.guidance = shown()
         val ctx = app ?: return@Runnable
         if (calibration) return@Runnable // рамка держит панель сама

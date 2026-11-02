@@ -138,15 +138,20 @@ class NaviAccessibilityService : AccessibilityService() {
         val arrow = node("image_maneuverballoon_maneuver")
         val arrowDesc = arrow?.contentDescription?.toString()
         val street = text("text_nextstreet")
-        // Описания у стрелки нет — узнаём её по снимку экрана. Невидимую
-        // стрелку снимать бессмысленно — тогда последняя узнанная для этой улицы.
-        val maneuver = GuidanceText.classify(arrowDesc) ?: when {
-            arrow == null -> null
-            arrow.isVisibleToUser -> {
-                val r = android.graphics.Rect().also { b -> arrow.getBoundsInScreen(b) }
-                ManeuverGrab.maneuver(this, r, street, dist)
+        // Описания у стрелки нет — узнаём её по снимку экрана. В блоке под
+        // дашбордом стрелка «не видна» (ГУ 2026-10-31), а уведомления нет —
+        // других источников стрелки тогда нет вовсе (ГУ 2026-11-02: пустая
+        // плитка). Поэтому снимаем и «невидимую», если у неё есть место на
+        // экране, только реже: не нарисована — на снимке карта, и
+        // [ManeuverMatcher] её не узнает (порог уверенности).
+        val maneuver = GuidanceText.classify(arrowDesc) ?: arrow?.let {
+            val r = android.graphics.Rect().also { b -> it.getBoundsInScreen(b) }
+            val onScreen = !r.isEmpty && r.left >= 0 && r.top >= 0
+            when {
+                it.isVisibleToUser -> ManeuverGrab.maneuver(this, r, street, dist)
+                onScreen -> ManeuverGrab.maneuver(this, r, street, dist, ManeuverGrab.HIDDEN_RETRY_MS)
+                else -> ManeuverGrab.known(street)
             }
-            else -> ManeuverGrab.known(street)
         }
         // Светофор (настройка): цвет только по снимку видимой кнопки (в блоке кнопки не рисуются).
         val tl = visible("button_trafficlight")?.takeIf { AppSettings.clusterTrafficLights(this) }?.let {
@@ -154,6 +159,22 @@ class NaviAccessibilityService : AccessibilityService() {
             TrafficLightGrab.light(this, r)
         } ?: run {
             TrafficLightGrab.reset()
+            null
+        }
+        // Полосы: плашка в карте (или видимый контейнер в карточке) — по снимку.
+        val lanes = if (AppSettings.clusterLanes(this)) {
+            fun bounds(n: AccessibilityNodeInfo?) =
+                n?.let { android.graphics.Rect().also { b -> it.getBoundsInScreen(b) } }?.takeUnless { it.isEmpty }
+            LaneGrab.lanes(
+                this,
+                window = bounds(root) ?: android.graphics.Rect(0, 0, 1920, 720),
+                card = bounds(visible("contextmaneuverview")),
+                container = bounds(visible("lane_signs_container")),
+                street = street,
+                distance = dist,
+            )
+        } else {
+            LaneGrab.reset()
             null
         }
         val camDist = text("view_notification_speedcamera_distance")
@@ -170,8 +191,11 @@ class NaviAccessibilityService : AccessibilityService() {
             cameraLimit = GuidanceText.speedLimit(text("view_notification_speedcamera_limit")),
             overspeed = visible("view_speedlimit_alarm") != null,
             trafficLight = tl,
+            lanes = lanes,
+            // Строка состояния внизу карты: без маршрута — улица, по которой едем.
+            currentStreet = GuidanceText.currentStreet(text("text_statuspanel")),
         )
-        return g.takeIf { it.onRoute || it.hasWarnings }
+        return g.takeIf { it.onRoute || it.hasWarnings || it.currentStreet != null }
     }
 
     /**
@@ -204,6 +228,9 @@ class NaviAccessibilityService : AccessibilityService() {
             n.text?.let { sb.append(" \"").append(it).append('"') }
             n.contentDescription?.let { sb.append(" desc=\"").append(it).append('"') }
             if (!n.isVisibleToUser) sb.append(" (не виден)")
+            if (n.viewIdResourceName?.endsWith("_maneuver") == true) {
+                sb.append(' ').append(android.graphics.Rect().also { n.getBoundsInScreen(it) }.toShortString())
+            }
             sb.append('\n')
             for (i in 0 until n.childCount) n.getChild(i)?.let { walk(it, depth + 1) }
         }

@@ -6,8 +6,6 @@ import android.graphics.Color
 import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
@@ -26,8 +24,8 @@ import android.view.View
  *   ╰──────╯  ул. Ленина          камера 60 · 350 м
  *   12 км · 18 мин · прибытие 14:35                  ▮ светофор
  *
- * Без маршрута ([Guidance.freeDrive]) карточки нет — по центру строка
- * предупреждений: знак ограничения, камера, светофор.
+ * Без маршрута ([Guidance.freeDrive]) карточки нет — строка от левого
+ * края полосы: знак ограничения, камера, светофор, текущая улица.
  *
  * Чёрный фон: на приборке он сливается с рамкой. Без маршрута окно
  * остаётся пустым чёрным — иначе на дисплей 1 вернётся зеркало главного
@@ -78,9 +76,8 @@ class ClusterGuidanceView(context: Context) : View(context) {
     private val tileFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(0x26, 0x30, 0x40) }
     private val barTrack = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(0x2E, 0x35, 0x40) }
     private val barFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = white }
-    private val iconPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG).apply {
-        colorFilter = PorterDuffColorFilter(white, PorterDuff.Mode.SRC_IN)
-    }
+    /** Картинка уже белая ([YandexNotificationParser] красит её при разборе) — без фильтров. */
+    private val iconPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
     private val arrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = white
         style = Paint.Style.STROKE
@@ -151,18 +148,22 @@ class ClusterGuidanceView(context: Context) : View(context) {
             cardStroke.strokeWidth = 2f * s
             canvas.drawRoundRect(dst, 36f * s, 36f * s, cardStroke)
 
-            // Плитка со стрелкой манёвра.
+            // Плитка со стрелкой манёвра. Стрелки нет (навигатор в блоке:
+            // карточка Яндекса скрыта, уведомления нет) — нет и плитки, а
+            // не пустой серый квадрат (ГУ 2026-11-02).
             val tile = cardH - 2 * pad
             val tx0 = left + pad
             val ty0 = top + pad
-            dst.set(tx0, ty0, tx0 + tile, ty0 + tile)
-            canvas.drawRoundRect(dst, 28f * s, 28f * s, tileFill)
-            val inset = 26f * s
-            val arrow = tile - 2 * inset
-            drawManeuver(canvas, g, tx0 + inset, ty0 + inset, arrow)
+            val hasArrow = g.maneuver != null || g.maneuverIcon != null
+            if (hasArrow) {
+                dst.set(tx0, ty0, tx0 + tile, ty0 + tile)
+                canvas.drawRoundRect(dst, 28f * s, 28f * s, tileFill)
+                val inset = 26f * s
+                drawManeuver(canvas, g, tx0 + inset, ty0 + inset, tile - 2 * inset)
+            }
 
             // Камера — справа внизу карточки.
-            val tx = tx0 + tile + 40f * s
+            val tx = if (hasArrow) tx0 + tile + 40f * s else tx0 + 16f * s
             var streetRight = (if (limit != null) signCx - signR else right - pad) - 24f * s
             smallText.textSize = 34f * s
             if (g.cameraDistance != null) {
@@ -177,14 +178,17 @@ class ClusterGuidanceView(context: Context) : View(context) {
             // Расстояние и полоса отсчёта до манёвра.
             val distRight = (if (limit != null) signCx - signR else right - pad) - 24f * s
             bigText.textSize = 104f * s
-            g.distance?.let { canvas.drawText(fit(it, bigText, distRight - tx), tx, top + pad + 96f * s, bigText) }
+            val distText = g.distance?.let { fit(it, bigText, distRight - tx) }
+            distText?.let { canvas.drawText(it, tx, top + pad + 96f * s, bigText) }
+            // Знак полос (вырезка с экрана Яндекса) — справа от расстояния, до знака ограничения.
+            val lanesLeft = g.lanes?.let { drawLanes(canvas, it, tx + (distText?.let(bigText::measureText) ?: 0f) + 40f * s, distRight, top + pad, 136f * s) }
             val frac = progress.update(
                 // Без типа манёвра: он появляется со снимком через секунды — отсчёт не сбрасываем.
                 g.street.orEmpty(),
                 GuidanceText.meters(g.distance)
             )
             if (frac != null) {
-                val barW = minOf(560f * s, distRight - tx)
+                val barW = minOf(560f * s, (lanesLeft ?: distRight) - 24f * s - tx)
                 val by = top + pad + 128f * s
                 val bh = 12f * s
                 dst.set(tx, by, tx + barW, by + bh)
@@ -219,7 +223,23 @@ class ClusterGuidanceView(context: Context) : View(context) {
         if (eta.isNotEmpty()) canvas.drawText(fit(eta, smallText, etaW), left + pad, bottom + 70f * s, smallText)
     }
 
-    /** Без маршрута: знак, камера, светофор — в ряд по центру полосы. */
+    /**
+     * Картинка полос высотой до [maxH] от [top], прижата вправо к [r], не левее [l]
+     * (уже не влезает — уменьшается). Возвращает левый край нарисованного; null — места нет.
+     */
+    private fun drawLanes(canvas: Canvas, bmp: android.graphics.Bitmap, l: Float, r: Float, top: Float, maxH: Float): Float? {
+        val room = r - l
+        if (room < maxH * 0.5f || bmp.width <= 0 || bmp.height <= 0) return null
+        val k = minOf(maxH / bmp.height, room / bmp.width)
+        val w = bmp.width * k
+        val h = bmp.height * k
+        src.set(0, 0, bmp.width, bmp.height)
+        dst.set(r - w, top + (maxH - h) / 2, r, top + (maxH + h) / 2)
+        canvas.drawBitmap(bmp, src, dst, iconPaint)
+        return r - w
+    }
+
+    /** Без маршрута: знак, камера, светофор, улица — в ряд от левого края полосы. */
     private fun drawWarningsRow(canvas: Canvas, g: Guidance, left: Float, right: Float, cy: Float, r: Float, s: Float) {
         val gap = 48f * s
         val th = 2 * r
@@ -228,12 +248,7 @@ class ClusterGuidanceView(context: Context) : View(context) {
         val cam = g.cameraDistance?.let { d ->
             listOfNotNull("камера", g.cameraLimit?.toString(), d).joinToString(" · ")
         }
-        val widths = listOfNotNull(
-            g.speedLimit?.let { 2 * r },
-            cam?.let { midText.measureText(it) },
-            g.trafficLight?.let { th * TL_ASPECT },
-        )
-        var x = (left + right) / 2 - (widths.sum() + gap * (widths.size - 1)) / 2
+        var x = left + 30f * s
         g.speedLimit?.let {
             drawSign(canvas, it, g.overspeed, x + r, cy, r)
             x += 2 * r + gap
@@ -244,7 +259,15 @@ class ClusterGuidanceView(context: Context) : View(context) {
             x += midText.measureText(it) + gap
         }
         midText.color = white
-        g.trafficLight?.let { drawTrafficLight(canvas, it, x + th * TL_ASPECT / 2, cy, th) }
+        g.trafficLight?.let {
+            drawTrafficLight(canvas, it, x + th * TL_ASPECT / 2, cy, th)
+            x += th * TL_ASPECT + gap
+        }
+        g.currentStreet?.let {
+            midText.textSize = 56f * s
+            val fm = midText.fontMetrics
+            canvas.drawText(fit(it, midText, right - 30f * s - x), x, cy - (fm.ascent + fm.descent) / 2, midText)
+        }
     }
 
     /** Светофор высотой [h] с центром (cx, cy): горит лампа [light], остальные тусклые. */
@@ -260,18 +283,23 @@ class ClusterGuidanceView(context: Context) : View(context) {
         }
     }
 
-    /** Стрелка: картинка навигатора, иначе своя по типу манёвра. */
+    /**
+     * Стрелка: своя по типу манёвра, а если тип не узнан — картинка
+     * навигатора. Не наоборот: картинка из уведомления на ГУ (1.6,
+     * 2026-11-02) на приборке не видна — пустая плитка во всех положениях
+     * Яндекса, хотя по ней же тип узнаётся.
+     */
     private fun drawManeuver(canvas: Canvas, g: Guidance, x: Float, y: Float, size: Float) {
         val icon = g.maneuverIcon
-        if (icon != null) {
+        if (g.maneuver != null) {
+            drawArrow(canvas, g.maneuver, x, y, size)
+        } else if (icon != null) {
             src.set(0, 0, icon.width, icon.height)
             val k = minOf(size / icon.width, size / icon.height)
             val iw = icon.width * k
             val ih = icon.height * k
             dst.set(x + (size - iw) / 2, y + (size - ih) / 2, x + (size + iw) / 2, y + (size + ih) / 2)
             canvas.drawBitmap(icon, src, dst, iconPaint)
-        } else if (g.maneuver != null) {
-            drawArrow(canvas, g.maneuver, x, y, size)
         }
     }
 

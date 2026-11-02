@@ -107,6 +107,8 @@ class ElmDiagPanel(
             append("Адаптер: ")
             append(if (addr == null) "не выбран" else "${ElmHub.name() ?: "?"} ($addr)")
             ElmHub.method()?.let { append(" · ").append(it) }
+            append('\n').append("Профиль: ").append(ElmHub.profile()?.name ?: "стандартный OBD-II")
+            ElmHub.vehicleInfo().forEach { (k, v) -> append(" · ").append(k).append(": ").append(v) }
             append('\n').append("ELM: ").append(ElmHub.lastStatus)
             // Сырой обмен с адаптером: видно, что отвечает ЭБУ (NO DATA, CAN ERROR…).
             ElmHub.trace().takeLast(TRACE_ROWS).forEach { append('\n').append("  ").append(it) }

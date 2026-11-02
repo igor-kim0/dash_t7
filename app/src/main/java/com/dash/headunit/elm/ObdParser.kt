@@ -107,6 +107,18 @@ object ObdParser {
     }
 
     /**
+     * Склеить многокадровый ответ ISO-TP (VIN, длинные DID) в одну строку.
+     * ELM печатает его так: строка с длиной («014»), затем кадры
+     * «0: 49 02 01 …», «1: …». Без нумерованных кадров текст не меняется.
+     */
+    fun joinFrames(text: String): String {
+        val frames = text.split('\r', '\n').mapNotNull { FRAME.find(it)?.groupValues?.get(1) }
+        return if (frames.isEmpty()) text else frames.joinToString(" ")
+    }
+
+    private val FRAME = Regex("""^\s*[0-9A-Fa-f]\s*:\s*([0-9A-Fa-f ]+)$""")
+
+    /**
      * Маска поддерживаемых PID из ответа на 0100/0120/0140… ([base] —
      * 0x00, 0x20, 0x40…): номера PID base+1..base+32, чьи биты взведены
      * (старший бит первого байта — base+1). null — ответа нет.

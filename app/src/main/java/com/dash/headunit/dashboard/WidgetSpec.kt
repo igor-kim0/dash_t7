@@ -14,6 +14,8 @@ enum class WidgetType(val id: String) {
     CAR("car"),
     /** Виджет музыки: BT AVRCP + плееры, транспорт с акцентом на "далее". */
     MUSIC("music"),
+    /** Яндекс Музыка: обложка, транспорт, выбор коллекции (дерево MediaBrowser). */
+    YANDEX_MUSIC("yandex_music"),
     /** Виджет-приложение: встраивание чужого приложения (ActivityView). */
     APP("app"),
     /** Бортовой компьютер: расход/пробег/скорость за поездку. */
@@ -37,7 +39,10 @@ enum class WidgetType(val id: String) {
     WIFI("wifi"),
 
     /** Кнопки: пульт стёкол/люка/шторки записью команд VrControlMgr в шину Desay. */
-    BUTTONS("buttons");
+    BUTTONS("buttons"),
+
+    /** Заставка: только настройки — гасит экран после простоя без касаний. */
+    SCREENSAVER("screensaver");
 
     companion object {
         fun byId(id: String): WidgetType =

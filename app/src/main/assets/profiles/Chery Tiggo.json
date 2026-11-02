@@ -1,0 +1,712 @@
+{
+  "profile_name": "Chery Tiggo 7 Pro 1.6T DCT (по логу Car Scanner)",
+  "profile_version": "3.0",
+  "author": "Custom Diagnostic App",
+  "description": "Параметры, которые реально отвечают на Tiggo 7 Pro 1.6T + DCT (VIN EDEFB32B5SE008533, ECM E21N05A502, TCM_B400_B301_02). Стандартные PID OBD-II — по маске 0100/0120/0140 ЭБУ; заводские DID (22xxxx) — по логу Car Scanner, формулы подобраны по корреляции со стандартными PID. Пометка «не сверено» в note — масштаб или назначение не подтверждены.",
+  "connection_settings": {
+    "protocol": "CAN_11bit_500",
+    "baud_rate": 500000,
+    "timeout": 2000,
+    "retry_count": 3,
+    "default_header": "7E0"
+  },
+  "diagnostic_addresses": {
+    "ECM": {
+      "request": "7E0",
+      "response": "7E8"
+    },
+    "TCM": {
+      "request": "7E1",
+      "response": "7E9"
+    },
+    "DCT": {
+      "request": "703",
+      "response": "713"
+    },
+    "ABS_ESP": {
+      "request": "720",
+      "response": "730"
+    },
+    "TPMS": {
+      "request": "740",
+      "response": "750"
+    },
+    "HVAC": {
+      "request": "74B",
+      "response": "75B"
+    }
+  },
+  "parameters": {
+    "engine": [
+      {
+        "name": "Обороты двигателя",
+        "short_name": "RPM",
+        "command": "010C",
+        "header": "7E0",
+        "formula": "((A*256)+B)/4",
+        "unit": "об/мин",
+        "min": 0,
+        "max": 7000,
+        "precision": 0
+      },
+      {
+        "name": "Скорость автомобиля",
+        "short_name": "Speed",
+        "command": "010D",
+        "header": "7E0",
+        "formula": "A",
+        "unit": "км/ч",
+        "min": 0,
+        "max": 220,
+        "precision": 0
+      },
+      {
+        "name": "Температура ОЖ двигателя",
+        "short_name": "Coolant",
+        "command": "0105",
+        "header": "7E0",
+        "formula": "A-40",
+        "unit": "°C",
+        "min": -40,
+        "max": 115,
+        "precision": 0
+      },
+      {
+        "name": "Температура всасываемого воздуха",
+        "short_name": "IAT",
+        "command": "010F",
+        "header": "7E0",
+        "formula": "A-40",
+        "unit": "°C",
+        "min": -40,
+        "max": 80,
+        "precision": 0
+      },
+      {
+        "name": "Расчётная нагрузка двигателя",
+        "short_name": "Load",
+        "command": "0104",
+        "header": "7E0",
+        "formula": "(A*100)/255",
+        "unit": "%",
+        "min": 0,
+        "max": 100,
+        "precision": 1
+      },
+      {
+        "name": "Абсолютная нагрузка двигателя",
+        "short_name": "Load abs",
+        "command": "0143",
+        "header": "7E0",
+        "formula": "((A*256)+B)*100/255",
+        "unit": "%",
+        "min": 0,
+        "max": 400,
+        "precision": 1
+      },
+      {
+        "name": "Давление во впускном коллекторе (MAP)",
+        "short_name": "MAP",
+        "command": "010B",
+        "header": "7E0",
+        "formula": "A",
+        "unit": "кПа",
+        "min": 0,
+        "max": 255,
+        "precision": 0
+      },
+      {
+        "name": "Атмосферное давление",
+        "short_name": "Baro",
+        "command": "0133",
+        "header": "7E0",
+        "formula": "A",
+        "unit": "кПа",
+        "min": 70,
+        "max": 110,
+        "precision": 0
+      },
+      {
+        "name": "Опережение зажигания",
+        "short_name": "Timing",
+        "command": "010E",
+        "header": "7E0",
+        "formula": "(A/2)-64",
+        "unit": "°",
+        "min": -64,
+        "max": 64,
+        "precision": 1
+      },
+      {
+        "name": "Положение дроссельной заслонки",
+        "short_name": "TPS",
+        "command": "0111",
+        "header": "7E0",
+        "formula": "(A*100)/255",
+        "unit": "%",
+        "min": 0,
+        "max": 100,
+        "precision": 1
+      },
+      {
+        "name": "Относительное положение дросселя",
+        "short_name": "TPS rel",
+        "command": "0145",
+        "header": "7E0",
+        "formula": "(A*100)/255",
+        "unit": "%",
+        "min": 0,
+        "max": 100,
+        "precision": 1
+      },
+      {
+        "name": "Положение дросселя B",
+        "short_name": "TPS B",
+        "command": "0147",
+        "header": "7E0",
+        "formula": "(A*100)/255",
+        "unit": "%",
+        "min": 0,
+        "max": 100,
+        "precision": 1
+      },
+      {
+        "name": "Заданное положение дросселя",
+        "short_name": "TPS cmd",
+        "command": "014C",
+        "header": "7E0",
+        "formula": "(A*100)/255",
+        "unit": "%",
+        "min": 0,
+        "max": 100,
+        "precision": 1
+      },
+      {
+        "name": "Педаль акселератора D",
+        "short_name": "Pedal D",
+        "command": "0149",
+        "header": "7E0",
+        "formula": "(A*100)/255",
+        "unit": "%",
+        "min": 0,
+        "max": 100,
+        "precision": 1
+      },
+      {
+        "name": "Педаль акселератора E",
+        "short_name": "Pedal E",
+        "command": "014A",
+        "header": "7E0",
+        "formula": "(A*100)/255",
+        "unit": "%",
+        "min": 0,
+        "max": 100,
+        "precision": 1
+      },
+      {
+        "name": "Температура наружного воздуха",
+        "short_name": "Ambient",
+        "command": "0146",
+        "header": "7E0",
+        "formula": "A-40",
+        "unit": "°C",
+        "min": -40,
+        "max": 60,
+        "precision": 0
+      },
+      {
+        "name": "Время работы двигателя с запуска",
+        "short_name": "Run time",
+        "command": "011F",
+        "header": "7E0",
+        "formula": "(A*256)+B",
+        "unit": "с",
+        "min": 0,
+        "max": 65535,
+        "precision": 0
+      }
+    ],
+    "fuel_system": [
+      {
+        "name": "Давление в топливной рампе (прямой впрыск)",
+        "short_name": "Fuel rail",
+        "command": "0123",
+        "header": "7E0",
+        "formula": "((A*256)+B)/10",
+        "unit": "бар",
+        "min": 0,
+        "max": 250,
+        "precision": 1
+      },
+      {
+        "name": "Уровень топлива",
+        "short_name": "Fuel",
+        "command": "012F",
+        "header": "7E0",
+        "formula": "(A*100)/255",
+        "unit": "%",
+        "min": 0,
+        "max": 100,
+        "precision": 0
+      },
+      {
+        "name": "Краткосрочная коррекция топлива (Bank 1)",
+        "short_name": "STFT1",
+        "command": "0106",
+        "header": "7E0",
+        "formula": "((A-128)*100)/128",
+        "unit": "%",
+        "min": -25,
+        "max": 25,
+        "precision": 1
+      },
+      {
+        "name": "Долгосрочная коррекция топлива (Bank 1)",
+        "short_name": "LTFT1",
+        "command": "0107",
+        "header": "7E0",
+        "formula": "((A-128)*100)/128",
+        "unit": "%",
+        "min": -25,
+        "max": 25,
+        "precision": 1
+      },
+      {
+        "name": "Лямбда (ШДК, Bank 1 Sensor 1)",
+        "short_name": "Lambda",
+        "command": "0134",
+        "header": "7E0",
+        "formula": "((A*256)+B)*2/65536",
+        "unit": "λ",
+        "min": 0.5,
+        "max": 1.5,
+        "precision": 3
+      },
+      {
+        "name": "Ток ШДК (Bank 1 Sensor 1)",
+        "short_name": "Lambda I",
+        "command": "0134",
+        "header": "7E0",
+        "formula": "((C*256)+D)/256-128",
+        "unit": "мА",
+        "min": -128,
+        "max": 128,
+        "precision": 2
+      },
+      {
+        "name": "Заданная лямбда",
+        "short_name": "Lambda cmd",
+        "command": "0144",
+        "header": "7E0",
+        "formula": "((A*256)+B)*2/65536",
+        "unit": "λ",
+        "min": 0.5,
+        "max": 1.5,
+        "precision": 3
+      },
+      {
+        "name": "Состояние топливной системы",
+        "short_name": "Fuel sys",
+        "command": "0103",
+        "header": "7E0",
+        "formula": "A",
+        "unit": "",
+        "precision": 0,
+        "note": "1=OL холодный, 2=CL, 4=OL нагрузка, 8=OL сбой, 16=CL сбой датчика"
+      }
+    ],
+    "emissions": [
+      {
+        "name": "Температура катализатора (Bank 1, Sensor 1)",
+        "short_name": "CAT B1S1",
+        "command": "013C",
+        "header": "7E0",
+        "formula": "((A*256)+B)/10-40",
+        "unit": "°C",
+        "min": -40,
+        "max": 950,
+        "precision": 0
+      },
+      {
+        "name": "Напряжение датчика O2 (Bank 1, Sensor 2)",
+        "short_name": "O2 B1S2",
+        "command": "0115",
+        "header": "7E0",
+        "formula": "A/200",
+        "unit": "В",
+        "min": 0,
+        "max": 1.275,
+        "precision": 3
+      },
+      {
+        "name": "Продувка адсорбера EVAP (заданная)",
+        "short_name": "EVAP",
+        "command": "012E",
+        "header": "7E0",
+        "formula": "(A*100)/255",
+        "unit": "%",
+        "min": 0,
+        "max": 100,
+        "precision": 1
+      },
+      {
+        "name": "Лампа Check Engine",
+        "short_name": "MIL",
+        "command": "0101",
+        "header": "7E0",
+        "formula": "(A>>7)&1",
+        "unit": "",
+        "precision": 0,
+        "note": "0=выкл, 1=горит"
+      },
+      {
+        "name": "Количество ошибок (DTC)",
+        "short_name": "DTC",
+        "command": "0101",
+        "header": "7E0",
+        "formula": "A&127",
+        "unit": "",
+        "min": 0,
+        "max": 0,
+        "precision": 0
+      },
+      {
+        "name": "Пробег с момента сброса ошибок",
+        "short_name": "Dist clr",
+        "command": "0131",
+        "header": "7E0",
+        "formula": "(A*256)+B",
+        "unit": "км",
+        "precision": 0
+      },
+      {
+        "name": "Прогревов с момента сброса ошибок",
+        "short_name": "Warmups",
+        "command": "0130",
+        "header": "7E0",
+        "formula": "A",
+        "unit": "",
+        "precision": 0
+      }
+    ],
+    "transmission": [
+      {
+        "name": "Текущая передача (DCT)",
+        "short_name": "Gear",
+        "command": "220A5F",
+        "header": "703",
+        "response_header": "713",
+        "formula": "A",
+        "unit": "",
+        "precision": 0,
+        "note": "9=N/P; задний ход не проверялся"
+      },
+      {
+        "name": "Температура масла DCT",
+        "short_name": "DCT oil",
+        "command": "220A7D",
+        "header": "703",
+        "response_header": "713",
+        "formula": "((((A*256)+B)^32768)-32768)/2",
+        "unit": "°C",
+        "min": -40,
+        "max": 120,
+        "precision": 1,
+        "note": "назначение по прогреву: холодный старт ≈ наружная, после поездки ≈ 60 °C"
+      },
+      {
+        "name": "Температура сцепления 1",
+        "short_name": "Clutch1 T",
+        "command": "220A7B",
+        "header": "703",
+        "response_header": "713",
+        "formula": "((((A*256)+B)^32768)-32768)/2",
+        "unit": "°C",
+        "min": -40,
+        "max": 200,
+        "precision": 1,
+        "note": "растёт при трогании; какое из двух сцеплений — не сверено"
+      },
+      {
+        "name": "Температура сцепления 2",
+        "short_name": "Clutch2 T",
+        "command": "220A7C",
+        "header": "703",
+        "response_header": "713",
+        "formula": "((((A*256)+B)^32768)-32768)/2",
+        "unit": "°C",
+        "min": -40,
+        "max": 200,
+        "precision": 1,
+        "note": "растёт при трогании; какое из двух сцеплений — не сверено"
+      },
+      {
+        "name": "Пробег (по данным DCT)",
+        "short_name": "Odo DCT",
+        "command": "220A6A",
+        "header": "703",
+        "response_header": "713",
+        "formula": "(A*16777216+B*65536+C*256+D)/100",
+        "unit": "км",
+        "precision": 1,
+        "note": "шаг 0.01 км, совпадает с PID 0131"
+      }
+    ],
+    "abs": [
+      {
+        "name": "Скорость колеса FL",
+        "short_name": "Wheel FL",
+        "command": "223003",
+        "header": "720",
+        "response_header": "730",
+        "formula": "((A*256)+B)*0.05625",
+        "unit": "км/ч",
+        "min": 0,
+        "max": 250,
+        "precision": 1,
+        "note": "порядок колёс FL/FR/RL/RR не сверен"
+      },
+      {
+        "name": "Скорость колеса FR",
+        "short_name": "Wheel FR",
+        "command": "223004",
+        "header": "720",
+        "response_header": "730",
+        "formula": "((A*256)+B)*0.05625",
+        "unit": "км/ч",
+        "min": 0,
+        "max": 250,
+        "precision": 1
+      },
+      {
+        "name": "Скорость колеса RL",
+        "short_name": "Wheel RL",
+        "command": "223005",
+        "header": "720",
+        "response_header": "730",
+        "formula": "((A*256)+B)*0.05625",
+        "unit": "км/ч",
+        "min": 0,
+        "max": 250,
+        "precision": 1
+      },
+      {
+        "name": "Скорость колеса RR",
+        "short_name": "Wheel RR",
+        "command": "223006",
+        "header": "720",
+        "response_header": "730",
+        "formula": "((A*256)+B)*0.05625",
+        "unit": "км/ч",
+        "min": 0,
+        "max": 250,
+        "precision": 1
+      },
+      {
+        "name": "Угол поворота руля",
+        "short_name": "Steering",
+        "command": "22300C",
+        "header": "720",
+        "response_header": "730",
+        "formula": "((((A*256)+B)^32768)-32768)/10",
+        "unit": "°",
+        "min": -600,
+        "max": 600,
+        "precision": 1,
+        "note": "знак (влево/вправо) не сверен"
+      }
+    ],
+    "tpms": [
+      {
+        "name": "Давление в шине FL",
+        "short_name": "Tire FL",
+        "command": "223404",
+        "header": "740",
+        "response_header": "750",
+        "formula": "A*1.373",
+        "unit": "кПа",
+        "min": 180,
+        "max": 300,
+        "precision": 0,
+        "note": "масштаб не сверен с приборкой; порядок колёс не сверен"
+      },
+      {
+        "name": "Давление в шине FR",
+        "short_name": "Tire FR",
+        "command": "223405",
+        "header": "740",
+        "response_header": "750",
+        "formula": "A*1.373",
+        "unit": "кПа",
+        "min": 180,
+        "max": 300,
+        "precision": 0
+      },
+      {
+        "name": "Давление в шине RL",
+        "short_name": "Tire RL",
+        "command": "223406",
+        "header": "740",
+        "response_header": "750",
+        "formula": "A*1.373",
+        "unit": "кПа",
+        "min": 180,
+        "max": 300,
+        "precision": 0
+      },
+      {
+        "name": "Давление в шине RR",
+        "short_name": "Tire RR",
+        "command": "223407",
+        "header": "740",
+        "response_header": "750",
+        "formula": "A*1.373",
+        "unit": "кПа",
+        "min": 180,
+        "max": 300,
+        "precision": 0
+      },
+      {
+        "name": "Температура шины FL",
+        "short_name": "Tire FL T",
+        "command": "223408",
+        "header": "740",
+        "response_header": "750",
+        "formula": "A-40",
+        "unit": "°C",
+        "min": -40,
+        "max": 90,
+        "precision": 0
+      },
+      {
+        "name": "Температура шины FR",
+        "short_name": "Tire FR T",
+        "command": "223409",
+        "header": "740",
+        "response_header": "750",
+        "formula": "A-40",
+        "unit": "°C",
+        "min": -40,
+        "max": 90,
+        "precision": 0
+      },
+      {
+        "name": "Температура шины RL",
+        "short_name": "Tire RL T",
+        "command": "22340A",
+        "header": "740",
+        "response_header": "750",
+        "formula": "A-40",
+        "unit": "°C",
+        "min": -40,
+        "max": 90,
+        "precision": 0
+      },
+      {
+        "name": "Температура шины RR",
+        "short_name": "Tire RR T",
+        "command": "22340B",
+        "header": "740",
+        "response_header": "750",
+        "formula": "A-40",
+        "unit": "°C",
+        "min": -40,
+        "max": 90,
+        "precision": 0
+      },
+      {
+        "name": "ID датчика шины FL",
+        "short_name": "Sensor FL",
+        "command": "223400",
+        "header": "740",
+        "response_header": "750",
+        "formula": "A*16777216+B*65536+C*256+D",
+        "unit": "",
+        "precision": 0,
+        "display_as_hex": true
+      },
+      {
+        "name": "ID датчика шины FR",
+        "short_name": "Sensor FR",
+        "command": "223401",
+        "header": "740",
+        "response_header": "750",
+        "formula": "A*16777216+B*65536+C*256+D",
+        "unit": "",
+        "precision": 0,
+        "display_as_hex": true
+      },
+      {
+        "name": "ID датчика шины RL",
+        "short_name": "Sensor RL",
+        "command": "223402",
+        "header": "740",
+        "response_header": "750",
+        "formula": "A*16777216+B*65536+C*256+D",
+        "unit": "",
+        "precision": 0,
+        "display_as_hex": true
+      },
+      {
+        "name": "ID датчика шины RR",
+        "short_name": "Sensor RR",
+        "command": "223403",
+        "header": "740",
+        "response_header": "750",
+        "formula": "A*16777216+B*65536+C*256+D",
+        "unit": "",
+        "precision": 0,
+        "display_as_hex": true
+      }
+    ],
+    "climate": [
+      {
+        "name": "Температура за бортом (климат)",
+        "short_name": "Outside",
+        "command": "226802",
+        "header": "74B",
+        "response_header": "75B",
+        "formula": "A/2-40",
+        "unit": "°C",
+        "min": -40,
+        "max": 60,
+        "precision": 1
+      }
+    ],
+    "electrical": [
+      {
+        "name": "Напряжение питания ЭБУ",
+        "short_name": "ECU V",
+        "command": "0142",
+        "header": "7E0",
+        "formula": "((A*256)+B)/1000",
+        "unit": "В",
+        "min": 11,
+        "max": 15.5,
+        "precision": 2
+      }
+    ]
+  },
+  "vehicle_information": {
+    "vin": {
+      "command": "0902",
+      "header": "7E0"
+    },
+    "calibration_id": {
+      "command": "0904",
+      "header": "7E0"
+    },
+    "ecu_name": {
+      "command": "090A",
+      "header": "7E0"
+    },
+    "tcm_calibration_id": {
+      "command": "0904",
+      "header": "7E1"
+    },
+    "tcm_name": {
+      "command": "090A",
+      "header": "7E1"
+    }
+  }
+}

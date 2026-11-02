@@ -13,7 +13,9 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import com.dash.headunit.R
+import com.dash.headunit.dashboard.WidgetSettingsStore
 import com.dash.headunit.music.MusicHub
+import com.dash.headunit.music.SpectrumHub
 import com.dash.headunit.ui.DashDialog
 import com.dash.headunit.theme.DashTheme
 import com.dash.headunit.theme.ThemeCard
@@ -30,8 +32,18 @@ import com.dash.headunit.theme.ThemeCard
  */
 class MusicWidgetView(
     context: Context,
-    private val theme: DashTheme = DashTheme.DARK
+    private val theme: DashTheme = DashTheme.DARK,
+    private val widgetId: String = "",
+    settingsStore: WidgetSettingsStore? = null
 ) : LinearLayout(context) {
+
+    /** Блок спектра (опция виджета); null — выключен. */
+    private val spectrum: SpectrumView? =
+        if (settingsStore != null && SpectrumView.isOn(settingsStore, widgetId)) {
+            SpectrumView(context, theme, SpectrumView.style(settingsStore, widgetId))
+        } else {
+            null
+        }
 
     private val artView = ImageView(context)
     private val sourceView = TextView(context)
@@ -47,10 +59,16 @@ class MusicWidgetView(
     private val accessBtn = Button(context)
 
     private val hubListener: () -> Unit = { render() }
+    private val spectrumKey = "music:$widgetId"
 
     init {
-        orientation = HORIZONTAL
+        orientation = VERTICAL
         gravity = Gravity.CENTER_VERTICAL
+        // Основная строка: обложка / тексты / транспорт; под ней — спектр (опция).
+        val main = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
         // Тап по свободной области: без доступа — открыть настройки
         // уведомлений, иначе — обновить. Доступ проверяем напрямую
         // по Settings.Secure (надёжнее флага опроса сессий).
@@ -68,7 +86,7 @@ class MusicWidgetView(
                 }
             }
         }
-        addView(artView, LayoutParams(dp(84), dp(84)).apply { marginEnd = dp(12) })
+        main.addView(artView, LayoutParams(dp(84), dp(84)).apply { marginEnd = dp(12) })
 
         // Тексты.
         val texts = LinearLayout(context).apply {
@@ -128,7 +146,7 @@ class MusicWidgetView(
         texts.addView(accessBtn, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(6)
         })
-        addView(texts, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
+        main.addView(texts, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
 
         // Транспорт: назад / play-pause / ВПЕРЁД (акцент, крупнее) —
         // квадратные кнопки, выровнены по нижнему краю.
@@ -145,7 +163,12 @@ class MusicWidgetView(
         controls.addView(btnPrev)
         controls.addView(btnPlay)
         controls.addView(btnNext)
-        addView(controls, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
+        main.addView(controls, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
+        addView(main, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        spectrum?.let {
+            it.minimumHeight = dp(32)
+            addView(it, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f).apply { topMargin = dp(8) })
+        }
 
         render()
     }
@@ -234,6 +257,7 @@ class MusicWidgetView(
 
     private fun render() {
         val d = MusicHub.data
+        if (spectrum != null) SpectrumHub.setPlaying(spectrumKey, d?.playing == true)
         if (d == null) {
             artView.setImageDrawable(null)
             artView.visibility = GONE
@@ -313,6 +337,7 @@ class MusicWidgetView(
 
     override fun onDetachedFromWindow() {
         MusicHub.removeListener(hubListener)
+        SpectrumHub.clearPlaying(spectrumKey)
         super.onDetachedFromWindow()
     }
 }

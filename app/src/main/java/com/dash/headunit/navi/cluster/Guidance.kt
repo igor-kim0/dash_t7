@@ -42,6 +42,10 @@ data class Guidance(
     val overspeed: Boolean = false,
     /** Светофор впереди и его сигнал; null — нет или не видно. */
     val trafficLight: TrafficLight? = null,
+    /** Улица, по которой едем (строка состояния Яндекса, #text_statuspanel). */
+    val currentStreet: String? = null,
+    /** Знак полос перед перекрёстком — вырезка с экрана навигатора ([LaneGrab]). */
+    val lanes: Bitmap? = null,
 ) {
     /** Есть ли что показать про манёвр. */
     val hasManeuver: Boolean
@@ -59,8 +63,8 @@ data class Guidance(
         get() = speedLimit != null || cameraDistance != null || trafficLight != null
 
     /**
-     * Без маршрута: только ограничение, камера ближе [CAMERA_NEAR_M] и
-     * светофор; null — показывать нечего.
+     * Без маршрута: только ограничение, камера ближе [CAMERA_NEAR_M],
+     * светофор и текущая улица; null — показывать нечего.
      */
     fun freeDrive(): Guidance? {
         val near = GuidanceText.meters(cameraDistance)?.let { it < CAMERA_NEAR_M } == true
@@ -70,7 +74,8 @@ data class Guidance(
             cameraLimit = cameraLimit.takeIf { near },
             overspeed = overspeed,
             trafficLight = trafficLight,
-        ).takeIf { it.hasWarnings }
+            currentStreet = currentStreet,
+        ).takeIf { it.hasWarnings || it.currentStreet != null }
     }
 
     /** Поля [this], а пустые — из [other]. */
@@ -89,6 +94,8 @@ data class Guidance(
             cameraLimit = cameraLimit ?: other.cameraLimit,
             overspeed = overspeed || other.overspeed,
             trafficLight = trafficLight ?: other.trafficLight,
+            currentStreet = currentStreet ?: other.currentStreet,
+            lanes = lanes ?: other.lanes,
         )
     }
 }
@@ -152,6 +159,18 @@ class ManeuverMemory {
 
 /** Разбор текстов навигатора (чистые функции — покрыты тестами). */
 object GuidanceText {
+
+    /**
+     * Текущая улица из строки состояния Яндекса; служебные сообщения
+     * (поиск GPS, нет сети) — не улица.
+     */
+    fun currentStreet(text: String?): String? {
+        val t = text?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val l = t.lowercase()
+        return t.takeUnless { NOT_STREET.any { l.contains(it) } }
+    }
+
+    private val NOT_STREET = listOf("gps", "спутник", "сигнал", "нет сети", "интернет", "загруз", "поиск", "соединен")
 
     /**
      * Тип манёвра по фразе навигатора («Поверните направо», «Держитесь

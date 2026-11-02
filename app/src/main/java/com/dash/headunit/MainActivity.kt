@@ -11,6 +11,7 @@ import android.content.pm.PackageManager
 import android.graphics.Rect
 import android.graphics.Region
 import android.net.wifi.WifiManager
+import android.provider.OpenableColumns
 import android.widget.ScrollView
 import android.text.InputType
 import android.widget.EditText
@@ -36,6 +37,7 @@ import com.dash.headunit.dashboard.WidgetSettingsStore
 import com.dash.headunit.dashboard.WidgetSpec
 import com.dash.headunit.dashboard.WidgetType
 import com.dash.headunit.elm.ElmHub
+import com.dash.headunit.elm.ProfileStore
 import com.dash.headunit.car.CarHub
 import com.dash.headunit.car.CoolantEtm
 import com.dash.headunit.car.HvacShade
@@ -50,11 +52,15 @@ import com.dash.headunit.theme.DashTheme
 import com.dash.headunit.theme.RetroLook
 import com.dash.headunit.theme.ThemeCard
 import com.dash.headunit.theme.ThemeStore
+import com.dash.headunit.theme.WidgetBackground
 import com.dash.headunit.widgets.CarWidgetView
 import com.dash.headunit.widgets.ClockWidgetView
 import com.dash.headunit.widgets.ComboWidgetView
 import com.dash.headunit.widgets.ForecastStripView
 import com.dash.headunit.widgets.MusicWidgetView
+import com.dash.headunit.widgets.SpectrumView
+import com.dash.headunit.music.SpectrumHub
+import com.dash.headunit.widgets.YandexMusicWidgetView
 import com.dash.headunit.widgets.WifiWidgetView
 import com.dash.headunit.widgets.ReferenceWidgetView
 import com.dash.headunit.widgets.AppWidgetView
@@ -69,6 +75,8 @@ import com.dash.headunit.widgets.ElmWidgetView
 import com.dash.headunit.widgets.RetroSpeedometerView
 import com.dash.headunit.widgets.SpeedWidgetView
 import com.dash.headunit.widgets.VazClusterView
+import com.dash.headunit.widgets.ScreensaverWidgetView
+import com.dash.headunit.screensaver.Screensaver
 
 /**
  * Главный экран дашборда ГУ (альбомная ориентация, иммерсивный режим).
@@ -91,6 +99,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var themeStore: ThemeStore
 
     private var editMode = false
+    private lateinit var screensaver: Screensaver
     private lateinit var theme: DashTheme
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -111,7 +120,10 @@ class MainActivity : AppCompatActivity() {
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_OVERSCAN or
                 // Немодальное окно: иначе WMS считает зоной касаний весь стек и
                 // вырез под навигатор (NaviUnderlay.installTouchHole) не работает.
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                // Касания мимо окна (в навигатор в блоке) — тоже активность
+                // для таймера заставки (ACTION_OUTSIDE).
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
         )
         hideSystemUi()
 
@@ -180,7 +192,14 @@ class MainActivity : AppCompatActivity() {
             }
         }
         findViewById<View>(R.id.root).background = rootBackground
-        touchHoleInstalled = NaviUnderlay.installTouchHole(window.decorView) { touchHole }
+        screensaver = Screensaver(this) {
+            // Под заставкой окно ловит касания целиком: разбудивший тап по
+            // блоку навигатора не должен уйти в карту.
+            window.decorView.requestLayout()
+        }.apply { canShow = { !editMode && hasWindowFocus() } }
+        touchHoleInstalled = NaviUnderlay.installTouchHole(window.decorView) {
+            if (screensaver.isShowing) null else touchHole
+        }
         // Навигатор мог остаться в границах блока после падения.
         NaviUnderlay.resetOnStart(this)
         NaviUnderlay.installCrashReset(this)
@@ -196,6 +215,18 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         updateStatusIcons()
         refreshNavi()
+        screensaver.resume()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        screensaver.pause()
+    }
+
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        // Касание, разбудившее заставку, виджетам не отдаём.
+        if (screensaver.onTouch(ev)) return true
+        return super.dispatchTouchEvent(ev)
     }
 
     override fun onStop() {
@@ -273,7 +304,8 @@ class MainActivity : AppCompatActivity() {
                 journalKeepLabel(AppSettings.journalKeepDays(this))
             ),
             getString(R.string.settings_etm_coolant),
-            getString(R.string.settings_tank, CarHub.tankLiters(this))
+            getString(R.string.settings_tank, CarHub.tankLiters(this)),
+            getString(R.string.settings_cluster_lanes)
         )
         val checked = booleanArrayOf(
             AppSettings.autostart(this),
@@ -283,7 +315,8 @@ class MainActivity : AppCompatActivity() {
             AppSettings.shadeResume(this),
             false,
             AppSettings.etmCoolant(this),
-            false
+            false,
+            AppSettings.clusterLanes(this)
         )
         DashDialog.Builder(this)
             .setTitle(R.string.settings_title)
@@ -306,6 +339,7 @@ class MainActivity : AppCompatActivity() {
                 applyBarSide()
                 applyClusterNavi(checked[2])
                 AppSettings.setClusterTrafficLights(this, checked[3])
+                AppSettings.setClusterLanes(this, checked[8])
                 // Шторка: настройка проверяется при следующем старте.
                 AppSettings.setShadeResume(this, checked[4])
                 // ETM: отключили — посылаем приборке выход из инженерного
@@ -677,7 +711,8 @@ class MainActivity : AppCompatActivity() {
                 WidgetType.COMBO -> ComboWidgetView(this, spec.widgetId, wTheme, settingsStore)
                 WidgetType.WEATHER -> ForecastStripView(this, spec.widgetId, wTheme, settingsStore)
                 WidgetType.CAR -> CarWidgetView(this, wTheme, spec.widgetId, settingsStore)
-                WidgetType.MUSIC -> MusicWidgetView(this, wTheme)
+                WidgetType.MUSIC -> MusicWidgetView(this, wTheme, spec.widgetId, settingsStore)
+                WidgetType.YANDEX_MUSIC -> YandexMusicWidgetView(this, wTheme, spec.widgetId, settingsStore)
                 WidgetType.WIFI -> WifiWidgetView(this, wTheme)
                 WidgetType.APP -> AppWidgetView(this, spec.widgetId, wTheme, settingsStore).apply {
                     onTapIdle = { if (!editMode) connectShell() }
@@ -713,6 +748,9 @@ class MainActivity : AppCompatActivity() {
                         else -> RetroSpeedometerView(this)
                     }
                 WidgetType.BUTTONS -> ButtonsWidgetView(this, wTheme)
+                WidgetType.SCREENSAVER -> ScreensaverWidgetView(
+                    this, wTheme, Screensaver.config(settingsStore, spec.widgetId)
+                ) { if (!editMode) screensaver.showNow() }
             }
             val frame = WidgetFrame(
                 context = this,
@@ -721,6 +759,7 @@ class MainActivity : AppCompatActivity() {
                 editing = editMode,
                 theme = wTheme,
                 retro = retro,
+                bgMode = WidgetBackground.get(settingsStore, spec.widgetId),
                 onGeometryChanged = { persistLayout() },
                 onDelete = { removeWidget(spec.widgetId) },
                 // Настройки: свои у части виджетов, у остальных — только вид.
@@ -749,6 +788,12 @@ class MainActivity : AppCompatActivity() {
                     WidgetType.COMBO -> {
                         { showClockSettings(spec.widgetId) }
                     }
+                    WidgetType.MUSIC, WidgetType.YANDEX_MUSIC -> {
+                        { showMusicSettings(spec.widgetId) }
+                    }
+                    WidgetType.SCREENSAVER -> {
+                        { showScreensaverSettings(spec.widgetId) }
+                    }
                     else -> {
                         { showLookSettings(spec.widgetId) }
                     }
@@ -767,6 +812,9 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+        // Заставка — по первому виджету «Заставка»; нет виджета — выключена.
+        screensaver.config = specs.firstOrNull { it.type == WidgetType.SCREENSAVER }
+            ?.let { Screensaver.config(settingsStore, it.widgetId) }
         if (isResumedNow()) refreshNavi()
     }
 
@@ -821,6 +869,7 @@ class MainActivity : AppCompatActivity() {
         PickerItem(WidgetType.WEATHER, R.string.widget_weather, R.drawable.ic_cloud),
         PickerItem(WidgetType.CAR, R.string.widget_car, R.drawable.ic_fuel),
         PickerItem(WidgetType.MUSIC, R.string.widget_music, R.drawable.ic_play),
+        PickerItem(WidgetType.YANDEX_MUSIC, R.string.widget_yandex_music, R.drawable.ic_ymusic),
         PickerItem(WidgetType.WIFI, R.string.widget_wifi, R.drawable.ic_wifi),
         PickerItem(WidgetType.APP, R.string.widget_app, R.drawable.ic_nav),
         PickerItem(WidgetType.TRIP, R.string.widget_trip, R.drawable.ic_journal),
@@ -832,6 +881,7 @@ class MainActivity : AppCompatActivity() {
         PickerItem(WidgetType.REFERENCE, R.string.widget_reference, R.drawable.ic_book),
         PickerItem(WidgetType.HEAT, R.string.widget_heat, R.drawable.ic_seat_heat),
         PickerItem(WidgetType.ELM, R.string.widget_elm, R.drawable.ic_obd),
+        PickerItem(WidgetType.SCREENSAVER, R.string.widget_screensaver, R.drawable.ic_moon),
     )
 
     /**
@@ -965,6 +1015,7 @@ class MainActivity : AppCompatActivity() {
             WidgetType.WEATHER -> 92 to 30
             WidgetType.CAR -> 92 to 24
             WidgetType.MUSIC -> 92 to 24
+            WidgetType.YANDEX_MUSIC -> 92 to 30
             WidgetType.APP -> 92 to 40
             WidgetType.TRIP -> 92 to 24
             WidgetType.CLIMATE -> 92 to 40
@@ -977,6 +1028,7 @@ class MainActivity : AppCompatActivity() {
             WidgetType.SPEED -> 48 to 26
             WidgetType.BUTTONS -> 56 to 40
             WidgetType.CLOCK -> 40 to 24
+            WidgetType.SCREENSAVER -> 40 to 14
         }
         // Каскадом от левого верхнего угла, кламп — в границы сетки.
         val spec = WidgetSpec(
@@ -1093,7 +1145,7 @@ class MainActivity : AppCompatActivity() {
                 settingsStore.setDays(widgetId, days)
                 settingsStore.setHours(widgetId, hours)
                 settingsStore.setUnit(widgetId, unit)
-                settingsStore.setOption(widgetId, RetroLook.OPT_LOOK, look())
+                look()
                 buildWidgets(readSpecs())
             }
             .setNegativeButton(R.string.dialog_cancel, null)
@@ -1113,7 +1165,7 @@ class MainActivity : AppCompatActivity() {
             .setTitle(R.string.set_look_title)
             .setView(picker)
             .setPositiveButton(R.string.edit_done) { _, _ ->
-                settingsStore.setOption(widgetId, RetroLook.OPT_LOOK, look())
+                look()
                 buildWidgets(readSpecs())
             }
             .setNegativeButton(R.string.dialog_cancel, null)
@@ -1121,37 +1173,213 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Выбор вида «Обычный / Ретро» для диалога настроек: вью и выбранное
-     * значение [RetroLook.OPT_LOOK] на момент «Готово».
+     * Выбор вида «Обычный / Ретро» ([withLook]) и фона блока
+     * ([WidgetBackground]: как в теме / градиент / прозрачный) для диалога
+     * настроек: вью и действие «сохранить выбранное», его зовут на «Готово».
      */
-    private fun lookPicker(widgetId: String): Pair<View, () -> String> {
-        val looks = listOf(RetroLook.LOOK_CLASSIC, RetroLook.LOOK_RETRO)
-        var sel = settingsStore.getOption(widgetId, RetroLook.OPT_LOOK, RetroLook.LOOK_CLASSIC)
+    private fun lookPicker(widgetId: String, withLook: Boolean = true): Pair<View, () -> Unit> {
         val pad = (16 * resources.displayMetrics.density).toInt()
         val root = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             setPadding(pad, pad / 2, pad, pad / 2)
         }
+        fun radioRow(titleRes: Int, values: List<String>, labels: List<Int>, current: String, onPick: (String) -> Unit) {
+            root.addView(android.widget.TextView(this).apply {
+                text = getString(titleRes)
+                textSize = 14f
+                setTextColor(theme.secondaryText)
+            })
+            val group = android.widget.RadioGroup(this).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+            }
+            labels.forEachIndexed { i, res ->
+                group.addView(android.widget.RadioButton(this).apply {
+                    id = View.generateViewId()
+                    text = getString(res)
+                    textSize = 16f
+                    setTextColor(theme.primaryText)
+                    isChecked = values[i] == current || (i == 0 && current !in values)
+                    setOnCheckedChangeListener { _, on -> if (on) onPick(values[i]) }
+                })
+            }
+            root.addView(group)
+        }
+        var look = settingsStore.getOption(widgetId, RetroLook.OPT_LOOK, RetroLook.LOOK_CLASSIC)
+        if (withLook) {
+            radioRow(
+                R.string.look_title,
+                listOf(RetroLook.LOOK_CLASSIC, RetroLook.LOOK_RETRO),
+                listOf(R.string.look_classic, R.string.look_retro),
+                look
+            ) { look = it }
+        }
+        var bg = WidgetBackground.get(settingsStore, widgetId)
+        radioRow(
+            R.string.bg_title,
+            WidgetBackground.ALL,
+            listOf(R.string.bg_theme, R.string.bg_gradient, R.string.bg_transparent),
+            bg
+        ) { bg = it }
+        return root to {
+            if (withLook) settingsStore.setOption(widgetId, RetroLook.OPT_LOOK, look)
+            settingsStore.setOption(widgetId, WidgetBackground.OPT_BG, bg)
+        }
+    }
+
+    /**
+     * Настройки виджетов музыки: вид/фон, блок спектра и его вид
+     * ([SpectrumView.STYLES]). Спектру нужен RECORD_AUDIO — без него
+     * (или если звук идёт мимо микшера Android) рисуется имитация.
+     */
+    private fun showMusicSettings(widgetId: String) {
+        val (lookView, saveLook) = lookPicker(widgetId)
+        val root = lookView as android.widget.LinearLayout
+        var spectrumOn = SpectrumView.isOn(settingsStore, widgetId)
+        var selected = SpectrumView.STYLES.indexOf(SpectrumView.style(settingsStore, widgetId)).coerceAtLeast(0)
+        root.addView(android.widget.CheckBox(this).apply {
+            text = getString(R.string.spectrum_show)
+            textSize = 16f
+            setTextColor(theme.primaryText)
+            isChecked = spectrumOn
+            setOnCheckedChangeListener { _, on -> spectrumOn = on }
+        })
         root.addView(android.widget.TextView(this).apply {
-            text = getString(R.string.look_title)
-            textSize = 14f
+            text = getString(R.string.spectrum_simulated_hint)
+            textSize = 13f
             setTextColor(theme.secondaryText)
         })
+        root.addView(android.widget.TextView(this).apply {
+            text = getString(R.string.spectrum_style_title)
+            textSize = 14f
+            setTextColor(theme.secondaryText)
+            setPadding(0, (8 * resources.displayMetrics.density).toInt(), 0, 0)
+        })
+        // Список стилей — своим RadioGroup: у DashDialog пункты идут над setView.
+        val styleLabels = listOf(
+            R.string.spectrum_style_bars,
+            R.string.spectrum_style_leds,
+            R.string.spectrum_style_wave,
+            R.string.spectrum_style_mirror,
+            R.string.spectrum_style_dots
+        )
         val group = android.widget.RadioGroup(this).apply {
-            orientation = android.widget.LinearLayout.HORIZONTAL
+            orientation = android.widget.LinearLayout.VERTICAL
         }
-        listOf(R.string.look_classic, R.string.look_retro).forEachIndexed { i, res ->
+        styleLabels.forEachIndexed { i, res ->
             group.addView(android.widget.RadioButton(this).apply {
                 id = View.generateViewId()
                 text = getString(res)
                 textSize = 16f
                 setTextColor(theme.primaryText)
-                isChecked = looks[i] == sel || (i == 0 && sel !in looks)
-                setOnCheckedChangeListener { _, on -> if (on) sel = looks[i] }
+                isChecked = i == selected
+                setOnCheckedChangeListener { _, on -> if (on) selected = i }
             })
         }
         root.addView(group)
-        return root to { sel }
+        DashDialog.Builder(this)
+            .setTitle(R.string.music_settings_title)
+            .setView(root)
+            .setPositiveButton(R.string.edit_done) { _, _ ->
+                settingsStore.setOption(widgetId, SpectrumView.OPT_SPECTRUM, if (spectrumOn) "on" else "off")
+                settingsStore.setOption(widgetId, SpectrumView.OPT_SPECTRUM_STYLE, SpectrumView.STYLES[selected])
+                saveLook()
+                buildWidgets(readSpecs())
+                if (spectrumOn && !SpectrumHub.hasAudioPermission(this)) {
+                    ActivityCompat.requestPermissions(
+                        this, arrayOf(Manifest.permission.RECORD_AUDIO), REQ_SPECTRUM_AUDIO
+                    )
+                }
+            }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .showFullScreen()
+    }
+
+    /**
+     * Настройки «Заставки»: через сколько без касаний включаться, яркость
+     * экрана под заставкой и её фон (тёмный с часами, камин, северное сияние).
+     */
+    private fun showScreensaverSettings(widgetId: String) {
+        val cur = Screensaver.config(settingsStore, widgetId)
+        val (lookView, saveLook) = lookPicker(widgetId)
+        val root = lookView as android.widget.LinearLayout
+        fun title(res: Int) = android.widget.TextView(this).apply {
+            text = getString(res)
+            textSize = 14f
+            setTextColor(theme.secondaryText)
+            setPadding(0, dp(8), 0, 0)
+        }
+        var timeout = cur.timeoutSec
+        root.addView(title(R.string.screensaver_timeout))
+        val timeouts = android.widget.RadioGroup(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+        }
+        Screensaver.TIMEOUTS.forEach { sec ->
+            timeouts.addView(android.widget.RadioButton(this).apply {
+                id = View.generateViewId()
+                text = Screensaver.timeoutLabel(sec)
+                textSize = 16f
+                setTextColor(theme.primaryText)
+                isChecked = sec == cur.timeoutSec ||
+                    (sec == Screensaver.DEFAULT_TIMEOUT && cur.timeoutSec !in Screensaver.TIMEOUTS)
+                setOnCheckedChangeListener { _, on -> if (on) timeout = sec }
+            })
+        }
+        root.addView(android.widget.HorizontalScrollView(this).apply { addView(timeouts) })
+        var brightness = cur.brightness
+        val brightnessTitle = title(R.string.screensaver_brightness)
+        fun showBrightness() {
+            brightnessTitle.text = getString(R.string.screensaver_brightness_value, brightness)
+        }
+        showBrightness()
+        root.addView(brightnessTitle)
+        root.addView(android.widget.SeekBar(this).apply {
+            max = 100 / BRIGHTNESS_STEP
+            progress = brightness / BRIGHTNESS_STEP
+            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(bar: android.widget.SeekBar, p: Int, user: Boolean) {
+                    brightness = p * BRIGHTNESS_STEP
+                    showBrightness()
+                }
+                override fun onStartTrackingTouch(bar: android.widget.SeekBar) {}
+                override fun onStopTrackingTouch(bar: android.widget.SeekBar) {}
+            })
+        }, android.widget.LinearLayout.LayoutParams(
+            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+        var background = cur.background
+        root.addView(title(R.string.screensaver_background))
+        val bgGroup = android.widget.RadioGroup(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+        }
+        val bgLabels = mapOf(
+            Screensaver.BG_DARK to R.string.screensaver_bg_dark,
+            Screensaver.BG_FIREPLACE to R.string.screensaver_bg_fireplace,
+            Screensaver.BG_AURORA to R.string.screensaver_bg_aurora
+        )
+        Screensaver.BACKGROUNDS.forEach { bg ->
+            bgGroup.addView(android.widget.RadioButton(this).apply {
+                id = View.generateViewId()
+                text = getString(bgLabels.getValue(bg))
+                textSize = 16f
+                setTextColor(theme.primaryText)
+                isChecked = bg == cur.background
+                setOnCheckedChangeListener { _, on -> if (on) background = bg }
+            })
+        }
+        root.addView(bgGroup)
+        DashDialog.Builder(this)
+            .setTitle(R.string.screensaver_settings_title)
+            .setView(ScrollView(this).apply { addView(root) })
+            .setPositiveButton(R.string.edit_done) { _, _ ->
+                settingsStore.setOption(widgetId, Screensaver.OPT_TIMEOUT, timeout.toString())
+                settingsStore.setOption(widgetId, Screensaver.OPT_BRIGHTNESS, brightness.toString())
+                settingsStore.setOption(widgetId, Screensaver.OPT_BACKGROUND, background)
+                saveLook()
+                buildWidgets(readSpecs())
+            }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .showFullScreen()
     }
 
     /** Вид «Спидометра»: ретро-стрелочный, классика ВАЗ или цифровой. */
@@ -1159,8 +1387,10 @@ class MainActivity : AppCompatActivity() {
         val styles = listOf(SPEED_RETRO, SPEED_VAZ, SPEED_DIGITAL)
         var selected = styles.indexOf(settingsStore.getOption(widgetId, OPT_SPEED_STYLE, SPEED_RETRO))
             .coerceAtLeast(0)
+        val (bgView, saveBg) = lookPicker(widgetId, withLook = false)
         DashDialog.Builder(this)
             .setTitle(R.string.speed_style_title)
+            .setView(bgView)
             .setSingleChoiceItems(
                 arrayOf(
                     getString(R.string.speed_style_retro),
@@ -1173,6 +1403,7 @@ class MainActivity : AppCompatActivity() {
             }
             .setPositiveButton(R.string.edit_done) { _, _ ->
                 settingsStore.setOption(widgetId, OPT_SPEED_STYLE, styles[selected])
+                saveBg()
                 buildWidgets(readSpecs())
             }
             .setNegativeButton(R.string.dialog_cancel, null)
@@ -1184,8 +1415,10 @@ class MainActivity : AppCompatActivity() {
         val styles = listOf(CLIMATE_TEXT, CLIMATE_ICONS)
         var selected = styles.indexOf(settingsStore.getOption(widgetId, OPT_CLIMATE_STYLE, CLIMATE_TEXT))
             .coerceAtLeast(0)
+        val (bgView, saveBg) = lookPicker(widgetId, withLook = false)
         DashDialog.Builder(this)
             .setTitle(R.string.climate_style_title)
+            .setView(bgView)
             .setSingleChoiceItems(
                 arrayOf(
                     getString(R.string.climate_style_text),
@@ -1197,6 +1430,7 @@ class MainActivity : AppCompatActivity() {
             }
             .setPositiveButton(R.string.edit_done) { _, _ ->
                 settingsStore.setOption(widgetId, OPT_CLIMATE_STYLE, styles[selected])
+                saveBg()
                 buildWidgets(readSpecs())
             }
             .setNegativeButton(R.string.dialog_cancel, null)
@@ -1290,11 +1524,14 @@ class MainActivity : AppCompatActivity() {
         }
         rebuild()
 
+        val (bgView, saveBg) = lookPicker(widgetId, withLook = false)
+        content.addView(bgView, 0)
         DashDialog.Builder(this)
             .setTitle(R.string.cc_settings_title)
             .setView(content)
             .setPositiveButton(R.string.edit_done) { _, _ ->
                 settingsStore.setOption(widgetId, ClimateControlView.OPT_THEME, themeSel)
+                saveBg()
                 settingsStore.setOption(
                     widgetId, ClimateControlView.OPT_ORDER, order.joinToString(",") { it.key }
                 )
@@ -1388,7 +1625,7 @@ class MainActivity : AppCompatActivity() {
                 settingsStore.setOption(
                     widgetId, ComboWidgetView.OPT_INVERT, if (invert) "1" else "0"
                 )
-                settingsStore.setOption(widgetId, RetroLook.OPT_LOOK, look())
+                look()
                 buildWidgets(readSpecs())
             }
             .setNegativeButton(R.string.dialog_cancel, null)
@@ -1484,7 +1721,7 @@ class MainActivity : AppCompatActivity() {
                     widgetId, CarWidgetView.OPT_ITEMS,
                     order.filter { it in checked }.joinToString(",")
                 )
-                settingsStore.setOption(widgetId, RetroLook.OPT_LOOK, look())
+                look()
                 buildWidgets(readSpecs())
             }
             .setNegativeButton(R.string.dialog_cancel, null)
@@ -1492,43 +1729,223 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Настройка виджета «OBD (ELM)»: состав показателей (мультивыбор)
-     * и строка-роутер к выбору адаптера. Состав хранится per-widget
-     * ([WidgetSettingsStore]), адаптер — глобально ([ElmHub]): он в
-     * машине один, а виджетов OBD может быть несколько.
+     * Настройка виджета «OBD (ELM)»: строки-роутеры к выбору адаптера
+     * и JSON-профиля, затем состав показателей (мультивыбор). Состав
+     * хранится per-widget ([WidgetSettingsStore]), адаптер и профиль —
+     * глобально ([ElmHub]): адаптер в машине один, а виджетов OBD может
+     * быть несколько.
      */
     private fun showElmSettings(widgetId: String) {
+        ElmHub.start(this) // подхватить сохранённый профиль, если виджет ещё не создавался
+        val metrics = ElmWidgetView.items(this)
+        val profileName = ElmHub.profile()?.name ?: getString(R.string.elm_profile_none)
         val items = arrayOf(
-            getString(R.string.elm_pick_adapter)
-        ) + ElmWidgetView.ITEM_KEYS.map { getString(checkNotNull(ElmWidgetView.labelRes(it))) }
+            getString(R.string.elm_pick_adapter),
+            getString(R.string.elm_pick_profile, profileName)
+        ) + metrics.map { it.label }
         val selected = ElmWidgetView.selectedIds(settingsStore, widgetId).toMutableSet()
-        val checked = BooleanArray(items.size) { i -> i > 0 && ElmWidgetView.ITEM_KEYS[i - 1] in selected }
+        val checked = BooleanArray(items.size) { i -> i >= ELM_ROUTERS && metrics[i - ELM_ROUTERS].key in selected }
         val (lookView, look) = lookPicker(widgetId)
         DashDialog.Builder(this)
             .setTitle(R.string.set_elm_title)
             .setView(lookView)
-            .setMultiChoiceItems(items, checked, routerIndex = 0) { dlg, which, on ->
-                if (which == 0) {
-                    dlg.dismiss()
-                    showElmAdapterDialog()
-                } else {
-                    val key = ElmWidgetView.ITEM_KEYS[which - 1]
-                    if (on) selected.add(key) else selected.remove(key)
+            .setMultiChoiceItems(items, checked, routers = setOf(0, 1)) { dlg, which, on ->
+                when (which) {
+                    0 -> {
+                        dlg.dismiss()
+                        showElmAdapterDialog()
+                    }
+                    1 -> {
+                        dlg.dismiss()
+                        showElmProfileDialog(widgetId)
+                    }
+                    else -> {
+                        val key = metrics[which - ELM_ROUTERS].key
+                        if (on) selected.add(key) else selected.remove(key)
+                    }
                 }
             }
             .setPositiveButton(R.string.edit_done) { _, _ ->
                 // Ничего не отмечено — сохраняем маркер «-»: пустая опция
                 // означала бы «ещё не настраивали» (дефолт).
-                val items = ElmWidgetView.ITEM_KEYS.filter { it in selected }
+                val items = metrics.map { it.key }.filter { it in selected }
                 settingsStore.setOption(
                     widgetId,
                     ElmWidgetView.OPT_ITEMS,
                     if (items.isEmpty()) ElmWidgetView.NONE_ITEMS else items.joinToString(",")
                 )
-                settingsStore.setOption(widgetId, RetroLook.OPT_LOOK, look())
+                look()
                 buildWidgets(readSpecs())
             }
             .setNegativeButton(R.string.dialog_cancel, null)
+            .showFullScreen()
+    }
+
+    /**
+     * JSON-профиль OBD ([ProfileStore]): стандартный OBD-II, встроенные
+     * (assets/profiles) и загруженные профили, загрузка нового — системным
+     * выбором файла или поиском *.json на флешке/в памяти (на ГУ
+     * DocumentsUI может не быть). Профиль глобальный: после выбора
+     * виджеты пересобираются, и снова открываются настройки [widgetId] —
+     * состав показателей теперь из профиля.
+     */
+    private fun showElmProfileDialog(widgetId: String) {
+        val entries = ProfileStore.list(this)
+        val current = ElmHub.profileId()
+        val rows = ArrayList<String>()
+        rows += getString(R.string.elm_profile_none) + if (current == null) "  ✓" else ""
+        entries.forEach { e ->
+            rows += buildString {
+                append(e.name)
+                append(" · ").append(getString(if (e.builtIn) R.string.elm_profile_builtin else R.string.elm_profile_loaded))
+                if (e.error != null) append(" · ").append(getString(R.string.elm_profile_broken, e.error))
+                if (e.id == current) append("  ✓")
+            }
+        }
+        rows += getString(R.string.elm_profile_open)
+        rows += getString(R.string.elm_profile_scan)
+        val loaded = entries.filter { !it.builtIn }
+        val builder = DashDialog.Builder(this)
+            .setTitle(R.string.elm_profile_title)
+            .setItems(rows.toTypedArray()) { _, which ->
+                when (which) {
+                    0 -> chooseElmProfile(null, widgetId)
+                    in 1..entries.size -> chooseElmProfile(entries[which - 1].id, widgetId)
+                    entries.size + 1 -> openElmProfileFile(widgetId)
+                    else -> scanElmProfiles(widgetId)
+                }
+            }
+            .setNegativeButton(R.string.dialog_cancel) { _, _ -> showElmSettings(widgetId) }
+        if (loaded.isNotEmpty()) {
+            builder.setNeutralButton(R.string.elm_profile_delete) { _, _ ->
+                DashDialog.Builder(this)
+                    .setTitle(R.string.elm_profile_delete)
+                    .setItems(loaded.map { it.name }.toTypedArray()) { _, i ->
+                        val wasSelected = ElmHub.profileId() == loaded[i].id
+                        ProfileStore.delete(this, loaded[i].id)
+                        if (wasSelected) chooseElmProfile(null, widgetId) else showElmProfileDialog(widgetId)
+                    }
+                    .setNegativeButton(R.string.dialog_cancel) { _, _ -> showElmProfileDialog(widgetId) }
+                    .showFullScreen()
+            }
+        }
+        builder.showFullScreen()
+    }
+
+    /** Применить профиль (null — стандартный OBD-II), пересобрать виджеты и вернуться в настройки. */
+    private fun chooseElmProfile(id: String?, widgetId: String) {
+        try {
+            ElmHub.setProfile(this, id)
+        } catch (e: Exception) {
+            elmMessage(getString(R.string.elm_profile_load_failed, e.message ?: e.javaClass.simpleName))
+            return
+        }
+        val p = ElmHub.profile()
+        val text = when {
+            p == null -> getString(R.string.elm_profile_picked, getString(R.string.elm_profile_none))
+            p.warnings.isEmpty() -> getString(R.string.elm_profile_picked, p.name)
+            else -> getString(R.string.elm_profile_picked_warn, p.name, p.params.size, p.warnings.size)
+        }
+        Toast.makeText(this, text, Toast.LENGTH_LONG).show()
+        buildWidgets(readSpecs())
+        showElmSettings(widgetId)
+    }
+
+    /** Виджет, для которого открыт выбор файла/запрошен доступ к памяти. */
+    private var elmProfileWidgetId: String? = null
+
+    /** Системный выбор файла (если на ГУ есть DocumentsUI). */
+    private fun openElmProfileFile(widgetId: String) {
+        val intent = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(android.content.Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+            putExtra(
+                android.content.Intent.EXTRA_MIME_TYPES,
+                arrayOf("application/json", "text/plain", "application/octet-stream")
+            )
+        }
+        if (intent.resolveActivity(packageManager) == null) {
+            elmMessage(getString(R.string.elm_profile_no_picker))
+            return
+        }
+        elmProfileWidgetId = widgetId
+        @Suppress("DEPRECATION")
+        startActivityForResult(intent, REQ_ELM_JSON)
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
+        @Suppress("DEPRECATION")
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQ_ELM_JSON) return
+        val widgetId = elmProfileWidgetId ?: return
+        if (resultCode != RESULT_OK) {
+            showElmProfileDialog(widgetId)
+            return
+        }
+        val uri = data?.data ?: return
+        try {
+            val name = contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+                if (it.moveToFirst()) it.getString(0) else null
+            } ?: uri.lastPathSegment ?: "profile.json"
+            val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                ?: throw IllegalArgumentException(getString(R.string.elm_profile_not_opened))
+            if (bytes.size > ProfileStore.MAX_BYTES) throw IllegalArgumentException(getString(R.string.elm_profile_too_big))
+            chooseElmProfile(ProfileStore.import(this, name, bytes.toString(Charsets.UTF_8)), widgetId)
+        } catch (e: Exception) {
+            elmMessage(getString(R.string.elm_profile_load_failed, e.message ?: e.javaClass.simpleName))
+        }
+    }
+
+    /** Поиск *.json на флешках и во внутренней памяти; нужен доступ к памяти. */
+    private fun scanElmProfiles(widgetId: String) {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            elmProfileWidgetId = widgetId
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE), REQ_ELM_STORAGE)
+            return
+        }
+        val files = ProfileStore.scanStorage()
+        if (files.isEmpty()) {
+            elmMessage(getString(R.string.elm_profile_scan_empty))
+            return
+        }
+        DashDialog.Builder(this)
+            .setTitle(R.string.elm_profile_scan_title)
+            .setItems(files.map { "${it.name}  ·  ${it.parent}" }.toTypedArray()) { _, i ->
+                try {
+                    chooseElmProfile(ProfileStore.importFile(this, files[i]), widgetId)
+                } catch (e: Exception) {
+                    elmMessage("${files[i].name}: ${e.message ?: e.javaClass.simpleName}")
+                }
+            }
+            .setNegativeButton(R.string.dialog_cancel) { _, _ -> showElmProfileDialog(widgetId) }
+            .showFullScreen()
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_SPECTRUM_AUDIO) {
+            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+                // Пересоздать вью — SpectrumHub переоткроет Visualizer.
+                buildWidgets(readSpecs())
+            } else {
+                Toast.makeText(this, R.string.spectrum_no_mic_permission, Toast.LENGTH_LONG).show()
+            }
+            return
+        }
+        if (requestCode != REQ_ELM_STORAGE) return
+        val widgetId = elmProfileWidgetId ?: return
+        if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) scanElmProfiles(widgetId)
+        else elmMessage(getString(R.string.elm_profile_no_storage))
+    }
+
+    private fun elmMessage(text: String) {
+        DashDialog.Builder(this)
+            .setTitle(R.string.elm_profile_title)
+            .setMessage(text)
+            .setNegativeButton(R.string.dialog_close, null)
             .showFullScreen()
     }
 
@@ -1640,7 +2057,7 @@ class MainActivity : AppCompatActivity() {
                 settingsStore.setOption(
                     widgetId, AppWidgetView.OPT_PKG, options[selected].second
                 )
-                settingsStore.setOption(widgetId, RetroLook.OPT_LOOK, look())
+                look()
                 buildWidgets(readSpecs())
             }
             .setNegativeButton(R.string.dialog_cancel, null)
@@ -1716,6 +2133,15 @@ class MainActivity : AppCompatActivity() {
         private const val UNDERLAY_GRACE_MS = 5000L
 
         private const val REQ_LOCATION = 1001
+        private const val REQ_ELM_JSON = 1002
+        private const val REQ_ELM_STORAGE = 1003
+        private const val REQ_SPECTRUM_AUDIO = 1004
+
+        /** Шаг ползунка яркости заставки, %. */
+        private const val BRIGHTNESS_STEP = 5
+
+        /** Строки-роутеры в начале настроек OBD: адаптер и профиль. */
+        private const val ELM_ROUTERS = 2
 
         /** Опция «Спидометра»: вид (см. [showSpeedSettings]). */
         private const val OPT_SPEED_STYLE = "style"

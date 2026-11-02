@@ -33,6 +33,8 @@ class WidgetFrame(
     private val theme: com.dash.headunit.theme.DashTheme = com.dash.headunit.theme.DashTheme.DARK,
     /** Вид «Ретро» ([com.dash.headunit.theme.RetroLook]): фон — табличка в рамке. */
     private val retro: Boolean = false,
+    /** Фон блока ([com.dash.headunit.theme.WidgetBackground]): тема / градиент / прозрачный. */
+    private val bgMode: String = com.dash.headunit.theme.WidgetBackground.BG_THEME,
     var onGeometryChanged: (() -> Unit)? = null,
     var onDelete: (() -> Unit)? = null,
     var onSettings: (() -> Unit)? = null
@@ -192,14 +194,19 @@ class WidgetFrame(
      * видно, за что тянуть.
      */
     fun restoreBackground() {
-        background = if (editing && !retro) com.dash.headunit.theme.ThemeCard.card(context, theme)
-        else baseBackground()
+        background = when {
+            !editing -> baseBackground()
+            retro -> com.dash.headunit.theme.RetroLook.panel(context)
+            else -> com.dash.headunit.theme.ThemeCard.card(context, theme)
+        }
     }
 
-    /** Фон вне редактирования: ретро-табличка или карточка темы (в плоской — нет). */
+    /**
+     * Фон вне редактирования: по опции [bgMode] — ретро-табличка, карточка
+     * темы (в плоской — нет), градиент темы или ничего.
+     */
     private fun baseBackground() =
-        if (retro) com.dash.headunit.theme.RetroLook.panel(context)
-        else com.dash.headunit.theme.ThemeCard.widget(context, theme)
+        com.dash.headunit.theme.WidgetBackground.drawable(context, theme, bgMode, retro)
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
