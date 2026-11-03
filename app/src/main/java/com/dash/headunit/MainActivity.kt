@@ -754,8 +754,12 @@ class MainActivity : AppCompatActivity() {
                     }
                 WidgetType.BUTTONS -> ButtonsWidgetView(this, wTheme)
                 WidgetType.SCREENSAVER -> ScreensaverWidgetView(
-                    this, wTheme, Screensaver.config(settingsStore, spec.widgetId)
-                ) { if (!editMode) screensaver.showNow() }
+                    this, wTheme, Screensaver.config(settingsStore, spec.widgetId),
+                    canToggle = { !editMode }
+                ) { on ->
+                    settingsStore.setOption(spec.widgetId, Screensaver.OPT_ENABLED, if (on) "1" else "0")
+                    applyScreensaverConfig(readSpecs())
+                }
             }
             val frame = WidgetFrame(
                 context = this,
@@ -817,10 +821,15 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-        // Заставка — по первому виджету «Заставка»; нет виджета — выключена.
+        applyScreensaverConfig(specs)
+        if (isResumedNow()) refreshNavi()
+    }
+
+    /** Заставка — по первому виджету «Заставка»; нет виджета или выключена кнопкой — нет. */
+    private fun applyScreensaverConfig(specs: List<WidgetSpec>) {
         screensaver.config = specs.firstOrNull { it.type == WidgetType.SCREENSAVER }
             ?.let { Screensaver.config(settingsStore, it.widgetId) }
-        if (isResumedNow()) refreshNavi()
+            ?.takeIf { it.enabled }
     }
 
     private fun isResumedNow(): Boolean =

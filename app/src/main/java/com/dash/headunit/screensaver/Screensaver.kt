@@ -28,9 +28,15 @@ class Screensaver(
     private val onShowingChanged: (Boolean) -> Unit
 ) {
 
-    data class Config(val timeoutSec: Int, val brightness: Int, val background: String)
+    data class Config(
+        val timeoutSec: Int,
+        val brightness: Int,
+        val background: String,
+        /** Кнопка на плитке виджета: false — заставка не включается. */
+        val enabled: Boolean = true
+    )
 
-    /** null — виджета на дашборде нет, заставка выключена. */
+    /** null — виджета на дашборде нет или заставка выключена кнопкой. */
     var config: Config? = null
         set(value) {
             field = value
@@ -86,12 +92,6 @@ class Screensaver(
             swallowing = false
         }
         return swallow
-    }
-
-    /** Показать сразу (тап по плитке виджета — посмотреть, как выглядит). */
-    fun showNow() {
-        val c = config ?: return
-        show(c)
     }
 
     private fun schedule() {
@@ -163,6 +163,7 @@ class Screensaver(
         const val OPT_TIMEOUT = "ss_timeout_s"
         const val OPT_BRIGHTNESS = "ss_brightness"
         const val OPT_BACKGROUND = "ss_background"
+        const val OPT_ENABLED = "ss_enabled"
 
         /** Варианты задержки, с. */
         val TIMEOUTS = listOf(30, 60, 120, 180, 300, 600, 900, 1800)
@@ -192,7 +193,8 @@ class Screensaver(
             brightness = (store.getOption(widgetId, OPT_BRIGHTNESS, DEFAULT_BRIGHTNESS.toString())
                 .toIntOrNull() ?: DEFAULT_BRIGHTNESS).coerceIn(0, 100),
             background = store.getOption(widgetId, OPT_BACKGROUND, BG_DARK)
-                .takeIf { it in BACKGROUNDS } ?: BG_DARK
+                .takeIf { it in BACKGROUNDS } ?: BG_DARK,
+            enabled = store.getOption(widgetId, OPT_ENABLED, "1") != "0"
         )
 
         /** «30 с», «1 мин», «15 мин». */
