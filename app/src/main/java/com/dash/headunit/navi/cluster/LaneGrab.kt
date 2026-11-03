@@ -34,6 +34,14 @@ object LaneGrab {
     @Volatile var lastDump: String = "полосы с экрана не снимали"
         private set
 
+    /** Почему сейчас не ищем (далеко до манёвра и т. п.); null — ищем. */
+    @Volatile private var idle: String? = "нет данных из окна навигатора"
+
+    /** Состояние одной строкой — для рамки калибровки. */
+    fun info(): String =
+        (idle ?: "ищу") + " · последний снимок: " + lastDump +
+            (lanes?.let { " · есть знак ${it.width}×${it.height}" } ?: "")
+
     private val worker = Executors.newSingleThreadExecutor { Thread(it, "LaneGrab").apply { isDaemon = true } }
 
     /**
@@ -45,8 +53,10 @@ object LaneGrab {
         val m = GuidanceText.meters(distance)
         if (container == null && (m == null || m > NEAR_M)) {
             reset()
+            idle = "до манёвра ${distance ?: "?"} — ищу ближе $NEAR_M м"
             return null
         }
+        idle = null
         val k = street.toString()
         if (k != key) {
             key = k
@@ -72,7 +82,8 @@ object LaneGrab {
         return lanes.takeIf { now - foundAt < 2 * REFRESH_MS + GRAB_MS }
     }
 
-    fun reset() {
+    fun reset(why: String? = null) {
+        if (why != null) idle = why
         lanes = null
         key = null
     }

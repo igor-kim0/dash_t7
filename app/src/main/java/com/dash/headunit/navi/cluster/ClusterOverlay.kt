@@ -142,6 +142,7 @@ object ClusterOverlay {
                     " · слушатель уведомлений: ${onOff(ClusterSetup.isListenerEnabled(ctx))}",
                 "настройка «маршрут на приборке»: ${onOff(AppSettings.clusterNavi(ctx))}" +
                     " · ${if (GuidanceHub.current != null) "на карточке маршрут" else "на карточке образец"}",
+                "полосы: ${LaneGrab.info()}",
             )
             main.postDelayed(this, 1000)
         }

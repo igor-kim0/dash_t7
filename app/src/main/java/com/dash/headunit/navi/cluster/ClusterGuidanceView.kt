@@ -352,7 +352,7 @@ class ClusterGuidanceView(context: Context) : View(context) {
         gridText.color = Color.WHITE
         gridText.textSize = 24f
         info.forEachIndexed { i, line ->
-            canvas.drawText(fit(line, gridText, cw - 20f), left + 10f, h - 130f + i * 28f, gridText)
+            canvas.drawText(fit(line, gridText, cw - 20f), left + 10f, h - 74f - (info.size - 1 - i) * 28f, gridText)
         }
     }
 

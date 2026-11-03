@@ -174,7 +174,7 @@ class NaviAccessibilityService : AccessibilityService() {
                 distance = dist,
             )
         } else {
-            LaneGrab.reset()
+            LaneGrab.reset("выключено в настройках")
             null
         }
         val camDist = text("view_notification_speedcamera_distance")
