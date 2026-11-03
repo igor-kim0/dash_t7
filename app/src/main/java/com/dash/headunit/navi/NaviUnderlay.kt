@@ -393,7 +393,13 @@ object NaviUnderlay {
      * так делают SystemUI и плавающие клавиатуры. Возвращает false, если
      * API недоступен: тогда навигатор виден, но касания до него не дойдут.
      */
-    fun installTouchHole(view: View, hole: () -> Region?): Boolean {
+    fun installTouchHole(
+        view: View,
+        hole: () -> Region?,
+        /** true — касания выреза тоже наши (заставка), но окно навигатора
+         *  должно оставаться видимым службе спец. возможностей. */
+        swallowHole: () -> Boolean = { false }
+    ): Boolean {
         holeView = WeakReference(view)
         return try {
             val listenerCls = Class.forName(
@@ -404,7 +410,7 @@ object NaviUnderlay {
             ) { self, method, args ->
                 when (method.name) {
                     "onComputeInternalInsets" -> {
-                        fillInsets(args!![0], view, hole())
+                        fillInsets(args!![0], view, hole(), swallowHole())
                         null
                     }
                     "equals" -> self === args?.get(0)
@@ -424,12 +430,12 @@ object NaviUnderlay {
         }
     }
 
-    private fun fillInsets(info: Any, view: View, hole: Region?) {
+    private fun fillInsets(info: Any, view: View, hole: Region?, swallow: Boolean) {
         val cls = info.javaClass
         val region = cls.getField("touchableRegion").get(info) as Region
         region.set(0, 0, view.width, view.height)
         if (hole != null) {
-            region.op(hole, Region.Op.DIFFERENCE)
+            if (!swallow) region.op(hole, Region.Op.DIFFERENCE)
             // Android 9 считает окно для спец. возможностей по описанному
             // прямоугольнику зоны касаний: весь экран с вырезом всё равно
             // «накрывает» навигатор, и служба его окна не видит (проверено

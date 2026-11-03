@@ -197,9 +197,14 @@ class MainActivity : AppCompatActivity() {
             // блоку навигатора не должен уйти в карту.
             window.decorView.requestLayout()
         }.apply { canShow = { !editMode && hasWindowFocus() } }
-        touchHoleInstalled = NaviUnderlay.installTouchHole(window.decorView) {
-            if (screensaver.isShowing) null else touchHole
-        }
+        // Под заставкой касания выреза тоже наши, но крайняя строка выреза
+        // остаётся открытой: иначе окно навигатора пропадает для спец.
+        // возможностей и ведение на приборку перестаёт идти.
+        touchHoleInstalled = NaviUnderlay.installTouchHole(
+            window.decorView,
+            hole = { touchHole },
+            swallowHole = { screensaver.isShowing }
+        )
         // Навигатор мог остаться в границах блока после падения.
         NaviUnderlay.resetOnStart(this)
         NaviUnderlay.installCrashReset(this)
