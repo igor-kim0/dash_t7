@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [1.8] — 2026-11-03
+
 ### Изменено
 - Приборка, рамка калибровки: строка «полосы: …» — почему знак полос не
   показан (далеко до манёвра, выключено в настройках, что нашёл последний
@@ -315,7 +317,8 @@
 - Wi-Fi, обучатель кнопок, маршрут на приборке.
 - Релизная сборка prod: подпись debug-ключом (обновление поверх установленной).
 
-[Unreleased]: https://github.com/igor-kim0/dash_t7/compare/v1.7...HEAD
+[Unreleased]: https://github.com/igor-kim0/dash_t7/compare/v1.8...HEAD
+[1.8]: https://github.com/igor-kim0/dash_t7/compare/v1.7...v1.8
 [1.7]: https://github.com/igor-kim0/dash_t7/compare/v1.6...v1.7
 [1.6]: https://github.com/igor-kim0/dash_t7/compare/v1.5...v1.6
 [1.5]: https://github.com/igor-kim0/dash_t7/compare/v1.4...v1.5
