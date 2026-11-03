@@ -261,10 +261,8 @@
     <string name="cl_off">выкл</string>
     <string name="widget_wifi">Wi-Fi</string>
     <string name="widget_screensaver">Заставка</string>
-    <string name="screensaver_summary">через %1$s без касаний · яркость %2$d%%</string>
     <string name="screensaver_on">Заставка включена</string>
     <string name="screensaver_off">Заставка выключена</string>
-    <string name="screensaver_tap_to_enable">нажмите, чтобы включить</string>
     <string name="screensaver_settings_title">Заставка</string>
     <string name="screensaver_timeout">Включать без касаний через</string>
     <string name="screensaver_brightness">Яркость под заставкой</string>
