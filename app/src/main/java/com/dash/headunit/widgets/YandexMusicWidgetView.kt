@@ -69,6 +69,12 @@ class YandexMusicWidgetView(
     /** Обложка, нарисованная последний раз, — чтобы не перезаливать её каждый рендер. */
     private var shownArt: Bitmap? = null
 
+    /** Строка трека (обложка, тексты, транспорт) — тускнеет без воспроизведения. */
+    private val main = LinearLayout(context)
+
+    /** Что нарисовано в ленте — пересобираем её только при изменении (не сбивая прокрутку). */
+    private var shownChips: Any? = null
+
     private val hubListener: () -> Unit = { render() }
 
     init {
@@ -157,7 +163,7 @@ class YandexMusicWidgetView(
         controls.addView(btnNext)
 
         val artSize = dp(84)
-        val main = LinearLayout(context).apply { orientation = HORIZONTAL }
+        main.orientation = HORIZONTAL
         main.gravity = Gravity.CENTER_VERTICAL
         main.addView(artView, LayoutParams(artSize, artSize).apply { marginEnd = dp(12) })
         main.addView(texts, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(12) })
@@ -192,7 +198,7 @@ class YandexMusicWidgetView(
         )
         addView(
             chipsScroll,
-            LayoutParams(LayoutParams.MATCH_PARENT, dp(38)).apply {
+            LayoutParams(LayoutParams.MATCH_PARENT, dp(CHIP_H + 4)).apply {
                 topMargin = dp(4)
             }
         )
@@ -224,45 +230,99 @@ class YandexMusicWidgetView(
         }
     }
 
-    /** Чип коллекции/папки: скруглённый брусок с тапом (раскрыть или запустить). */
-    private fun makeChip(label: String, accent: Boolean, onClick: () -> Unit): View {
-        val c = Button(context)
-        c.isAllCaps = false
-        c.minWidth = 0
-        c.minimumWidth = 0
-        c.minimumHeight = 0
-        c.setMinHeight(0)
-        c.text = label
-        c.setTextColor(if (accent) theme.background else theme.primaryText)
-        c.background = ThemeCard.square(if (accent) theme.accent else theme.cardBorder, 10, context)
-        c.setPadding(dp(14), 0, dp(14), 0)
-        c.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-        c.setOnClickListener { onClick() }
-        return c
+    /**
+     * Чип коллекции/папки: скруглённый брусок с иконкой (если есть) и
+     * подписью; у папки — «›» справа. Тап — раскрыть или запустить.
+     */
+    private fun makeChip(
+        label: String,
+        accent: Boolean,
+        icon: Bitmap? = null,
+        folder: Boolean = false,
+        onClick: () -> Unit
+    ): View {
+        val chip = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = ThemeCard.square(if (accent) theme.accent else theme.cardBorder, 10, context)
+            setPadding(if (icon != null) dp(4) else dp(14), 0, dp(14), 0)
+            isClickable = true
+            setOnClickListener { onClick() }
+        }
+        if (icon != null) {
+            val iv = ImageView(context).apply {
+                setImageBitmap(icon)
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                clipToOutline = true
+                outlineProvider = object : ViewOutlineProvider() {
+                    override fun getOutline(view: View, outline: Outline) {
+                        outline.setRoundRect(0, 0, view.width, view.height, dp(7).toFloat())
+                    }
+                }
+            }
+            val s = dp(CHIP_H - 8)
+            chip.addView(iv, LayoutParams(s, s).apply { marginEnd = dp(8) })
+        }
+        val tv = TextView(context).apply {
+            text = if (folder) "$label  ›" else label
+            setTextColor(if (accent) theme.background else theme.primaryText)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            isSingleLine = true
+            maxWidth = dp(220)
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        chip.addView(tv, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
+        return chip
     }
 
-    /** Обновить ленту коллекций: чип «назад» (если открыта папка) + дети уровня. */
+    /**
+     * Лента коллекций: «←» (если открыта папка) + дети уровня. Видна и без
+     * воспроизведения — как раз тогда коллекцию и выбирают. Если браузер
+     * не пускает — чип «Открыть Яндекс Музыку».
+     */
     private fun renderCollections() {
+        val hub = YandexMusicHub
+        val level = hub.level
+        val failed = hub.collections.isEmpty() && !hub.loading &&
+            hub.browserState == YandexMusicHub.BrowserState.FAILED
+        val key = listOf(hub.collections, level, hub.loading, failed, hub.installed)
+        if (key == shownChips) return
+        shownChips = key
         chipsHost.removeAllViews()
-        val level = YandexMusicHub.level
+        if (!hub.installed) {
+            chipsTitle.visibility = GONE
+            chipsScroll.visibility = GONE
+            return
+        }
+        val chipLp = { LayoutParams(LayoutParams.WRAP_CONTENT, dp(CHIP_H)).apply { marginEnd = dp(8) } }
         if (level > 0) {
             chipsHost.addView(
-                makeChip("←", true) { YandexMusicHub.up() },
-                LayoutParams(dp(40), dp(34)).apply { marginEnd = dp(8) }
+                makeChip("←", true) { hub.up() },
+                LayoutParams(dp(44), dp(CHIP_H)).apply { marginEnd = dp(8) }
             )
         }
-        YandexMusicHub.collections.forEach { node ->
+        hub.collections.forEach { node ->
             chipsHost.addView(
-                makeChip(node.title, false) { YandexMusicHub.navigate(node) },
-                LayoutParams(LayoutParams.WRAP_CONTENT, dp(34)).apply { marginEnd = dp(8) }
+                makeChip(node.title, false, node.icon, node.browsable) { hub.navigate(node) },
+                chipLp()
             )
         }
-        val visible = YandexMusicHub.collections.isNotEmpty() || level > 0
+        if (failed) {
+            chipsHost.addView(
+                makeChip(context.getString(R.string.yam_open_app), true) { hub.openApp() },
+                chipLp()
+            )
+        }
+        val visible = hub.collections.isNotEmpty() || level > 0 || hub.loading || failed
         chipsTitle.visibility = if (visible) VISIBLE else GONE
         chipsScroll.visibility = if (visible) VISIBLE else GONE
-        chipsTitle.text = context.getString(
-            if (level == 0) R.string.yam_collections_root else R.string.yam_collections_deep
-        )
+        chipsTitle.text = when {
+            hub.loading -> context.getString(R.string.yam_collections_loading)
+            failed -> context.getString(R.string.yam_collections_unavailable)
+            level == 0 -> context.getString(R.string.yam_collections_root)
+            else -> hub.folderTitle ?: context.getString(R.string.yam_collections_deep)
+        }
+        if (level > 0 || hub.loading) chipsScroll.scrollTo(0, 0)
     }
 
     private fun dp(value: Int): Int =
@@ -270,8 +330,12 @@ class YandexMusicWidgetView(
             TypedValue.COMPLEX_UNIT_DIP, value.toFloat(), resources.displayMetrics
         ).toInt()
 
+    /** Без доступа к уведомлениям и без сессии браузера управлять нечем. */
+    private fun accessMissing(): Boolean =
+        !YandexMusicHub.hasController && MusicHub.needsAccess(context)
+
     private fun onBodyTap() {
-        if (YandexMusicHub.data == null && MusicHub.needsAccess(context)) {
+        if (YandexMusicHub.data == null && accessMissing()) {
             openListenerSettings()
         } else {
             YandexMusicHub.refresh()
@@ -324,9 +388,10 @@ class YandexMusicWidgetView(
             shownArt = null
             artView.setImageDrawable(null)
             artView.visibility = GONE
+            val noAccess = accessMissing()
             titleView.text = when {
-                MusicHub.needsAccess(context) -> context.getString(R.string.music_no_access)
                 !YandexMusicHub.installed -> context.getString(R.string.yam_not_installed)
+                noAccess -> context.getString(R.string.music_no_access)
                 else -> context.getString(R.string.yam_nothing)
             }
             artistView.text = ""
@@ -334,14 +399,13 @@ class YandexMusicWidgetView(
             timeElapsedView.text = ""
             timeTotalView.text = ""
             btnPlay.setImageResource(R.drawable.ic_play)
-            accessBtn.visibility = if (MusicHub.needsAccess(context)) VISIBLE else GONE
-            alpha = 0.6f
-            chipsTitle.visibility = GONE
-            chipsScroll.visibility = GONE
+            accessBtn.visibility = if (noAccess && YandexMusicHub.installed) VISIBLE else GONE
+            main.alpha = 0.6f
+            renderCollections()
             return
         }
         accessBtn.visibility = GONE
-        alpha = 1f
+        main.alpha = 1f
         // Обложка: bitmap из сессии (может догрузиться по URI фоном в hub'е).
         val art = d.art
         if (art != null) {
@@ -402,5 +466,10 @@ class YandexMusicWidgetView(
         YandexMusicHub.removeListener(hubListener)
         SpectrumHub.clearPlaying(spectrumKey)
         super.onDetachedFromWindow()
+    }
+
+    private companion object {
+        /** Высота чипа коллекции, dp. */
+        const val CHIP_H = 40
     }
 }

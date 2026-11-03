@@ -169,6 +169,9 @@
     <string name="yam_default_artist">Воспроизведение</string>
     <string name="yam_collections_root">Коллекции</string>
     <string name="yam_collections_deep">Выбрать коллекцию</string>
+    <string name="yam_collections_loading">Загрузка…</string>
+    <string name="yam_collections_unavailable">Коллекции недоступны — Яндекс Музыка не пускает виджет</string>
+    <string name="yam_open_app">Открыть Яндекс Музыку</string>
     <string name="music_bluetooth_audio">Bluetooth-аудио</string>
     <string name="music_nothing">Нет воспроизведения</string>
     <string name="music_no_access">Включите доступ к уведомлениям</string>
