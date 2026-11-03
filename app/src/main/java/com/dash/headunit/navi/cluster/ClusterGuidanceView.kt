@@ -18,11 +18,15 @@ import android.view.View
  * в центральной полосе шириной [contentWidth] px (по бокам у приборки свои
  * шкалы):
  *
- *   ╭──────╮                              (60)
- *   │  ↰   │  300 м
- *   │      │  ▓▓▓▓▓▓▓▓░░░░   — сколько осталось до манёвра
- *   ╰──────╯  ул. Ленина          камера 60 · 350 м
- *   12 км · 18 мин · прибытие 14:35                  ▮ светофор
+ *         ╭──────╮
+ *         │  ↰   │  300 м
+ *  ╭────╮ │      │  ▓▓▓▓▓▓▓▓░░░░   — сколько осталось до манёвра
+ *  │(60)│ ╰──────╯  ул. Ленина          камера 60 · 350 м
+ *  ╰────╯ 12 км · 18 мин · прибытие 14:35            ▮ светофор
+ *
+ * Знак ограничения при маршруте — в своём блоке слева от карточки, в
+ * секторе B рядом с текущей скоростью приборки (её «75» у x≈140…245,
+ * y≈385…460 по фото ГУ 2026-11-03).
  *
  * Без маршрута ([Guidance.freeDrive]) карточки нет — строка от левого
  * края полосы: знак ограничения, камера, светофор, текущая улица.
@@ -136,9 +140,8 @@ class ClusterGuidanceView(context: Context) : View(context) {
         val top = 210f * s
         val bottom = top + cardH
 
-        // Знак ограничения скорости — справа вверху карточки.
+        // Без маршрута знак открывает строку предупреждений.
         val signR = 62f * s
-        val signCx = right - pad - signR
         val signCy = top + pad + signR
         val limit = g.speedLimit
 
@@ -164,7 +167,7 @@ class ClusterGuidanceView(context: Context) : View(context) {
 
             // Камера — справа внизу карточки.
             val tx = if (hasArrow) tx0 + tile + 40f * s else tx0 + 16f * s
-            var streetRight = (if (limit != null) signCx - signR else right - pad) - 24f * s
+            var streetRight = right - pad - 24f * s
             smallText.textSize = 34f * s
             if (g.cameraDistance != null) {
                 val cam = listOfNotNull("камера", g.cameraLimit?.toString(), g.cameraDistance).joinToString(" · ")
@@ -176,11 +179,11 @@ class ClusterGuidanceView(context: Context) : View(context) {
             }
 
             // Расстояние и полоса отсчёта до манёвра.
-            val distRight = (if (limit != null) signCx - signR else right - pad) - 24f * s
+            val distRight = right - pad - 24f * s
             bigText.textSize = 104f * s
             val distText = g.distance?.let { fit(it, bigText, distRight - tx) }
             distText?.let { canvas.drawText(it, tx, top + pad + 96f * s, bigText) }
-            // Знак полос (вырезка с экрана Яндекса) — справа от расстояния, до знака ограничения.
+            // Знак полос (вырезка с экрана Яндекса) — справа от расстояния.
             val lanesLeft = g.lanes?.let { drawLanes(canvas, it, tx + (distText?.let(bigText::measureText) ?: 0f) + 40f * s, distRight, top + pad, 136f * s) }
             val frac = progress.update(
                 // Без типа манёвра: он появляется со снимком через секунды — отсчёт не сбрасываем.
@@ -206,7 +209,7 @@ class ClusterGuidanceView(context: Context) : View(context) {
             drawWarningsRow(canvas, g, left, right, signCy, signR, s)
             return
         }
-        limit?.let { drawSign(canvas, it, g.overspeed, signCx, signCy, signR) }
+        limit?.let { drawSideSign(canvas, it, g.overspeed, left, s) }
         g.trafficLight?.let {
             val th = 120f * s
             drawTrafficLight(canvas, it, right - pad - th * TL_ASPECT / 2, bottom + 24f * s + th / 2, th)
@@ -356,6 +359,24 @@ class ClusterGuidanceView(context: Context) : View(context) {
     private fun fit(text: String, paint: TextPaint, width: Float): String =
         if (width <= 0) "" else TextUtils.ellipsize(text, paint, width, TextUtils.TruncateAt.END).toString()
 
+    /**
+     * Знак ограничения в отдельном блоке слева от карточки (сектор B, рядом
+     * с текущей скоростью приборки). Блок не заходит на карточку: при узкой
+     * полосе ([contentWidth]) прижимается к её левому краю.
+     */
+    private fun drawSideSign(canvas: Canvas, limit: Int, over: Boolean, cardLeft: Float, s: Float) {
+        val half = SIDE_BLOCK / 2 * s
+        val gap = 14f * s
+        val cx = minOf(SIDE_SIGN_CX * s, cardLeft - gap - half)
+        val cy = SIDE_SIGN_CY * s
+        if (cx - half < 0f) return
+        dst.set(cx - half, cy - half, cx + half, cy + half)
+        canvas.drawRoundRect(dst, 28f * s, 28f * s, cardFill)
+        cardStroke.strokeWidth = 2f * s
+        canvas.drawRoundRect(dst, 28f * s, 28f * s, cardStroke)
+        drawSign(canvas, limit, over, cx, cy, half - 12f * s)
+    }
+
     /** Знак ограничения; при превышении — красный с белыми цифрами. */
     private fun drawSign(canvas: Canvas, limit: Int, over: Boolean, cx: Float, cy: Float, r: Float) {
         signFill.color = if (over) red else Color.WHITE
@@ -461,6 +482,10 @@ class ClusterGuidanceView(context: Context) : View(context) {
     private companion object {
         /** Ширина светофора к высоте. */
         const val TL_ASPECT = 0.42f
+        /** Блок знака ограничения при маршруте: сторона и центр, px дисплея 1920×720. */
+        const val SIDE_BLOCK = 140f
+        const val SIDE_SIGN_CX = 322f
+        const val SIDE_SIGN_CY = 422f
         /** Лампы сверху вниз — в порядке [TrafficLight]: красная, жёлтая, зелёная. */
         val LAMP_ON = intArrayOf(Color.rgb(0xE5, 0x52, 0x45), Color.rgb(0xFF, 0xDF, 0x61), Color.rgb(0x85, 0xCC, 0x3D))
         val LAMP_OFF = Color.rgb(0x3A, 0x40, 0x4A)
