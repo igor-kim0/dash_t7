@@ -278,7 +278,7 @@ class YandexMusicWidgetView(
     /**
      * Лента коллекций: «←» (если открыта папка) + дети уровня. Видна и без
      * воспроизведения — как раз тогда коллекцию и выбирают. Если браузер
-     * не пускает — чип «Открыть Яндекс Музыку».
+     * не пускает — только подпись об этом.
      */
     private fun renderCollections() {
         val hub = YandexMusicHub
@@ -304,12 +304,6 @@ class YandexMusicWidgetView(
         hub.collections.forEach { node ->
             chipsHost.addView(
                 makeChip(node.title, false, node.icon, node.browsable) { hub.navigate(node) },
-                chipLp()
-            )
-        }
-        if (failed) {
-            chipsHost.addView(
-                makeChip(context.getString(R.string.yam_open_app), true) { hub.openApp() },
                 chipLp()
             )
         }
