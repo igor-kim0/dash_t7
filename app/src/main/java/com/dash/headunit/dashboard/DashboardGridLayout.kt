@@ -25,7 +25,9 @@ class DashboardGridLayout @JvmOverloads constructor(
         var cellX: Int,
         var cellY: Int,
         var cellW: Int,
-        var cellH: Int
+        var cellH: Int,
+        /** Наименьшая ширина при ресайзе (у части виджетов меньше [MIN_W]). */
+        val minW: Int = MIN_W
     ) : ViewGroup.LayoutParams(0, 0) {
         constructor(c: Context, attrs: AttributeSet?) : this(0, 0, MIN_W, MIN_H)
     }
@@ -93,7 +95,7 @@ class DashboardGridLayout @JvmOverloads constructor(
         val lp = child.layoutParams as LayoutParams
         // Сначала размер (иначе масштабная арифметика позиций возможна
         // с пустым диапазоном: ROWS - cellH < 0 при перетаскивании края).
-        lp.cellW = cellW.coerceIn(MIN_W, COLS)
+        lp.cellW = cellW.coerceIn(lp.minW, COLS)
         lp.cellH = cellH.coerceIn(MIN_H, ROWS)
         lp.cellX = cellX.coerceIn(0, COLS - lp.cellW)
         lp.cellY = cellY.coerceIn(0, ROWS - lp.cellH)

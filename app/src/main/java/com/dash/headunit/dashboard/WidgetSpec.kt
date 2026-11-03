@@ -44,6 +44,10 @@ enum class WidgetType(val id: String) {
     /** Заставка: только настройки — гасит экран после простоя без касаний. */
     SCREENSAVER("screensaver");
 
+    /** Наименьшая ширина в ячейках сетки: «Заставка» — одна иконка-кнопка, ей можно уже. */
+    val minW: Int
+        get() = if (this == SCREENSAVER) 4 else DashboardGridLayout.MIN_W
+
     companion object {
         fun byId(id: String): WidgetType =
             values().firstOrNull { it.id == id }
@@ -70,7 +74,7 @@ data class WidgetSpec(
     fun clamped(): WidgetSpec = copy(
         x = x.coerceIn(0, DashboardGridLayout.COLS - 1),
         y = y.coerceIn(0, DashboardGridLayout.ROWS - 1),
-        w = w.coerceIn(DashboardGridLayout.MIN_W, DashboardGridLayout.COLS),
+        w = w.coerceIn(type.minW, DashboardGridLayout.COLS),
         h = h.coerceIn(DashboardGridLayout.MIN_H, DashboardGridLayout.ROWS)
     ).let {
         it.copy(

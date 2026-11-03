@@ -810,7 +810,7 @@ class MainActivity : AppCompatActivity() {
             )
             frame.setContent(content)
             if (retro) RetroLook.applyText(content)
-            val lp = DashboardGridLayout.LayoutParams(spec.x, spec.y, spec.w, spec.h)
+            val lp = DashboardGridLayout.LayoutParams(spec.x, spec.y, spec.w, spec.h, spec.type.minW)
             dashboard.addView(frame, lp)
             if (spec.type == WidgetType.APP) {
                 // Блок переехал (раскладка, смена размера окна) — двигаем и навигатор.
