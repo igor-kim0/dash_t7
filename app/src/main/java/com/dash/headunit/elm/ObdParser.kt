@@ -86,9 +86,18 @@ object ObdParser {
      * (разные сообщения ELM не склеиваем); возвращаются байты начиная
      * с идентификатора ответа («41 05 …»).
      */
-    fun scanResponse(text: String, cmdId: String): List<Int>? {
+    fun scanResponse(text: String, cmdId: String): List<Int>? = scanAll(text, cmdId).firstOrNull()
+
+    /**
+     * Все ответы на [cmdId] в тексте — по одному на строку. На
+     * широковещательный запрос (7DF) отвечают несколько блоков: у Tiggo
+     * КПП (7E9) отвечает раньше двигателя (7E8), и у неё свои значения
+     * (дроссель 0, ОЖ −40 °C, маска PID без 0104/0106/0107/010B/010F).
+     */
+    fun scanAll(text: String, cmdId: String): List<List<Int>> {
+        val out = ArrayList<List<Int>>()
         val pattern = cmdId.chunked(2)
-        for (tokens in text.split('\r', '\n').flatMap(::hexRuns)) {
+        line@ for (tokens in text.split('\r', '\n').flatMap(::hexRuns)) {
             for (i in 0..tokens.size - pattern.size) {
                 var same = true
                 for (p in pattern.indices) {
@@ -98,25 +107,111 @@ object ObdParser {
                     }
                 }
                 if (!same) continue
-                return tokens.drop(i)
+                out += tokens.drop(i)
                     .takeWhile { it.length == 2 && it[0].isHex() && it[1].isHex() }
                     .map { it.toInt(16) }
+                continue@line
             }
         }
-        return null
+        return out
     }
 
     /**
-     * Склеить многокадровый ответ ISO-TP (VIN, длинные DID) в одну строку.
-     * ELM печатает его так: строка с длиной («014»), затем кадры
-     * «0: 49 02 01 …», «1: …». Без нумерованных кадров текст не меняется.
+     * Склеить многокадровый ответ ISO-TP (VIN, имя ЭБУ, длинные DID)
+     * в одну строку hex-байтов. ELM печатает его двумя способами:
+     *  - без заголовков (ATH0): строка с длиной («014»), затем кадры
+     *    «0: 49 02 01 …», «1: …»;
+     *  - с заголовками (клон проигнорировал ATH0): «7E8 10 14 49 02 01 …»
+     *    (первый кадр, PCI 1L LL) и «7E8 21 …», «7E8 22 …» (последующие).
+     * Данные обрезаются по объявленной длине — хвостовая набивка
+     * (00 / AA / 55 — «U» в ASCII) в результат не попадает. Если отвечали
+     * несколько блоков, берётся первый. Без многокадрового ответа текст
+     * не меняется.
      */
     fun joinFrames(text: String): String {
-        val frames = text.split('\r', '\n').mapNotNull { FRAME.find(it)?.groupValues?.get(1) }
-        return if (frames.isEmpty()) text else frames.joinToString(" ")
+        val lines = text.split('\r', '\n').map { it.trim().trim(PROMPT).trim() }.filter { it.isNotEmpty() }
+        numberedFrames(lines)?.let { return it }
+        headerFrames(lines)?.let { return it }
+        return text
+    }
+
+    private fun numberedFrames(lines: List<String>): String? {
+        var length: Int? = null
+        val data = ArrayList<String>()
+        for (l in lines) {
+            val f = FRAME.find(l)
+            if (f != null) {
+                data += f.groupValues[1].replace(" ", "").replace("\t", "").chunked(2)
+                continue
+            }
+            // Длина перед кадрами: «014» (3 hex-цифры); второй блок — стоп.
+            if (LENGTH.matches(l)) {
+                if (data.isNotEmpty()) break
+                length = l.toInt(16)
+            }
+        }
+        if (data.isEmpty()) return null
+        val bytes = data.filter { it.length == 2 }
+        return (length?.let { bytes.take(it) } ?: bytes).joinToString(" ")
+    }
+
+    private fun headerFrames(lines: List<String>): String? =
+        canMessagesOf(lines).firstOrNull { it.multiFrame }?.data?.joinToString(" ") { "%02X".format(it) }
+
+    /**
+     * Сообщение CAN 11 бит из ответа ELM с заголовками (ATH1, ATS0, ATCAF1):
+     * [header] — CAN-ID ответившего блока («7E8»), [data] — данные ISO-TP
+     * без PCI («62 01 70 00»). [complete] — false, если многокадровое
+     * сообщение оборвалось (пришли не все последующие кадры).
+     */
+    class CanMessage(val header: String, val data: List<Int>, val multiFrame: Boolean, val complete: Boolean)
+
+    /**
+     * Разобрать ответ ELM с заголовками на сообщения ISO-TP: одиночные кадры
+     * (PCI 0L), первый + последующие (1L LL … / 2n …) — склеиваются по
+     * заголовку и обрезаются по длине. Кадры управления потоком (3x)
+     * и строки без заголовка пропускаются. Порядок — по первому кадру.
+     */
+    fun canMessages(text: String): List<CanMessage> =
+        canMessagesOf(text.split('\r', '\n').map { it.trim().trim(PROMPT).trim() })
+
+    private fun canMessagesOf(lines: List<String>): List<CanMessage> {
+        class Pending(val header: String, val length: Int, val data: ArrayList<Int>)
+        val out = ArrayList<CanMessage>()
+        val pending = LinkedHashMap<String, Pending>()
+        for (l in lines) {
+            val hex = l.replace(" ", "")
+            if (hex.length < 5 || hex.length % 2 == 0 || !hex.all { it.isHex() }) continue
+            val h = hex.substring(0, 3).uppercase()
+            val bytes = hex.substring(3).chunked(2).map { it.toInt(16) }
+            val pci = bytes[0]
+            when (pci shr 4) {
+                0 -> {
+                    val len = pci and 0x0F
+                    if (len in 1..bytes.size - 1) out += CanMessage(h, bytes.subList(1, 1 + len), false, true)
+                }
+                1 -> {
+                    if (bytes.size < 2) continue
+                    val len = ((pci and 0x0F) shl 8) or bytes[1]
+                    pending.remove(h)?.let { out += CanMessage(h, it.data, true, false) }
+                    pending[h] = Pending(h, len, ArrayList(bytes.drop(2)))
+                }
+                2 -> {
+                    val p = pending[h] ?: continue
+                    p.data += bytes.drop(1)
+                    if (p.data.size >= p.length) {
+                        pending.remove(h)
+                        out += CanMessage(h, p.data.take(p.length), true, true)
+                    }
+                }
+            }
+        }
+        pending.values.forEach { out += CanMessage(it.header, it.data, true, false) }
+        return out
     }
 
     private val FRAME = Regex("""^\s*[0-9A-Fa-f]\s*:\s*([0-9A-Fa-f ]+)$""")
+    private val LENGTH = Regex("""^[0-9A-Fa-f]{3}$""")
 
     /**
      * Маска поддерживаемых PID из ответа на 0100/0120/0140… ([base] —
@@ -124,12 +219,17 @@ object ObdParser {
      * (старший бит первого байта — base+1). null — ответа нет.
      */
     fun supportedPids(text: String, base: Int): Set<Int>? {
-        val bytes = scanResponse(text, "41%02X".format(base)) ?: return null
-        if (bytes.size < 6) return null
+        // Ответили несколько блоков — объединяем их маски: PID, которого
+        // нет у адресата, отсеется промахами, а вот потерять PID двигателя
+        // из-за маски КПП (она приходит первой) — нельзя.
+        val answers = scanAll(text, "41%02X".format(base)).filter { it.size >= 6 }
+        if (answers.isEmpty()) return null
         val out = HashSet<Int>()
-        for (b in 0 until 4) {
-            for (bit in 0 until 8) {
-                if (bytes[2 + b] and (0x80 shr bit) != 0) out.add(base + b * 8 + bit + 1)
+        for (bytes in answers) {
+            for (b in 0 until 4) {
+                for (bit in 0 until 8) {
+                    if (bytes[2 + b] and (0x80 shr bit) != 0) out.add(base + b * 8 + bit + 1)
+                }
             }
         }
         return out

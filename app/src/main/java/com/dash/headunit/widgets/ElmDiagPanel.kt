@@ -10,6 +10,7 @@ import android.widget.TextView
 import com.dash.headunit.R
 import com.dash.headunit.elm.ElmBtProbe
 import com.dash.headunit.elm.ElmHub
+import com.dash.headunit.elm.ElmScanner
 import com.dash.headunit.theme.DashTheme
 import com.dash.headunit.theme.ThemeCard
 import com.dash.headunit.ui.DashDialog
@@ -23,6 +24,7 @@ import java.util.Locale
  * Состояние BT автомобиля, скан ([ElmBtProbe.scan]), список спаренных/
  * найденных устройств, спаривание (`createBond`), выбор адаптера для
  * [ElmHub] и тест-подключение по SPP/RFCOMM с подробным журналом.
+ * «Сканер» — поиск блоков, перебор DID и запись в файл ([ElmScanner]).
  */
 class ElmDiagPanel(
     context: Context,
@@ -35,6 +37,8 @@ class ElmDiagPanel(
     private val pickBtn = button("Устройства")
     private val testBtn = button("Тест ELM")
     private val pinBtn = button("PIN")
+    private val scanDidBtn = button("Сканер")
+    private val scannerView = TextView(context)
     private val logView = TextView(context)
     private val handler = Handler(Looper.getMainLooper())
     private var tickerRunning = false
@@ -66,13 +70,20 @@ class ElmDiagPanel(
             gravity = Gravity.CENTER
             setPadding(0, dp(8), 0, dp(8))
         }
-        listOf(scanBtn, pickBtn, testBtn, pinBtn).forEach {
+        listOf(scanBtn, pickBtn, testBtn, pinBtn, scanDidBtn).forEach {
             controls.addView(it, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply {
                 marginStart = dp(2)
                 marginEnd = dp(2)
             })
         }
         addView(controls, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+
+        scannerView.apply {
+            setTextColor(theme.primaryText)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setPadding(0, 0, 0, dp(6))
+        }
+        addView(scannerView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
 
         logView.apply {
             setTextColor(theme.secondaryText)
@@ -86,6 +97,7 @@ class ElmDiagPanel(
         }
         pickBtn.setOnClickListener { showDevices() }
         pinBtn.setOnClickListener { showPin() }
+        scanDidBtn.setOnClickListener { showScanner() }
         // Пустой адрес — зонд сам подскажет «выберите устройство».
         testBtn.setOnClickListener { ElmBtProbe.testConnect(ElmHub.address() ?: "") }
 
@@ -116,6 +128,8 @@ class ElmDiagPanel(
         scanBtn.text = if (ElmBtProbe.scanning) "Стоп" else "Скан"
         pinBtn.text = "PIN ${ElmBtProbe.pin}"
         btStatusView.text = ElmBtProbe.status
+        scannerView.text = "Сканер: " + ElmScanner.status
+        scanDidBtn.text = if (ElmScanner.busy) "Сканер ●" else "Сканер"
         logView.text = ElmBtProbe.log().takeLast(LOG_ROWS).joinToString("\n") { "${hms(it.at)} ${it.text}" }
     }
 
@@ -154,6 +168,57 @@ class ElmDiagPanel(
                         }
                         .showFullScreen()
                 }
+            }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .showFullScreen()
+    }
+
+    /**
+     * Меню сканера: поиск блоков, перебор DID (с выбором блоков), запись,
+     * метка и стоп для идущей задачи.
+     */
+    private fun showScanner() {
+        val actions = ArrayList<Pair<String, () -> Unit>>()
+        if (ElmScanner.busy) {
+            if (ElmScanner.running == ElmScanner.Mode.RECORD) actions += "Поставить метку" to { ElmScanner.mark() }
+            actions += "Остановить (${ElmScanner.running?.title ?: "в очереди"})" to { ElmScanner.stop() }
+        } else {
+            actions += "Найти блоки (700–7F7, ~1 мин)" to { ElmScanner.request(context, ElmScanner.Mode.DISCOVER) }
+            actions += "Скан DID: быстрый (известные страницы + F1xx)" to { pickEcus(ElmScanner.Mode.QUICK) }
+            actions += "Скан DID: средний (00–3F, 60–6F, F0–FF, ~20–40 мин на блок)" to { pickEcus(ElmScanner.Mode.MEDIUM) }
+            actions += "Скан DID: полный (0000–FFFF, 1 ч и больше на блок)" to { pickEcus(ElmScanner.Mode.FULL) }
+            actions += "Запись в поездке (${ElmScanner.knownDidCount(context)} DID + PID двигателя)" to {
+                ElmScanner.request(context, ElmScanner.Mode.RECORD)
+            }
+        }
+        DashDialog.Builder(context)
+            .setTitle("OBD-сканер")
+            .setMessage(
+                "Только чтение (UDS 22, 3E, 10 01). Сканировать — на стоянке с включённым " +
+                    "зажиганием, долгий скан — с заведённым мотором. Пока сканер работает, " +
+                    "виджет OBD не обновляется.\n" +
+                    "Файлы: Android/data/com.dash.headunit/files/obd_scan (и копия на флешку, если видна).\n" +
+                    "Сейчас: ${ElmScanner.status}"
+            )
+            .setItems(actions.map { it.first }.toTypedArray()) { _, i ->
+                actions[i].second()
+                render()
+            }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .showFullScreen()
+    }
+
+    /** Выбор блоков для перебора DID (по умолчанию — все). */
+    private fun pickEcus(mode: ElmScanner.Mode) {
+        val ecus = ElmScanner.ecus(context)
+        val checked = BooleanArray(ecus.size) { true }
+        DashDialog.Builder(context)
+            .setTitle("${mode.title}: блоки")
+            .setMultiChoiceItems(ecus.map { it.title }.toTypedArray(), checked) { _, i, on -> checked[i] = on }
+            .setPositiveButton("Старт") { _, _ ->
+                val chosen = ecus.filterIndexed { i, _ -> checked[i] }
+                if (chosen.isNotEmpty()) ElmScanner.request(context, mode, chosen)
+                render()
             }
             .setNegativeButton(R.string.dialog_cancel, null)
             .showFullScreen()

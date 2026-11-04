@@ -37,7 +37,7 @@ import java.util.UUID
  * первым, VIN и прочие сведения читаются раз за сессию. Температура ОЖ
  * ([coolantC] — калибровка стрелки приборки) остаётся и с профилем:
  * параметр профиля с командой 0105 дублируется в «coolant», а без него
- * 0105 спрашивается отдельно (широковещательно, 7DF).
+ * 0105 спрашивается отдельно (на CAN 11 бит — двигателю 7E0, иначе 7DF).
  *
  * Если данных с ELM нет — значения null, и виджет показывает «—»:
  * на остальные виджеты ELM не влияет.
@@ -161,7 +161,7 @@ object ElmHub {
                 alias = if (coolant) COOLANT_ID else null)
         }
         // ОЖ нужна калибровке стрелки приборки и без профиля: если профиль
-        // её не спрашивает — 0105 широковещательно (7DF), раз в SLOW_EVERY
+        // её не спрашивает — 0105 отдельно (на CAN — двигателю 7E0, иначе 7DF), раз в SLOW_EVERY
         // кругов. Заголовок нужен, лишь если профиль переключает блоки.
         val extra = BUILTIN.filter { it.id == VOLT_ID || (!hasCoolant && it.id == COOLANT_ID) }.map {
             if (it.id == COOLANT_ID && profile.params.any { p -> p.header != null })
@@ -392,6 +392,18 @@ object ElmHub {
                         vehicleInfo = info
                     }
                     val misses = HashMap<String, Int>()
+                    /**
+                     * CAN 11 бит: OBD-запросы без своего блока (стандартный набор,
+                     * ОЖ для стрелки) — двигателю (7E0), а не всем (7DF): иначе
+                     * первой отвечает КПП (7E9) со своими значениями
+                     * (дроссель 0 %, ОЖ −40 °C — лог Car Scanner, Tiggo 7).
+                     */
+                    var can11 = isCan11(protocol)
+                    fun headerOf(poll: Poll): String? = when {
+                        poll.cmd.startsWith("AT") || !can11 -> poll.header
+                        poll.header == null || poll.header == BROADCAST_HEADER -> ECM_HEADER
+                        else -> poll.header
+                    }
                     var round = 0L
                     var lastAnswerAt = SystemClock.uptimeMillis()
                     /** Последний успешный шинный (не ATRV) PID — признак живой шины. */
@@ -407,14 +419,33 @@ object ElmHub {
                             lastStatus = "ELM: профиль сменился — переинициализация…"
                             break@poll
                         }
+                        val scan = ElmScanner.takePending()
+                        if (scan != null) {
+                            // Сканер работает на этом же сокете; после него
+                            // адаптер переинициализируется (ATZ) — опрос дальше.
+                            lastStatus = "ELM: сканер — ${scan.mode.title}…"
+                            val ctx = appCtx
+                            if (ctx != null && !ElmScanner.run(ctx, scan, protocol) { c, t -> command(input, output, c, t) }) {
+                                return answers > 0
+                            }
+                            break@poll
+                        }
+                        /** Ответы этого круга: одна команда (0134, 0101) — один запрос. */
+                        val replies = HashMap<String, String>()
                         for (poll in polls) {
-                            if (gen != profileGen) break
+                            if (gen != profileGen || ElmScanner.hasPending) break
                             if (poll.slow && round % SLOW_EVERY != 0L) continue
                             if (!supportedByEcu(poll.cmd)) continue
                             val miss = misses[poll.id] ?: 0
                             if (miss >= MISS_LIMIT && round % RETRY_UNSUPPORTED != 0L) continue
-                            if (!target(poll.header, poll.rxHeader)) return answers > 0
-                            val reply = command(input, output, poll.cmd, timeout) ?: return answers > 0 // сокет умер
+                            val h = headerOf(poll)
+                            val replyKey = "$h|${poll.rxHeader}|${poll.cmd}"
+                            val reply = replies[replyKey] ?: run {
+                                if (!target(h, poll.rxHeader)) return answers > 0
+                                val r = command(input, output, poll.cmd, timeout) ?: return answers > 0 // сокет умер
+                                replies[replyKey] = r
+                                r
+                            }
                             val v = poll.parse(reply)
                             if (v == null) {
                                 misses[poll.id] = miss + 1
@@ -445,6 +476,7 @@ object ElmHub {
                             if (header != null) command(input, output, "ATSH7DF") ?: return answers > 0
                             if (rxHeader != null) command(input, output, "ATAR") ?: return answers > 0
                             protocol = findProtocol(input, output, prof?.elmProtocol) ?: return answers > 0
+                            can11 = isCan11(protocol)
                             header = null
                             rxHeader = null
                             misses.clear()
@@ -507,19 +539,19 @@ object ElmHub {
     }
 
     /**
-     * Запомнить маску PID из ответа на 0100 ([mask]) и, если ЭБУ
-     * поддерживает 0120, дочитать маску 0x21..0x40 (там 012F — бак).
+     * Запомнить маску PID из ответа на 0100 ([mask]) и дочитать
+     * следующие маски по цепочке: бит 0x20 → 0120 (там 012F — бак),
+     * бит 0x40 → 0140 (0142 напряжение ЭБУ, 0143–014C — профиль) и т. д.
      * null — сокет умер.
      */
     private fun readSupported(input: InputStream, output: OutputStream, mask: Set<Int>): Unit? {
         var pids = mask
         var upTo = 0x20
-        if (0x20 in mask) {
-            val reply = command(input, output, "0120") ?: return null
-            ObdParser.supportedPids(reply, 0x20)?.let {
-                pids = pids + it
-                upTo = 0x40
-            }
+        while (upTo < 0xC0 && upTo in pids) {
+            val reply = command(input, output, "01%02X".format(upTo)) ?: return null
+            val next = ObdParser.supportedPids(reply, upTo) ?: break
+            pids = pids + next
+            upTo += 0x20
         }
         supportedPids = pids
         supportedUpTo = upTo
@@ -536,6 +568,9 @@ object ElmHub {
         val num = cmd.substring(2).toIntOrNull(16) ?: return true
         return num > supportedUpTo || num in supportedPids
     }
+
+    /** ATDPN «6»/«A6» (500 кбит) или «8»/«A8» (250 кбит) — CAN 11 бит, где ЭБУ двигателя = 7E0. */
+    private fun isCan11(protocol: String): Boolean = protocol.removePrefix("A") in setOf("6", "8")
 
     private fun noBusStatus(): String =
         "ELM: ЭБУ не отвечает ни на одном протоколе (${lastBusReply.ifEmpty { "нет ответа" }}) — зажигание?"
@@ -666,6 +701,8 @@ object ElmHub {
     private const val COOLANT_CMD = "0105"
     /** Функциональный (всем ЭБУ) CAN-заголовок OBD-II. */
     private const val BROADCAST_HEADER = "7DF"
+    /** Физический адрес ЭБУ двигателя на CAN 11 бит (ISO 15765-4). */
+    private const val ECM_HEADER = "7E0"
     private const val PREFS = "elm_settings"
     private const val KEY_ADDRESS = "address"
     private const val KEY_NAME = "name"
@@ -706,7 +743,7 @@ object ElmHub {
      * 11/29 бит, 8/9 — CAN 250 кбит, 3/4/5 — K-line, 1/2 — J1850.
      */
     private val PROTOCOLS = listOf("0", "6", "7", "8", "9", "3", "4", "5", "1", "2")
-    /** PID режима 01 из масок 0100/0120 последнего найденного протокола. */
+    /** PID режима 01 из масок 0100/0120/0140… последнего найденного протокола. */
     @Volatile
     private var supportedPids: Set<Int> = emptySet()
     /** До какого номера PID маска прочитана (0 — маски нет). */

@@ -158,4 +158,78 @@ class ObdParserTest {
         assertNull(ObdParser.supportedPids("UNABLE TO CONNECT>", 0x00))
         assertNull(ObdParser.supportedPids("41 00 BE 3E", 0x00))
     }
+
+    /** Лог Car Scanner (Tiggo 7): на 7DF первой отвечает КПП 7E9 со своей маской. */
+    @Test
+    fun supportedPids_unionOfEcus() {
+        val reply = "SEARCHING...\r7E906410088188013\r7E8064100BE3EA813\r\r>"
+        val pids = ObdParser.supportedPids(reply, 0x00)!!
+        // PID двигателя (0104, 0106, 0107, 010B, 010F) не теряются из-за маски КПП.
+        for (pid in listOf(0x04, 0x06, 0x07, 0x0B, 0x0F, 0x0C, 0x20)) assert(pid in pids) { "%02X".format(pid) }
+        // 0140 двигателя: 7E D0 04 00 → 42–47, 49, 4A, 4C, 56.
+        assertEquals(
+            setOf(0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x49, 0x4A, 0x4C, 0x56),
+            ObdParser.supportedPids("7E906414040800000\r7E80641407ED00400", 0x40)
+        )
+    }
+
+    /** Без заголовков (ATH0) ответы двух блоков различимы только порядком — берётся первый. */
+    @Test
+    fun scanAll_twoEcus() {
+        val reply = "7E903411100\r7E80341111C\r\r>"
+        assertEquals(listOf(listOf(0x41, 0x11, 0x00), listOf(0x41, 0x11, 0x1C)), ObdParser.scanAll(reply, "4111"))
+        assertEquals(0f, ObdParser.throttle(reply))
+    }
+
+    /** Многокадровый ответ с CAN-заголовками (клон не послушал ATH0) — VIN целиком. */
+    @Test
+    fun joinFrames_withHeaders() {
+        val reply = "7E81014490201454445\r7E82146423332423553\r7E82245303038353333\r\r>"
+        val joined = ObdParser.joinFrames(reply)
+        val bytes = ObdParser.scanResponse(joined, "4902")!!
+        assertEquals("EDEFB32B5SE008533", bytes.drop(3).map { it.toChar() }.joinToString(""))
+    }
+
+    /** Набивка последнего кадра (AA / 55) отрезается по длине из первой строки. */
+    @Test
+    fun joinFrames_paddingTrimmed() {
+        // Калибровка КПП: длина 0x13, последний кадр добит AA.
+        val withHeaders = "7E9101349040154434D\r7E9215F423430305F42\r7E9223330315F3032AA\r\r>"
+        assertEquals(19, ObdParser.joinFrames(withHeaders).split(' ').size)
+        val noHeaders = "013\r0:49040154434D\r1:5F423430305F42\r2:3330315F303255\r\r>"
+        val bytes = ObdParser.joinFrames(noHeaders).split(' ')
+        assertEquals(19, bytes.size)
+        assertEquals("32", bytes.last())
+        // Однокадровый ответ не трогаем.
+        assertEquals("7E803410570>", ObdParser.joinFrames("7E803410570>"))
+    }
+
+    /** Ответы с заголовками (ATH1) для сканера: одиночный, отказ, многокадровый, два блока. */
+    @Test
+    fun canMessages_fromLog() {
+        val single = ObdParser.canMessages("7E80562010A8D78\r\r>")
+        assertEquals(1, single.size)
+        assertEquals("7E8", single[0].header)
+        assertEquals(listOf(0x62, 0x01, 0x0A, 0x8D, 0x78), single[0].data)
+
+        val nrc = ObdParser.canMessages("7E9037F2231\r\r>").single()
+        assertEquals(listOf(0x7F, 0x22, 0x31), nrc.data)
+
+        // TCM 7E9 и ECM 7E8 вперемешку (0904 из лога): каждый склеен по своему заголовку.
+        val two = ObdParser.canMessages(
+            "7E9101349040154434D\r7E810134904014532317E9215F423430305F42\r".replace("7E9215", "\r7E9215") +
+                "7E8214E303541353032\r7E82200000000000000\r7E9223330315F3032AA\r\r>"
+        )
+        assertEquals(listOf("7E8", "7E9"), two.map { it.header })
+        assert(two.all { it.complete && it.multiFrame })
+        assertEquals(0x13, two[1].data.size)
+        assertEquals("CM_B400_B301_02", two[1].data.drop(4).map { it.toChar() }.joinToString(""))
+
+        // Оборванный многокадровый ответ — complete = false.
+        val cut = ObdParser.canMessages("7E81014490201454445\r7E82146423332423553\r>").single()
+        assertEquals(false, cut.complete)
+        // Служебные строки и строки без заголовка пропускаются.
+        assert(ObdParser.canMessages("NO DATA\r\r>").isEmpty())
+        assert(ObdParser.canMessages("SEARCHING...\r41 0C 0B 92\r>").isEmpty())
+    }
 }
