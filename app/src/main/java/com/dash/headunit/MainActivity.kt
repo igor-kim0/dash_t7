@@ -829,7 +829,9 @@ class MainActivity : AppCompatActivity() {
     private class PickerItem(
         val type: WidgetType,
         val labelRes: Int,
-        val iconRes: Int
+        val iconRes: Int,
+        /** Цветная иконка — не тонируем. */
+        val colored: Boolean = false
     )
 
     private fun pickerItems(): List<PickerItem> = listOf(
@@ -849,7 +851,7 @@ class MainActivity : AppCompatActivity() {
         PickerItem(WidgetType.REFERENCE, R.string.widget_reference, R.drawable.ic_book),
         PickerItem(WidgetType.HEAT, R.string.widget_heat, R.drawable.ic_seat_heat),
         PickerItem(WidgetType.ELM, R.string.widget_elm, R.drawable.ic_obd),
-        PickerItem(WidgetType.SCREENSAVER, R.string.widget_screensaver, R.drawable.ic_moon),
+        PickerItem(WidgetType.SCREENSAVER, R.string.widget_screensaver, R.drawable.ic_screensaver, colored = true),
     )
 
     /**
@@ -939,7 +941,7 @@ class MainActivity : AppCompatActivity() {
             ImageView(this).apply {
                 setImageResource(item.iconRes)
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
-                setColorFilter(if (added) theme.accent else theme.primaryText)
+                if (!item.colored) setColorFilter(if (added) theme.accent else theme.primaryText)
             },
             LinearLayout.LayoutParams(dp(30), dp(30))
         )
@@ -1268,82 +1270,63 @@ class MainActivity : AppCompatActivity() {
      */
     private fun showScreensaverSettings(widgetId: String) {
         val cur = Screensaver.config(settingsStore, widgetId)
-        val (lookView, saveLook) = lookPicker(widgetId)
-        val root = lookView as android.widget.LinearLayout
-        fun title(res: Int) = android.widget.TextView(this).apply {
-            text = getString(res)
-            textSize = 14f
-            setTextColor(theme.secondaryText)
-            setPadding(0, dp(8), 0, 0)
-        }
-        var timeout = cur.timeoutSec
-        root.addView(title(R.string.screensaver_timeout))
-        val timeouts = android.widget.RadioGroup(this).apply {
-            orientation = android.widget.LinearLayout.HORIZONTAL
-        }
-        Screensaver.TIMEOUTS.forEach { sec ->
-            timeouts.addView(android.widget.RadioButton(this).apply {
-                id = View.generateViewId()
-                text = Screensaver.timeoutLabel(sec)
-                textSize = 16f
-                setTextColor(theme.primaryText)
-                isChecked = sec == cur.timeoutSec ||
-                    (sec == Screensaver.DEFAULT_TIMEOUT && cur.timeoutSec !in Screensaver.TIMEOUTS)
-                setOnCheckedChangeListener { _, on -> if (on) timeout = sec }
-            })
-        }
-        root.addView(android.widget.HorizontalScrollView(this).apply { addView(timeouts) })
+        val timeouts = Screensaver.TIMEOUTS
+        var timeout = cur.timeoutSec.takeIf { it in timeouts } ?: Screensaver.DEFAULT_TIMEOUT
         var brightness = cur.brightness
-        val brightnessTitle = title(R.string.screensaver_brightness)
-        fun showBrightness() {
-            brightnessTitle.text = getString(R.string.screensaver_brightness_value, brightness)
-        }
-        showBrightness()
-        root.addView(brightnessTitle)
-        root.addView(android.widget.SeekBar(this).apply {
-            max = 100 / BRIGHTNESS_STEP
-            progress = brightness / BRIGHTNESS_STEP
-            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(bar: android.widget.SeekBar, p: Int, user: Boolean) {
-                    brightness = p * BRIGHTNESS_STEP
-                    showBrightness()
-                }
-                override fun onStartTrackingTouch(bar: android.widget.SeekBar) {}
-                override fun onStopTrackingTouch(bar: android.widget.SeekBar) {}
-            })
-        }, android.widget.LinearLayout.LayoutParams(
-            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-        ))
+        val backgrounds = Screensaver.BACKGROUNDS
         var background = cur.background
-        root.addView(title(R.string.screensaver_background))
-        val bgGroup = android.widget.RadioGroup(this).apply {
-            orientation = android.widget.LinearLayout.HORIZONTAL
-        }
-        val bgLabels = mapOf(
-            Screensaver.BG_DARK to R.string.screensaver_bg_dark,
-            Screensaver.BG_FIREPLACE to R.string.screensaver_bg_fireplace,
-            Screensaver.BG_AURORA to R.string.screensaver_bg_aurora
-        )
-        Screensaver.BACKGROUNDS.forEach { bg ->
-            bgGroup.addView(android.widget.RadioButton(this).apply {
-                id = View.generateViewId()
-                text = getString(bgLabels.getValue(bg))
-                textSize = 16f
-                setTextColor(theme.primaryText)
-                isChecked = bg == cur.background
-                setOnCheckedChangeListener { _, on -> if (on) background = bg }
-            })
-        }
-        root.addView(bgGroup)
+        val looks = listOf(RetroLook.LOOK_CLASSIC, RetroLook.LOOK_RETRO)
+        var look = settingsStore.getOption(widgetId, RetroLook.OPT_LOOK, RetroLook.LOOK_CLASSIC)
+            .takeIf { it in looks } ?: RetroLook.LOOK_CLASSIC
+        var tileBg = WidgetBackground.get(settingsStore, widgetId)
+            .takeIf { it in WidgetBackground.ALL } ?: WidgetBackground.ALL.first()
+
+        val list = SettingsList(this, theme)
+            .section(getString(R.string.screensaver_sec_saver))
+            .segmented(
+                R.drawable.ic_clock, getString(R.string.screensaver_timeout_t),
+                getString(R.string.screensaver_timeout_s),
+                timeouts.map { Screensaver.timeoutLabel(it) },
+                timeouts.indexOf(timeout)
+            ) { timeout = timeouts[it] }
+            .slider(
+                R.drawable.ic_brightness, getString(R.string.screensaver_brightness_t),
+                getString(R.string.screensaver_brightness_s),
+                brightness, 0..100, BRIGHTNESS_STEP, { "$it %" }
+            ) { brightness = it }
+            .segmented(
+                R.drawable.ic_image, getString(R.string.screensaver_background_t), null,
+                listOf(
+                    getString(R.string.screensaver_bg_dark),
+                    getString(R.string.screensaver_bg_fireplace),
+                    getString(R.string.screensaver_bg_aurora)
+                ),
+                backgrounds.indexOf(background).coerceAtLeast(0)
+            ) { background = backgrounds[it] }
+            .column()
+            .section(getString(R.string.screensaver_sec_tile))
+            .segmented(
+                R.drawable.ic_gauge, getString(R.string.look_title), null,
+                listOf(getString(R.string.look_classic), getString(R.string.look_retro)),
+                looks.indexOf(look)
+            ) { look = looks[it] }
+            .segmented(
+                R.drawable.ic_grid, getString(R.string.bg_title), null,
+                listOf(getString(R.string.bg_theme), getString(R.string.bg_gradient), getString(R.string.bg_transparent)),
+                WidgetBackground.ALL.indexOf(tileBg)
+            ) { tileBg = WidgetBackground.ALL[it] }
+
         DashDialog.Builder(this)
+            .setIcon(R.drawable.ic_image)
             .setTitle(R.string.screensaver_settings_title)
-            .setView(ScrollView(this).apply { addView(root) })
+            .setWidthDp(1400)
+            .setView(list.view)
             .setPositiveButton(R.string.edit_done) { _, _ ->
                 settingsStore.setOption(widgetId, Screensaver.OPT_TIMEOUT, timeout.toString())
                 settingsStore.setOption(widgetId, Screensaver.OPT_BRIGHTNESS, brightness.toString())
                 settingsStore.setOption(widgetId, Screensaver.OPT_BACKGROUND, background)
-                saveLook()
+                settingsStore.setOption(widgetId, RetroLook.OPT_LOOK, look)
+                settingsStore.setOption(widgetId, WidgetBackground.OPT_BG, tileBg)
                 buildWidgets(readSpecs())
             }
             .setNegativeButton(R.string.dialog_cancel, null)

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Иконка «Заставки»: картинка-пейзаж — небо с переходом голубой → сиреневый,
+     солнце, две горы. Цветная, тонировать не нужно (выключенную плитку
+     обесцвечивает ScreensaverWidgetView). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="28dp" android:height="28dp"
+    android:viewportWidth="48" android:viewportHeight="48">
+    <clip-path android:pathData="M8,4H40A6,6 0 0,1 46,10V38A6,6 0 0,1 40,44H8A6,6 0 0,1 2,38V10A6,6 0 0,1 8,4z" />
+    <!-- Небо -->
+    <path android:pathData="M2,4H46V44H2z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="18" android:startY="10"
+                android:endX="46" android:endY="34">
+                <item android:offset="0" android:color="#FF29AEE9" />
+                <item android:offset="0.45" android:color="#FF6FA3F0" />
+                <item android:offset="1" android:color="#FFBC8CF6" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Солнце -->
+    <path
+        android:fillColor="#FFFFF6DC"
+        android:pathData="M37,16.5m-4,0a4,4 0 1,1 8,0a4,4 0 1,1 -8,0" />
+    <!-- Дальняя гора -->
+    <path
+        android:fillColor="#FF4470CC"
+        android:pathData="M24,30L32.2,22.4Q34,20.8 35.8,22.4L48,33.6V46H18z" />
+    <!-- Ближняя гора -->
+    <path
+        android:fillColor="#FF13437E"
+        android:pathData="M0,30L12.4,19Q14.8,17 17.2,19L45,46H0z" />
+</vector>

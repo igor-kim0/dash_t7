@@ -10,9 +10,9 @@ import com.dash.headunit.screensaver.Screensaver
 import com.dash.headunit.theme.DashTheme
 
 /**
- * Плитка виджета «Заставка» — одна кнопка (иконка луны, без надписей):
- * включить / выключить заставку ([Screensaver]). Включена — цвет акцента,
- * выключена — серая. Настройки (задержка, яркость, фон) — в шестерёнке.
+ * Плитка виджета «Заставка» — одна кнопка (цветная иконка-пейзаж, без
+ * надписей): включить / выключить заставку ([Screensaver]). Включена —
+ * в цвете, выключена — обесцвеченная и бледная. Настройки (задержка, яркость, фон) — в шестерёнке.
  */
 class ScreensaverWidgetView(
     context: Context,
@@ -24,7 +24,7 @@ class ScreensaverWidgetView(
 
     private var enabled = config.enabled
     private val icon = ImageView(context).apply {
-        setImageResource(R.drawable.ic_moon)
+        setImageResource(R.drawable.ic_screensaver)
         scaleType = ImageView.ScaleType.FIT_CENTER
         adjustViewBounds = true
     }
@@ -43,8 +43,11 @@ class ScreensaverWidgetView(
     }
 
     private fun render() {
-        icon.setColorFilter(if (enabled) theme.accent else theme.secondaryText)
-        icon.alpha = if (enabled) 1f else 0.5f
+        // Иконка цветная: включена — как есть, выключена — серая и бледная.
+        icon.colorFilter = if (enabled) null else android.graphics.ColorMatrixColorFilter(
+            android.graphics.ColorMatrix().apply { setSaturation(0f) }
+        )
+        icon.alpha = if (enabled) 1f else 0.4f
         contentDescription = context.getString(
             if (enabled) R.string.screensaver_on else R.string.screensaver_off
         )

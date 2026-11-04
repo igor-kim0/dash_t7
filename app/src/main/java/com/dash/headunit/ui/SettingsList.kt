@@ -176,11 +176,43 @@ class SettingsList(private val context: Context, private val theme: DashTheme) {
         bar.tag = cells
         select(bar, selected)
         val r = row(icon, title, subtitle, null)
-        r.isClickable = false
-        r.background = null
+        compact(r)
         group!!.addView(bar, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply { setMargins(dp(16), 0, dp(16), dp(14)) })
+    }
+
+    /**
+     * Строка с ползунком под заголовком; справа — текущее значение.
+     * [step] — шаг значения (ползунок прилипает к нему).
+     */
+    fun slider(
+        icon: Int,
+        title: CharSequence,
+        subtitle: CharSequence?,
+        value: Int,
+        range: IntRange,
+        step: Int,
+        format: (Int) -> String,
+        onChange: (Int) -> Unit
+    ) = apply {
+        val label = TextView(context).apply {
+            textSize = 18f
+            gravity = Gravity.END
+            minWidth = dp(64)
+            setTextColor(theme.accent)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            text = format(value)
+        }
+        val r = row(icon, title, subtitle, label)
+        compact(r)
+        val bar = DashSlider(context, theme, range, step, value) {
+            label.text = format(it)
+            onChange(it)
+        }
+        group!!.addView(bar, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(44)
+        ).apply { setMargins(dp(16), 0, dp(16), dp(12)) })
     }
 
     // ---------- строка ----------
@@ -238,6 +270,14 @@ class SettingsList(private val context: Context, private val theme: DashTheme) {
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ))
         return row
+    }
+
+    /** Строка-заголовок для контрола под ней: не нажимается, ниже обычной. */
+    private fun compact(r: LinearLayout) {
+        r.isClickable = false
+        r.background = null
+        r.minimumHeight = dp(60)
+        r.setPadding(dp(16), dp(8), dp(16), dp(6))
     }
 
     private fun select(bar: LinearLayout, index: Int) {
@@ -362,6 +402,83 @@ class SettingsList(private val context: Context, private val theme: DashTheme) {
             paint.style = Paint.Style.FILL
             paint.color = ColorUtils.blendARGB(theme.secondaryText, theme.background, pos)
             canvas.drawCircle(cx, h / 2, r, paint)
+        }
+
+        private fun dp(v: Float): Float = TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_DIP, v, resources.displayMetrics
+        )
+    }
+
+    /** Ползунок: толстая дорожка, заполненная акцентом, круглый бегунок. */
+    private class DashSlider(
+        context: Context,
+        private val theme: DashTheme,
+        private val range: IntRange,
+        private val step: Int,
+        start: Int,
+        private val onChange: (Int) -> Unit
+    ) : View(context) {
+        private var value = start.coerceIn(range)
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val rect = RectF()
+        private val trackH = dp(10f)
+        private val thumbR = dp(12f)
+        private var dragging = false
+
+        private fun fraction(): Float =
+            if (range.last == range.first) 0f
+            else (value - range.first).toFloat() / (range.last - range.first)
+
+        override fun onTouchEvent(e: MotionEvent): Boolean {
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    dragging = true
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    update(e.x)
+                }
+                MotionEvent.ACTION_MOVE -> update(e.x)
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    dragging = false
+                    parent?.requestDisallowInterceptTouchEvent(false)
+                    invalidate()
+                }
+            }
+            return true
+        }
+
+        private fun update(x: Float) {
+            val left = thumbR
+            val right = width - thumbR
+            val f = ((x - left) / (right - left)).coerceIn(0f, 1f)
+            val raw = range.first + f * (range.last - range.first)
+            val snapped = (Math.round(raw / step) * step).coerceIn(range)
+            if (snapped != value) {
+                value = snapped
+                onChange(value)
+            }
+            invalidate()
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            val cy = height / 2f
+            val left = thumbR
+            val right = width - thumbR
+            val x = left + (right - left) * fraction()
+            paint.style = Paint.Style.FILL
+            paint.color = ColorUtils.setAlphaComponent(theme.primaryText, 0x26)
+            rect.set(left - trackH / 2, cy - trackH / 2, right + trackH / 2, cy + trackH / 2)
+            canvas.drawRoundRect(rect, trackH / 2, trackH / 2, paint)
+            paint.color = theme.accent
+            rect.set(left - trackH / 2, cy - trackH / 2, x, cy + trackH / 2)
+            canvas.drawRoundRect(rect, trackH / 2, trackH / 2, paint)
+            if (dragging) {
+                paint.color = ColorUtils.setAlphaComponent(theme.accent, 0x40)
+                canvas.drawCircle(x, cy, thumbR * 1.7f, paint)
+            }
+            paint.color = theme.accent
+            canvas.drawCircle(x, cy, thumbR, paint)
+            paint.color = theme.background
+            canvas.drawCircle(x, cy, thumbR * 0.4f, paint)
         }
 
         private fun dp(v: Float): Float = TypedValue.applyDimension(

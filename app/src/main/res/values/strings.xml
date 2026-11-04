@@ -271,10 +271,13 @@
     <string name="screensaver_on">Заставка включена</string>
     <string name="screensaver_off">Заставка выключена</string>
     <string name="screensaver_settings_title">Заставка</string>
-    <string name="screensaver_timeout">Включать без касаний через</string>
-    <string name="screensaver_brightness">Яркость под заставкой</string>
-    <string name="screensaver_brightness_value">Яркость под заставкой: %1$d%%</string>
-    <string name="screensaver_background">Фон</string>
+    <string name="screensaver_sec_saver">Заставка</string>
+    <string name="screensaver_sec_tile">Плитка</string>
+    <string name="screensaver_timeout_t">Задержка</string>
+    <string name="screensaver_timeout_s">Включать, если экрана не касались</string>
+    <string name="screensaver_brightness_t">Яркость</string>
+    <string name="screensaver_brightness_s">Подсветка экрана, пока показана заставка</string>
+    <string name="screensaver_background_t">Фон заставки</string>
     <string name="screensaver_bg_dark">Тёмный с часами</string>
     <string name="screensaver_bg_fireplace">Камин</string>
     <string name="screensaver_bg_aurora">Северное сияние</string>
