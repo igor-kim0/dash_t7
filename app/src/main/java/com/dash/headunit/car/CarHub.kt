@@ -204,25 +204,31 @@ object CarHub {
     }
 
     /**
-     * Шторка ([ShadeResume]): постоянного опроса ячейки 0,10 нет — как и
-     * запись поездки в журнал, состояние запоминается один раз по факту
-     * конца поездки ([TripTracker.tripEndTick]); до того и после шторку
-     * не трогаем. Однократно — попытка автооткрытия на старте.
+     * Шторка ([ShadeResume]): пока двигатель работает, на каждом тике читаем
+     * 0,10 и запоминаем (последнее значение = состояние в конце поездки:
+     * ГУ обычно засыпает вместе с зажиганием, и живого момента «заглушили»
+     * может не быть). В момент конца поездки при живой шине — ещё одно
+     * чтение. Здесь же — автооткрытие на старте. Всё на IO: чтение/запись
+     * шины синхронные.
      */
     private suspend fun tickShadeTick(freshSnapshot: CarData?) {
         val ctx = appContext ?: return
+        val d = desay ?: return
         try {
-            ShadeResume.tick(ctx, freshSnapshot != null)
-            if (TripTracker.tripEndTick == lastShadeTick) return
-            lastShadeTick = TripTracker.tripEndTick
-            // Момент конца поездки — единственный раз читаем 0,10; только
-            // пока шина живая в этом же тике. Шина спит (слепые финализации):
-            // не читаем, поездочное значение остаётся с прошлых поездок.
-            if (freshSnapshot == null) return
-            val raw = withContext(Dispatchers.IO) {
-                runCatching { desay?.readInt(0, 10) }.getOrDefault(-1)
+            withContext(Dispatchers.IO) {
+                val read = { runCatching { d.readInt(0, 10) }.getOrDefault(-1) }
+                ShadeResume.tick(ctx, freshSnapshot != null, read) {
+                    d.connect() && d.write(
+                        ShadeResume.WRITE_GROUP, ShadeResume.WRITE_ID, ShadeResume.VALUE_OPEN
+                    )
+                }
+                val tripEnded = TripTracker.tripEndTick != lastShadeTick
+                lastShadeTick = TripTracker.tripEndTick
+                if (freshSnapshot == null) return@withContext
+                if (tripEnded || TripTracker.engineOn(freshSnapshot)) {
+                    ShadeResume.record(ctx, read())
+                }
             }
-            ShadeResume.record(ctx, raw)
         } catch (e: Exception) {
             android.util.Log.w(TAG, "shade tick", e)
         }
