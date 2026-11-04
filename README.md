@@ -17,6 +17,10 @@ Android 9 (API 28), устанавливается сайдлоадом (вне 
 
 ![Главный экран](docs/screenshots/dashboard.png)
 
+С навигатором, Яндекс Музыкой (спектр), бортовым компьютером и климатом:
+
+![Дашборд с навигатором и музыкой](docs/screenshots/dashboard-navi-music.png)
+
 | Добавление блока | Настройки | Тема оформления |
 | --- | --- | --- |
 | ![Добавить блок](docs/screenshots/add-block.png) | ![Настройки](docs/screenshots/settings.png) | ![Тема](docs/screenshots/theme.png) |
