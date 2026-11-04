@@ -44,6 +44,8 @@ class DashDialog private constructor() {
         private val theme: DashTheme = ThemeStore(ThemeStore.PREFS, context).current()
 
         private var title: CharSequence? = null
+        private var icon: Int = 0
+        private var widthDp: Int = WIDTH_DP
         private var message: CharSequence? = null
         private var view: View? = null
         private var items: Array<out CharSequence>? = null
@@ -62,6 +64,10 @@ class DashDialog private constructor() {
 
         fun setTitle(res: Int) = apply { title = context.getString(res) }
         fun setTitle(text: CharSequence?) = apply { title = text }
+        /** Иконка в акцентной плашке слева от заголовка. */
+        fun setIcon(res: Int) = apply { icon = res }
+        /** Ширина окна (по умолчанию [WIDTH_DP]), не шире 90% экрана. */
+        fun setWidthDp(dp: Int) = apply { widthDp = dp }
         fun setMessage(res: Int) = apply { message = context.getString(res) }
         fun setMessage(text: CharSequence?) = apply { message = text }
         fun setView(v: View) = apply { view = v }
@@ -119,7 +125,7 @@ class DashDialog private constructor() {
                 setDimAmount(DIM)
                 val metrics = context.resources.displayMetrics
                 setLayout(
-                    minOf(dp(WIDTH_DP), (metrics.widthPixels * 0.9f).toInt()),
+                    minOf(dp(widthDp), (metrics.widthPixels * 0.9f).toInt()),
                     ViewGroup.LayoutParams.WRAP_CONTENT
                 )
                 setGravity(Gravity.CENTER)
@@ -162,12 +168,34 @@ class DashDialog private constructor() {
                 setPadding(0, dp(20), 0, dp(20))
             }
             title?.let {
-                card.addView(TextView(context).apply {
+                val titleView = TextView(context).apply {
                     text = it
                     textSize = 22f
                     setTextColor(theme.primaryText)
-                    setPadding(dp(28), 0, dp(28), dp(12))
-                })
+                }
+                if (icon == 0) {
+                    titleView.setPadding(dp(28), 0, dp(28), dp(12))
+                    card.addView(titleView)
+                } else {
+                    card.addView(LinearLayout(context).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        setPadding(dp(24), 0, dp(28), dp(16))
+                        addView(android.widget.ImageView(context).apply {
+                            setImageResource(icon)
+                            imageTintList = ColorStateList.valueOf(theme.background)
+                            setPadding(dp(10), dp(10), dp(10), dp(10))
+                            background = GradientDrawable().apply {
+                                cornerRadius = dp(14).toFloat()
+                                setColor(theme.accent)
+                            }
+                        }, LinearLayout.LayoutParams(dp(46), dp(46)))
+                        titleView.textSize = 24f
+                        titleView.typeface = android.graphics.Typeface.DEFAULT_BOLD
+                        titleView.setPadding(dp(16), 0, 0, 0)
+                        addView(titleView)
+                    })
+                }
             }
 
             // Середина (сообщение / список / своё содержимое) прокручивается,

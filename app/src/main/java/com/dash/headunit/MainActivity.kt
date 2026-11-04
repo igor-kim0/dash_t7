@@ -45,6 +45,7 @@ import com.dash.headunit.car.TripTracker
 import com.dash.headunit.navi.HoleBackground
 import com.dash.headunit.navi.NaviUnderlay
 import com.dash.headunit.ui.DashDialog
+import com.dash.headunit.ui.SettingsList
 import com.dash.headunit.navi.cluster.ClusterOverlay
 import com.dash.headunit.navi.cluster.ClusterSetup
 import com.dash.headunit.settings.AppSettings
@@ -294,145 +295,98 @@ class MainActivity : AppCompatActivity() {
             .showFullScreen()
     }
 
-    /** Настройки приложения: автозапуск, сторона колонки, приборка, шторка, журнал поездок, бак. */
+    /**
+     * Настройки приложения — секции-карточки ([SettingsList]): общее,
+     * приборка, автомобиль. Объём бака и срок журнала меняются прямо в строке.
+     * Всё применяется по «Готово», «Отмена» ничего не меняет.
+     */
     private fun showSettingsDialog() {
-        val journalKeepRow = 5
-        val tankRow = 7
-        val items = arrayOf(
-            getString(R.string.settings_autostart),
-            getString(R.string.settings_bar_left),
-            getString(R.string.settings_cluster_navi),
-            getString(R.string.settings_cluster_traffic_lights),
-            getString(R.string.settings_shade_resume),
-            getString(
-                R.string.settings_trip_journal_keep,
-                journalKeepLabel(AppSettings.journalKeepDays(this))
-            ),
-            getString(R.string.settings_etm_coolant),
-            getString(R.string.settings_tank, CarHub.tankLiters(this)),
-            getString(R.string.settings_cluster_lanes)
-        )
-        val checked = booleanArrayOf(
-            AppSettings.autostart(this),
-            AppSettings.barSideLeft(this),
-            AppSettings.clusterNavi(this),
-            AppSettings.clusterTrafficLights(this),
-            AppSettings.shadeResume(this),
-            false,
-            AppSettings.etmCoolant(this),
-            false,
-            AppSettings.clusterLanes(this)
-        )
+        var autostart = AppSettings.autostart(this)
+        var barLeft = AppSettings.barSideLeft(this)
+        var clusterNavi = AppSettings.clusterNavi(this)
+        var lanes = AppSettings.clusterLanes(this)
+        var lights = AppSettings.clusterTrafficLights(this)
+        var etm = AppSettings.etmCoolant(this)
+        var shade = AppSettings.shadeResume(this)
+        var tank = CarHub.tankLiters(this)
+        val keepOptions = intArrayOf(7, 14, 30, 0)
+        var keep = keepOptions.indexOf(AppSettings.journalKeepDays(this))
+            .takeIf { it >= 0 } ?: (keepOptions.size - 1)
+
+        val list = SettingsList(this, theme)
+            .section(getString(R.string.settings_sec_general))
+            .switch(R.drawable.ic_power, getString(R.string.settings_autostart), null, autostart) { autostart = it }
+            .switch(
+                R.drawable.ic_grid, getString(R.string.settings_bar_left_t),
+                getString(R.string.settings_bar_left_s), barLeft
+            ) { barLeft = it }
+            .column()
+            .section(getString(R.string.settings_sec_cluster))
+            .switch(R.drawable.ic_nav, getString(R.string.settings_cluster_navi), null, clusterNavi) { clusterNavi = it }
+            .switch(
+                R.drawable.ic_range, getString(R.string.settings_cluster_lanes_t),
+                getString(R.string.settings_cluster_lanes_s), lanes
+            ) { lanes = it }
+            .switch(
+                R.drawable.ic_cluster, getString(R.string.settings_cluster_lights_t),
+                getString(R.string.settings_cluster_lights_s), lights
+            ) { lights = it }
+            .switch(
+                R.drawable.ic_thermo, getString(R.string.settings_etm_coolant_t),
+                getString(R.string.settings_etm_coolant_s), etm
+            ) { etm = it }
+            .column()
+            .section(getString(R.string.settings_sec_car))
+            .switch(
+                R.drawable.ic_window, getString(R.string.settings_shade_resume_t),
+                getString(R.string.settings_shade_resume_s), shade
+            ) { shade = it }
+            .stepper(
+                R.drawable.ic_fuel, getString(R.string.tank_title_short),
+                getString(R.string.tank_sub), tank, CarHub.TANK_RANGE_L,
+                { getString(R.string.tank_value, it) }
+            ) { tank = it }
+            .segmented(
+                R.drawable.ic_journal, getString(R.string.journal_keep_title_short),
+                getString(R.string.journal_keep_sub),
+                listOf(
+                    getString(R.string.journal_keep_week_s),
+                    getString(R.string.journal_keep_two_weeks_s),
+                    getString(R.string.journal_keep_month_s),
+                    getString(R.string.journal_keep_always_s)
+                ),
+                keep
+            ) { keep = it }
+
         DashDialog.Builder(this)
+            .setIcon(R.drawable.ic_gear)
             .setTitle(R.string.settings_title)
-            .setMultiChoiceItems(items, checked, routers = setOf(journalKeepRow, tankRow)) { dlg, which, isChecked ->
-                when (which) {
-                    journalKeepRow -> {
-                        dlg.dismiss()
-                        showJournalKeepDialog()
-                    }
-                    tankRow -> {
-                        dlg.dismiss()
-                        showTankDialog()
-                    }
-                    else -> checked[which] = isChecked
-                }
-            }
+            .setWidthDp(1640)
+            .setView(list.view)
             .setPositiveButton(R.string.edit_done) { _, _ ->
-                applyAutostart(checked[0])
-                AppSettings.setBarSideLeft(this, checked[1])
+                applyAutostart(autostart)
+                AppSettings.setBarSideLeft(this, barLeft)
                 applyBarSide()
-                applyClusterNavi(checked[2])
-                AppSettings.setClusterTrafficLights(this, checked[3])
-                AppSettings.setClusterLanes(this, checked[8])
+                applyClusterNavi(clusterNavi)
+                AppSettings.setClusterTrafficLights(this, lights)
+                AppSettings.setClusterLanes(this, lanes)
                 // Шторка: настройка проверяется при следующем старте.
-                AppSettings.setShadeResume(this, checked[4])
+                AppSettings.setShadeResume(this, shade)
                 // ETM: отключили — посылаем приборке выход из инженерного
                 // меню (вернуть как было). Вход идёт при каждом
                 // подключении [ClusterPps] к qconn.
-                AppSettings.setEtmCoolant(this, checked[6])
-                if (!checked[6]) Thread { runCatching { CoolantEtm.send(0) } }.start()
+                AppSettings.setEtmCoolant(this, etm)
+                if (!etm) Thread { runCatching { CoolantEtm.send(0) } }.start()
+                if (tank != CarHub.tankLiters(this)) CarHub.setTankLiters(this, tank)
+                val days = keepOptions[keep]
+                if (days != AppSettings.journalKeepDays(this)) {
+                    AppSettings.setJournalKeepDays(this, days)
+                    if (days > 0) TripTracker.applyJournalKeep(applicationContext, days)
+                }
             }
             .setNegativeButton(R.string.dialog_cancel, null)
             .showFullScreen()
     }
-
-    /**
-     * Срок хранения журнала поездок ([AppSettings.journalKeepDays]);
-     * «всегда» — тоже легитимный выбор. По «Готово» сразу обрезаем журнал
-     * под новый срок ([TripTracker.applyJournalKeep]) и возвращаемся
-     * в настройки.
-     */
-    private fun showJournalKeepDialog() {
-        val options = intArrayOf(7, 14, 30, 0)
-        val labels = arrayOf(
-            getString(R.string.journal_keep_week),
-            getString(R.string.journal_keep_two_weeks),
-            getString(R.string.journal_keep_month),
-            getString(R.string.journal_keep_always)
-        )
-        var selected = options.indexOf(AppSettings.journalKeepDays(this))
-            .takeIf { it >= 0 }
-            ?: (options.size - 1)
-        DashDialog.Builder(this)
-            .setTitle(R.string.journal_keep_title)
-            .setSingleChoiceItems(labels, selected) { _, which ->
-                selected = which
-            }
-            .setPositiveButton(R.string.edit_done) { _, _ ->
-                AppSettings.setJournalKeepDays(this, options[selected])
-                if (options[selected] > 0) {
-                    TripTracker.applyJournalKeep(applicationContext, options[selected])
-                }
-                showSettingsDialog()
-            }
-            .setNegativeButton(R.string.dialog_cancel) { _, _ -> showSettingsDialog() }
-            .showFullScreen()
-    }
-
-    /**
-     * Объём бака ([CarHub.tankLiters]) — из него литры остатка и расход
-     * по процентам топлива. Вне [CarHub.TANK_RANGE_L] не сохраняем.
-     */
-    private fun showTankDialog() {
-        val range = CarHub.TANK_RANGE_L
-        val input = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_NUMBER
-            isSingleLine = true
-            textSize = 22f
-            setText(CarHub.tankLiters(this@MainActivity).toString())
-            setSelectAllOnFocus(true)
-        }
-        DashDialog.Builder(this)
-            .setTitle(R.string.tank_title)
-            .setMessage(getString(R.string.tank_hint, range.first, range.last, CarHub.DEFAULT_TANK_L))
-            .setView(input)
-            .setPositiveButton(R.string.edit_done) { _, _ ->
-                val liters = input.text.toString().trim().toIntOrNull()
-                if (liters != null && liters in range) {
-                    CarHub.setTankLiters(this, liters)
-                } else {
-                    Toast.makeText(
-                        this,
-                        getString(R.string.tank_invalid, range.first, range.last),
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
-                showSettingsDialog()
-            }
-            .setNegativeButton(R.string.dialog_cancel) { _, _ -> showSettingsDialog() }
-            .showFullScreen()
-    }
-
-    /** «неделю / 2 недели / месяц / всегда» — для строки настроек. */
-    private fun journalKeepLabel(days: Int): String = getString(
-        when (days) {
-            7 -> R.string.journal_keep_week
-            14 -> R.string.journal_keep_two_weeks
-            30 -> R.string.journal_keep_month
-            else -> R.string.journal_keep_always
-        }
-    )
 
     /**
      * Автозапуск держится на слушателе уведомлений: система привязывает его
