@@ -16,6 +16,8 @@ kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 junit = { group = "junit", name = "junit", version = "4.13.2" }
 # Настоящий org.json для JVM unit-тестов (в android.jar только заглушки).
 json-java = { group = "org.json", name = "json", version = "20231013" }
+# QR-код ссылки на Telegram-канал (окно «Контакты»); только core, без UI.
+zxing-core = { group = "com.google.zxing", name = "core", version = "3.5.3" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

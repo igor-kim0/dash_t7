@@ -45,6 +45,7 @@ import com.dash.headunit.car.TripTracker
 import com.dash.headunit.navi.HoleBackground
 import com.dash.headunit.navi.NaviUnderlay
 import com.dash.headunit.ui.DashDialog
+import com.dash.headunit.ui.QrCode
 import com.dash.headunit.ui.SettingsList
 import com.dash.headunit.navi.cluster.ClusterOverlay
 import com.dash.headunit.navi.cluster.ClusterSetup
@@ -313,6 +314,8 @@ class MainActivity : AppCompatActivity() {
         var keep = keepOptions.indexOf(AppSettings.journalKeepDays(this))
             .takeIf { it >= 0 } ?: (keepOptions.size - 1)
 
+        var dialog: android.app.Dialog? = null
+        var applyRef: () -> Unit = {}
         val list = SettingsList(this, theme)
             .section(getString(R.string.settings_sec_general))
             .switch(R.drawable.ic_power, getString(R.string.settings_autostart), null, autostart) { autostart = it }
@@ -320,6 +323,16 @@ class MainActivity : AppCompatActivity() {
                 R.drawable.ic_grid, getString(R.string.settings_bar_left_t),
                 getString(R.string.settings_bar_left_s), barLeft
             ) { barLeft = it }
+            .section(getString(R.string.settings_sec_about))
+            .nav(
+                R.drawable.ic_telegram, getString(R.string.contacts_telegram_t),
+                getString(R.string.contacts_telegram_s), getString(R.string.contacts_telegram_handle)
+            ) {
+                // Уходим в контакты — отмеченное не теряем.
+                applyRef()
+                dialog?.dismiss()
+                showContactsDialog()
+            }
             .column()
             .section(getString(R.string.settings_sec_cluster))
             .switch(R.drawable.ic_nav, getString(R.string.settings_cluster_navi), null, clusterNavi) { clusterNavi = it }
@@ -358,12 +371,7 @@ class MainActivity : AppCompatActivity() {
                 keep
             ) { keep = it }
 
-        DashDialog.Builder(this)
-            .setIcon(R.drawable.ic_gear)
-            .setTitle(R.string.settings_title)
-            .setWidthDp(1640)
-            .setView(list.view)
-            .setPositiveButton(R.string.edit_done) { _, _ ->
+        fun apply() {
                 applyAutostart(autostart)
                 AppSettings.setBarSideLeft(this, barLeft)
                 applyBarSide()
@@ -383,9 +391,84 @@ class MainActivity : AppCompatActivity() {
                     AppSettings.setJournalKeepDays(this, days)
                     if (days > 0) TripTracker.applyJournalKeep(applicationContext, days)
                 }
-            }
+        }
+
+        applyRef = ::apply
+        dialog = DashDialog.Builder(this)
+            .setIcon(R.drawable.ic_gear)
+            .setTitle(R.string.settings_title)
+            .setWidthDp(1640)
+            .setView(list.view)
+            .setPositiveButton(R.string.edit_done) { _, _ -> apply() }
             .setNegativeButton(R.string.dialog_cancel, null)
             .showFullScreen()
+    }
+
+    /**
+     * «Контакты»: QR-код и ссылка на Telegram-канал. На ГУ может не быть
+     * ни Telegram, ни браузера — QR сканируется телефоном; «Открыть»
+     * пробует открыть ссылку здесь.
+     */
+    private fun showContactsDialog() {
+        val url = getString(R.string.contacts_telegram_url)
+        val d = resources.displayMetrics.density
+        fun dp(v: Int) = (v * d).toInt()
+        val qr = android.widget.ImageView(this).apply {
+            setImageBitmap(QrCode.bitmap(url, dp(240), android.graphics.Color.BLACK, android.graphics.Color.WHITE))
+            // Белая подложка с полями — читается в любой теме.
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = dp(16).toFloat()
+                setColor(android.graphics.Color.WHITE)
+            }
+        }
+        val texts = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(dp(28), 0, 0, 0)
+            fun line(text: String, size: Float, color: Int, bold: Boolean = false, top: Int = 0) =
+                addView(TextView(this@MainActivity).apply {
+                    this.text = text
+                    textSize = size
+                    setTextColor(color)
+                    if (bold) typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    setLineSpacing(0f, 1.15f)
+                    setPadding(0, dp(top), 0, 0)
+                })
+            line(getString(R.string.contacts_telegram_t), 22f, theme.primaryText, bold = true)
+            line(getString(R.string.contacts_telegram_link), 20f, theme.accent, top = 6)
+            line(getString(R.string.contacts_telegram_s), 16f, theme.secondaryText, top = 14)
+            line(getString(R.string.contacts_scan_hint), 16f, theme.secondaryText, top = 6)
+            line(getString(R.string.contacts_version, BuildConfig.VERSION_NAME), 14f, theme.secondaryText, top = 20)
+        }
+        val content = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(28), dp(4), dp(28), dp(8))
+            addView(qr, android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ))
+            addView(texts, android.widget.LinearLayout.LayoutParams(
+                0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+            ))
+        }
+        DashDialog.Builder(this)
+            .setIcon(R.drawable.ic_telegram)
+            .setTitle(R.string.contacts_title)
+            .setWidthDp(900)
+            .setView(content)
+            .setPositiveButton(R.string.contacts_open) { _, _ -> openLink(url) }
+            .setNegativeButton(R.string.contacts_close, null)
+            .showFullScreen()
+    }
+
+    /** Открыть ссылку (Telegram / браузер); нечем — подсказать про QR. */
+    private fun openLink(url: String) {
+        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        val ok = intent.resolveActivity(packageManager) != null &&
+            runCatching { startActivity(intent) }.isSuccess
+        if (!ok) Toast.makeText(this, R.string.contacts_no_app, Toast.LENGTH_LONG).show()
     }
 
     /**

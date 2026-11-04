@@ -314,4 +314,17 @@
     <string name="elm_adapter_t">Адаптер Bluetooth</string>
     <string name="elm_adapter_none">не выбран</string>
     <string name="elm_profile_t">Профиль JSON</string>
+    <!-- Контакты (Настройки → О приложении) -->
+    <string name="settings_sec_about">О приложении</string>
+    <string name="contacts_title">Контакты</string>
+    <string name="contacts_telegram_t">Telegram-канал</string>
+    <string name="contacts_telegram_s">Новости, вопросы, обратная связь</string>
+    <string name="contacts_telegram_url" translatable="false">https://t.me/tenet_t7_dash</string>
+    <string name="contacts_telegram_link" translatable="false">t.me/tenet_t7_dash</string>
+    <string name="contacts_telegram_handle" translatable="false">\@tenet_t7_dash</string>
+    <string name="contacts_scan_hint">Наведите камеру телефона на QR-код — откроется канал в Telegram.</string>
+    <string name="contacts_version">Версия %1$s</string>
+    <string name="contacts_open">Открыть</string>
+    <string name="contacts_close">Закрыть</string>
+    <string name="contacts_no_app">Нечем открыть ссылку — отсканируйте QR-код телефоном</string>
 </resources>
