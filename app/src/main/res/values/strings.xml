@@ -27,10 +27,8 @@
     <string name="autostart_ready">Автозапуск включён (доступ к уведомлениям: %1$s)</string>
     <string name="autostart_no_listener">Автозапуск не сработает без доступа к уведомлениям: %1$s</string>
     <string name="speed_style_title">Вид спидометра</string>
-    <string name="set_clock_title">Настройки часов</string>
     <string name="clock_bold">Время жирным шрифтом</string>
     <string name="clock_flip">Перекидные часы (как HTC)</string>
-    <string name="clock_flip_invert">Инверсия: карточки в цвет темы, светлые цифры</string>
     <string name="speed_style_retro">Стрелочный (ретро)</string>
     <string name="speed_style_vaz">Классика (ВАЗ, с тахометром)</string>
     <string name="speed_style_digital">Цифровой: обороты и передача</string>
@@ -38,12 +36,10 @@
     <string name="climate_style_text">Текстом</string>
     <string name="climate_style_icons">Иконками (ретро)</string>
     <string name="widget_climate_control">Управление климатом</string>
-    <string name="cc_settings_title">Управление климатом</string>
     <string name="cc_theme_title">Тема</string>
     <string name="cc_theme_classic">Классическая</string>
     <string name="cc_theme_retro">Ретро</string>
     <string name="set_look_title">Вид виджета</string>
-    <string name="music_settings_title">Музыка</string>
     <string name="spectrum_show">Показывать спектр</string>
     <string name="spectrum_simulated_hint">Если звук недоступен приложению (например, Bluetooth идёт мимо Android), спектр имитируется.</string>
     <string name="spectrum_style_title">Вид спектра</string>
@@ -163,7 +159,6 @@
     <string name="car_cold">холодный</string>
     <string name="car_overheat">перегрев</string>
     <string name="car_range_sub">запас хода</string>
-    <string name="set_car_title">Что показывать в виджете «Автомобиль»</string>
     <string name="car_item_fuel">Топливо</string>
     <string name="car_item_batt">Аккумулятор</string>
     <string name="car_item_eng">Двигатель</string>
@@ -189,7 +184,6 @@
     <string name="music_time_unknown">--:--</string>
     <string name="cd_delete">Удалить виджет</string>
     <string name="cd_settings">Настройки виджета</string>
-    <string name="set_title">Настройки погоды</string>
     <string name="car_outside">За бортом</string>
     <string name="msg_no_nav_app">Приложение не установлено</string>
     <string name="set_days">Дней в прогнозе</string>
@@ -226,13 +220,11 @@
     <string name="elm_fuel_level">топливо бака</string>
     <string name="elm_diag_title">OBD: Bluetooth-адаптер</string>
     <string name="set_elm_title">OBD: показатели</string>
-    <string name="elm_pick_adapter">ELM: выбрать адаптер Bluetooth…</string>
     <string name="set_elm_adapter_title">ELM: спаренные устройства</string>
     <string name="elm_current">ELM: спаренные (текущий: %1$s, %2$s)</string>
     <string name="elm_no_name">без имени</string>
     <string name="elm_picked">Выбран: %1$s</string>
     <string name="elm_paired_none">спаренных BT-устройств нет</string>
-    <string name="elm_pick_profile">Профиль JSON: %1$s…</string>
     <string name="elm_profile_title">OBD: профиль JSON</string>
     <string name="elm_profile_none">стандартный OBD-II</string>
     <string name="elm_profile_builtin">встроенный</string>
@@ -272,7 +264,6 @@
     <string name="screensaver_off">Заставка выключена</string>
     <string name="screensaver_settings_title">Заставка</string>
     <string name="screensaver_sec_saver">Заставка</string>
-    <string name="screensaver_sec_tile">Плитка</string>
     <string name="screensaver_timeout_t">Задержка</string>
     <string name="screensaver_timeout_s">Включать, если экрана не касались</string>
     <string name="screensaver_brightness_t">Яркость</string>
@@ -309,4 +300,18 @@
     <string name="wifi_forget_title">Забыть сеть?</string>
     <string name="wifi_forget_text">%1$s будет удалена из сохранённых.</string>
     <string name="wifi_forget">Забыть</string>
+    <!-- Диалоги настроек виджетов (SettingsList) -->
+    <string name="tile_section">Плитка</string>
+    <string name="weather_sec_forecast">Прогноз</string>
+    <string name="weather_units">Единицы</string>
+    <string name="spectrum_section">Спектр</string>
+    <string name="clock_scale">Размер текста</string>
+    <string name="clock_flip_invert_t">Инверсия карточек</string>
+    <string name="clock_flip_invert_s">Карточки в цвет темы, светлые цифры</string>
+    <string name="car_items_section">Показатели и порядок</string>
+    <string name="elm_sec_connection">Подключение</string>
+    <string name="elm_sec_metrics">Показатели</string>
+    <string name="elm_adapter_t">Адаптер Bluetooth</string>
+    <string name="elm_adapter_none">не выбран</string>
+    <string name="elm_profile_t">Профиль JSON</string>
 </resources>

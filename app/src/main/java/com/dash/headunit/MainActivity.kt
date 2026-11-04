@@ -752,13 +752,13 @@ class MainActivity : AppCompatActivity() {
                         { showClockSettings(spec.widgetId) }
                     }
                     WidgetType.MUSIC, WidgetType.YANDEX_MUSIC -> {
-                        { showMusicSettings(spec.widgetId) }
+                        { showMusicSettings(spec.widgetId, spec.type) }
                     }
                     WidgetType.SCREENSAVER -> {
                         { showScreensaverSettings(spec.widgetId) }
                     }
                     else -> {
-                        { showLookSettings(spec.widgetId) }
+                        { showLookSettings(spec.widgetId, spec.type) }
                     }
                 }
             )
@@ -1030,238 +1030,126 @@ class MainActivity : AppCompatActivity() {
         var days = settingsStore.getDays(widgetId)
         var hours = settingsStore.getHours(widgetId)
         var unit = settingsStore.getUnit(widgetId)
-
-        val pad = (16 * resources.displayMetrics.density).toInt()
-        val root = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            setPadding(pad, pad / 2, pad, pad / 2)
+        val range = WidgetSettingsStore.MIN_COUNT..WidgetSettingsStore.MAX_COUNT
+        val list = SettingsList(this, theme)
+            .section(getString(R.string.weather_sec_forecast))
+            .stepper(R.drawable.ic_calendar, getString(R.string.set_days), null, days, range, { "$it" }) { days = it }
+            .stepper(R.drawable.ic_clock, getString(R.string.set_hours), null, hours, range, { "$it" }) { hours = it }
+            .segmented(
+                R.drawable.ic_thermo, getString(R.string.weather_units), null,
+                listOf("°C", "°F"), if (unit == "F") 1 else 0
+            ) { unit = if (it == 1) "F" else "C" }
+            .column()
+        val saveTile = list.tileSection(widgetId)
+        showWidgetSettings(WidgetType.WEATHER, list, 1400) {
+            settingsStore.setDays(widgetId, days)
+            settingsStore.setHours(widgetId, hours)
+            settingsStore.setUnit(widgetId, unit)
+            saveTile()
         }
+    }
 
-        fun stepperRow(
-            label: String,
-            get: () -> Int,
-            set: (Int) -> Unit
-        ) {
-            val row = android.widget.LinearLayout(this).apply {
-                orientation = android.widget.LinearLayout.HORIZONTAL
-                gravity = android.view.Gravity.CENTER_VERTICAL
-            }
-            val labelView = android.widget.TextView(this).apply {
-                text = label
-                textSize = 16f
-                setTextColor(theme.primaryText)
-            }
-            row.addView(
-                labelView,
-                android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            )
-            val valueView = android.widget.TextView(this).apply {
-                text = get().toString()
-                textSize = 18f
-                setTextColor(theme.accent)
-                gravity = android.view.Gravity.CENTER
-                minWidth = (48 * resources.displayMetrics.density).toInt()
-            }
-            val minus = android.widget.Button(this).apply { text = "−" }
-            val plus = android.widget.Button(this).apply { text = "+" }
-            // Локальная копия с клампом стора.
-            var current = get()
-            val wrappedSet: (Int) -> Unit = { v ->
-                current = v.coerceIn(
-                    WidgetSettingsStore.MIN_COUNT,
-                    WidgetSettingsStore.MAX_COUNT
-                )
-                set(current)
-                valueView.text = current.toString()
-            }
-            minus.setOnClickListener { wrappedSet(current - 1) }
-            plus.setOnClickListener { wrappedSet(current + 1) }
-            row.addView(minus)
-            row.addView(valueView)
-            row.addView(plus)
-            root.addView(row)
-        }
-
-        stepperRow(getString(R.string.set_days), { days }, { days = it })
-        stepperRow(getString(R.string.set_hours), { hours }, { hours = it })
-
-        val units = android.widget.RadioGroup(this).apply {
-            orientation = android.widget.LinearLayout.HORIZONTAL
-        }
-        val radioC = android.widget.RadioButton(this).apply {
-            text = "°C"
-            isChecked = unit != "F"
-            setOnCheckedChangeListener { _, checked ->
-                if (checked) unit = "C"
-            }
-        }
-        val radioF = android.widget.RadioButton(this).apply {
-            text = "°F"
-            isChecked = unit == "F"
-            setOnCheckedChangeListener { _, checked ->
-                if (checked) unit = "F"
-            }
-        }
-        units.addView(radioC)
-        units.addView(radioF)
-        root.addView(units)
-        val (lookView, look) = lookPicker(widgetId)
-        root.addView(lookView, 0)
-
-        DashDialog.Builder(this)
-            .setTitle(R.string.set_title)
-            .setView(root)
-            .setPositiveButton(R.string.edit_done) { _, _ ->
-                settingsStore.setDays(widgetId, days)
-                settingsStore.setHours(widgetId, hours)
-                settingsStore.setUnit(widgetId, unit)
-                look()
-                buildWidgets(readSpecs())
-            }
-            .setNegativeButton(R.string.dialog_cancel, null)
-            .showFullScreen()
+    /** Настройки виджета без своих опций — только вид и фон плитки. */
+    private fun showLookSettings(widgetId: String, type: WidgetType) {
+        val list = SettingsList(this, theme)
+        val saveTile = list.tileSection(widgetId)
+        showWidgetSettings(type, list, 760) { saveTile() }
     }
 
     /**
-     * Настройки виджета «Автомобиль»: какие метрики показывать и в каком
-     * порядке (топливо / аккумулятор / двигатель / запас хода).
-     * Видимость — [CarWidgetView.OPT_ITEMS] (пусто = все),
-     * порядок всех метрик — [CarWidgetView.OPT_ORDER].
+     * Секция «Плитка»: вид «Обычный / Ретро» ([withLook]) и фон блока
+     * ([WidgetBackground]: как в теме / градиент / прозрачный). Возвращает
+     * «сохранить выбранное» — его зовут на «Готово».
      */
-    /** Настройки виджета без своих опций — только вид ([RetroLook]). */
-    private fun showLookSettings(widgetId: String) {
-        val (picker, look) = lookPicker(widgetId)
-        DashDialog.Builder(this)
-            .setTitle(R.string.set_look_title)
-            .setView(picker)
-            .setPositiveButton(R.string.edit_done) { _, _ ->
-                look()
-                buildWidgets(readSpecs())
-            }
-            .setNegativeButton(R.string.dialog_cancel, null)
-            .showFullScreen()
-    }
-
-    /**
-     * Выбор вида «Обычный / Ретро» ([withLook]) и фона блока
-     * ([WidgetBackground]: как в теме / градиент / прозрачный) для диалога
-     * настроек: вью и действие «сохранить выбранное», его зовут на «Готово».
-     */
-    private fun lookPicker(widgetId: String, withLook: Boolean = true): Pair<View, () -> Unit> {
-        val pad = (16 * resources.displayMetrics.density).toInt()
-        val root = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            setPadding(pad, pad / 2, pad, pad / 2)
-        }
-        fun radioRow(titleRes: Int, values: List<String>, labels: List<Int>, current: String, onPick: (String) -> Unit) {
-            root.addView(android.widget.TextView(this).apply {
-                text = getString(titleRes)
-                textSize = 14f
-                setTextColor(theme.secondaryText)
-            })
-            val group = android.widget.RadioGroup(this).apply {
-                orientation = android.widget.LinearLayout.HORIZONTAL
-            }
-            labels.forEachIndexed { i, res ->
-                group.addView(android.widget.RadioButton(this).apply {
-                    id = View.generateViewId()
-                    text = getString(res)
-                    textSize = 16f
-                    setTextColor(theme.primaryText)
-                    isChecked = values[i] == current || (i == 0 && current !in values)
-                    setOnCheckedChangeListener { _, on -> if (on) onPick(values[i]) }
-                })
-            }
-            root.addView(group)
-        }
+    private fun SettingsList.tileSection(
+        widgetId: String,
+        withLook: Boolean = true,
+        extra: SettingsList.() -> Unit = {}
+    ): () -> Unit {
+        section(getString(R.string.tile_section))
+        extra()
+        val looks = listOf(RetroLook.LOOK_CLASSIC, RetroLook.LOOK_RETRO)
         var look = settingsStore.getOption(widgetId, RetroLook.OPT_LOOK, RetroLook.LOOK_CLASSIC)
+            .takeIf { it in looks } ?: RetroLook.LOOK_CLASSIC
         if (withLook) {
-            radioRow(
-                R.string.look_title,
-                listOf(RetroLook.LOOK_CLASSIC, RetroLook.LOOK_RETRO),
-                listOf(R.string.look_classic, R.string.look_retro),
-                look
-            ) { look = it }
+            segmented(
+                R.drawable.ic_palette, getString(R.string.look_title), null,
+                listOf(getString(R.string.look_classic), getString(R.string.look_retro)),
+                looks.indexOf(look)
+            ) { look = looks[it] }
         }
         var bg = WidgetBackground.get(settingsStore, widgetId)
-        radioRow(
-            R.string.bg_title,
-            WidgetBackground.ALL,
-            listOf(R.string.bg_theme, R.string.bg_gradient, R.string.bg_transparent),
-            bg
-        ) { bg = it }
-        return root to {
+            .takeIf { it in WidgetBackground.ALL } ?: WidgetBackground.ALL.first()
+        segmented(
+            R.drawable.ic_layers, getString(R.string.bg_title), null,
+            listOf(getString(R.string.bg_theme), getString(R.string.bg_gradient), getString(R.string.bg_transparent)),
+            WidgetBackground.ALL.indexOf(bg)
+        ) { bg = WidgetBackground.ALL[it] }
+        return {
             if (withLook) settingsStore.setOption(widgetId, RetroLook.OPT_LOOK, look)
             settingsStore.setOption(widgetId, WidgetBackground.OPT_BG, bg)
         }
     }
 
     /**
-     * Настройки виджетов музыки: вид/фон, блок спектра и его вид
-     * ([SpectrumView.STYLES]). Спектру нужен RECORD_AUDIO — без него
-     * (или если звук идёт мимо микшера Android) рисуется имитация.
+     * Диалог настроек виджета: иконка и название типа в заголовке,
+     * [list] внутри; [onDone] — сохранить, затем виджеты пересобираются.
      */
-    private fun showMusicSettings(widgetId: String) {
-        val (lookView, saveLook) = lookPicker(widgetId)
-        val root = lookView as android.widget.LinearLayout
+    private fun showWidgetSettings(
+        type: WidgetType,
+        list: SettingsList,
+        widthDp: Int,
+        iconRes: Int? = null,
+        onDone: () -> Unit
+    ) {
+        val item = pickerItems().firstOrNull { it.type == type }
+        DashDialog.Builder(this)
+            .setIcon(iconRes ?: item?.iconRes?.takeIf { !item.colored } ?: R.drawable.ic_gear)
+            .setTitle(item?.let { getString(it.labelRes) } ?: getString(R.string.set_look_title))
+            .setWidthDp(widthDp)
+            .setView(list.view)
+            .setPositiveButton(R.string.edit_done) { _, _ ->
+                onDone()
+                buildWidgets(readSpecs())
+            }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .showFullScreen()
+    }
+
+    /**
+     * Настройки виджетов музыки: блок спектра и его вид
+     * ([SpectrumView.STYLES]), вид/фон плитки. Спектру нужен RECORD_AUDIO —
+     * без него (или если звук идёт мимо микшера Android) рисуется имитация.
+     */
+    private fun showMusicSettings(widgetId: String, type: WidgetType) {
         var spectrumOn = SpectrumView.isOn(settingsStore, widgetId)
         var selected = SpectrumView.STYLES.indexOf(SpectrumView.style(settingsStore, widgetId)).coerceAtLeast(0)
-        root.addView(android.widget.CheckBox(this).apply {
-            text = getString(R.string.spectrum_show)
-            textSize = 16f
-            setTextColor(theme.primaryText)
-            isChecked = spectrumOn
-            setOnCheckedChangeListener { _, on -> spectrumOn = on }
-        })
-        root.addView(android.widget.TextView(this).apply {
-            text = getString(R.string.spectrum_simulated_hint)
-            textSize = 13f
-            setTextColor(theme.secondaryText)
-        })
-        root.addView(android.widget.TextView(this).apply {
-            text = getString(R.string.spectrum_style_title)
-            textSize = 14f
-            setTextColor(theme.secondaryText)
-            setPadding(0, (8 * resources.displayMetrics.density).toInt(), 0, 0)
-        })
-        // Список стилей — своим RadioGroup: у DashDialog пункты идут над setView.
         val styleLabels = listOf(
             R.string.spectrum_style_bars,
             R.string.spectrum_style_leds,
             R.string.spectrum_style_wave,
             R.string.spectrum_style_mirror,
             R.string.spectrum_style_dots
-        )
-        val group = android.widget.RadioGroup(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-        }
-        styleLabels.forEachIndexed { i, res ->
-            group.addView(android.widget.RadioButton(this).apply {
-                id = View.generateViewId()
-                text = getString(res)
-                textSize = 16f
-                setTextColor(theme.primaryText)
-                isChecked = i == selected
-                setOnCheckedChangeListener { _, on -> if (on) selected = i }
-            })
-        }
-        root.addView(group)
-        DashDialog.Builder(this)
-            .setTitle(R.string.music_settings_title)
-            .setView(root)
-            .setPositiveButton(R.string.edit_done) { _, _ ->
-                settingsStore.setOption(widgetId, SpectrumView.OPT_SPECTRUM, if (spectrumOn) "on" else "off")
-                settingsStore.setOption(widgetId, SpectrumView.OPT_SPECTRUM_STYLE, SpectrumView.STYLES[selected])
-                saveLook()
-                buildWidgets(readSpecs())
-                if (spectrumOn && !SpectrumHub.hasAudioPermission(this)) {
-                    ActivityCompat.requestPermissions(
-                        this, arrayOf(Manifest.permission.RECORD_AUDIO), REQ_SPECTRUM_AUDIO
-                    )
-                }
+        ).map { getString(it) }
+        val list = SettingsList(this, theme)
+            .section(getString(R.string.spectrum_section))
+            .switch(R.drawable.ic_spectrum, getString(R.string.spectrum_show), null, spectrumOn) { spectrumOn = it }
+            .segmented(R.drawable.ic_palette, getString(R.string.spectrum_style_title), null, styleLabels, selected) {
+                selected = it
             }
-            .setNegativeButton(R.string.dialog_cancel, null)
-            .showFullScreen()
+            .hint(getString(R.string.spectrum_simulated_hint))
+            .column()
+        val saveTile = list.tileSection(widgetId)
+        showWidgetSettings(type, list, 1400) {
+            settingsStore.setOption(widgetId, SpectrumView.OPT_SPECTRUM, if (spectrumOn) "on" else "off")
+            settingsStore.setOption(widgetId, SpectrumView.OPT_SPECTRUM_STYLE, SpectrumView.STYLES[selected])
+            saveTile()
+            if (spectrumOn && !SpectrumHub.hasAudioPermission(this)) {
+                ActivityCompat.requestPermissions(
+                    this, arrayOf(Manifest.permission.RECORD_AUDIO), REQ_SPECTRUM_AUDIO
+                )
+            }
+        }
     }
 
     /**
@@ -1275,11 +1163,6 @@ class MainActivity : AppCompatActivity() {
         var brightness = cur.brightness
         val backgrounds = Screensaver.BACKGROUNDS
         var background = cur.background
-        val looks = listOf(RetroLook.LOOK_CLASSIC, RetroLook.LOOK_RETRO)
-        var look = settingsStore.getOption(widgetId, RetroLook.OPT_LOOK, RetroLook.LOOK_CLASSIC)
-            .takeIf { it in looks } ?: RetroLook.LOOK_CLASSIC
-        var tileBg = WidgetBackground.get(settingsStore, widgetId)
-            .takeIf { it in WidgetBackground.ALL } ?: WidgetBackground.ALL.first()
 
         val list = SettingsList(this, theme)
             .section(getString(R.string.screensaver_sec_saver))
@@ -1304,33 +1187,14 @@ class MainActivity : AppCompatActivity() {
                 backgrounds.indexOf(background).coerceAtLeast(0)
             ) { background = backgrounds[it] }
             .column()
-            .section(getString(R.string.screensaver_sec_tile))
-            .segmented(
-                R.drawable.ic_gauge, getString(R.string.look_title), null,
-                listOf(getString(R.string.look_classic), getString(R.string.look_retro)),
-                looks.indexOf(look)
-            ) { look = looks[it] }
-            .segmented(
-                R.drawable.ic_grid, getString(R.string.bg_title), null,
-                listOf(getString(R.string.bg_theme), getString(R.string.bg_gradient), getString(R.string.bg_transparent)),
-                WidgetBackground.ALL.indexOf(tileBg)
-            ) { tileBg = WidgetBackground.ALL[it] }
+        val saveTile = list.tileSection(widgetId)
 
-        DashDialog.Builder(this)
-            .setIcon(R.drawable.ic_image)
-            .setTitle(R.string.screensaver_settings_title)
-            .setWidthDp(1400)
-            .setView(list.view)
-            .setPositiveButton(R.string.edit_done) { _, _ ->
-                settingsStore.setOption(widgetId, Screensaver.OPT_TIMEOUT, timeout.toString())
-                settingsStore.setOption(widgetId, Screensaver.OPT_BRIGHTNESS, brightness.toString())
-                settingsStore.setOption(widgetId, Screensaver.OPT_BACKGROUND, background)
-                settingsStore.setOption(widgetId, RetroLook.OPT_LOOK, look)
-                settingsStore.setOption(widgetId, WidgetBackground.OPT_BG, tileBg)
-                buildWidgets(readSpecs())
-            }
-            .setNegativeButton(R.string.dialog_cancel, null)
-            .showFullScreen()
+        showWidgetSettings(WidgetType.SCREENSAVER, list, 1400, iconRes = R.drawable.ic_image) {
+            settingsStore.setOption(widgetId, Screensaver.OPT_TIMEOUT, timeout.toString())
+            settingsStore.setOption(widgetId, Screensaver.OPT_BRIGHTNESS, brightness.toString())
+            settingsStore.setOption(widgetId, Screensaver.OPT_BACKGROUND, background)
+            saveTile()
+        }
     }
 
     /** Вид «Спидометра»: ретро-стрелочный, классика ВАЗ или цифровой. */
@@ -1338,27 +1202,22 @@ class MainActivity : AppCompatActivity() {
         val styles = listOf(SPEED_RETRO, SPEED_VAZ, SPEED_DIGITAL)
         var selected = styles.indexOf(settingsStore.getOption(widgetId, OPT_SPEED_STYLE, SPEED_RETRO))
             .coerceAtLeast(0)
-        val (bgView, saveBg) = lookPicker(widgetId, withLook = false)
-        DashDialog.Builder(this)
-            .setTitle(R.string.speed_style_title)
-            .setView(bgView)
-            .setSingleChoiceItems(
-                arrayOf(
+        val list = SettingsList(this, theme)
+            .section(getString(R.string.speed_style_title))
+            .choices(
+                listOf(
                     getString(R.string.speed_style_retro),
                     getString(R.string.speed_style_vaz),
                     getString(R.string.speed_style_digital)
                 ),
-                selected
-            ) { _, which ->
-                selected = which
-            }
-            .setPositiveButton(R.string.edit_done) { _, _ ->
-                settingsStore.setOption(widgetId, OPT_SPEED_STYLE, styles[selected])
-                saveBg()
-                buildWidgets(readSpecs())
-            }
-            .setNegativeButton(R.string.dialog_cancel, null)
-            .showFullScreen()
+                selected, R.drawable.ic_gauge
+            ) { selected = it }
+            .column()
+        val saveTile = list.tileSection(widgetId, withLook = false)
+        showWidgetSettings(WidgetType.SPEED, list, 1300) {
+            settingsStore.setOption(widgetId, OPT_SPEED_STYLE, styles[selected])
+            saveTile()
+        }
     }
 
     /** Вид «Климата»: текстом или ретро-иконками, как на спидометре. */
@@ -1366,26 +1225,19 @@ class MainActivity : AppCompatActivity() {
         val styles = listOf(CLIMATE_TEXT, CLIMATE_ICONS)
         var selected = styles.indexOf(settingsStore.getOption(widgetId, OPT_CLIMATE_STYLE, CLIMATE_TEXT))
             .coerceAtLeast(0)
-        val (bgView, saveBg) = lookPicker(widgetId, withLook = false)
-        DashDialog.Builder(this)
-            .setTitle(R.string.climate_style_title)
-            .setView(bgView)
-            .setSingleChoiceItems(
-                arrayOf(
-                    getString(R.string.climate_style_text),
-                    getString(R.string.climate_style_icons)
-                ),
+        val list = SettingsList(this, theme)
+            .section(getString(R.string.widget_climate))
+            .segmented(
+                R.drawable.ic_fan, getString(R.string.look_title), null,
+                listOf(getString(R.string.climate_style_text), getString(R.string.climate_style_icons)),
                 selected
-            ) { _, which ->
-                selected = which
-            }
-            .setPositiveButton(R.string.edit_done) { _, _ ->
-                settingsStore.setOption(widgetId, OPT_CLIMATE_STYLE, styles[selected])
-                saveBg()
-                buildWidgets(readSpecs())
-            }
-            .setNegativeButton(R.string.dialog_cancel, null)
-            .showFullScreen()
+            ) { selected = it }
+            .column()
+        val saveTile = list.tileSection(widgetId, withLook = false)
+        showWidgetSettings(WidgetType.CLIMATE, list, 1300) {
+            settingsStore.setOption(widgetId, OPT_CLIMATE_STYLE, styles[selected])
+            saveTile()
+        }
     }
 
     /**
@@ -1397,103 +1249,28 @@ class MainActivity : AppCompatActivity() {
         var themeSel = settingsStore.getOption(widgetId, ClimateControlView.OPT_THEME, ClimateControlView.THEME_CLASSIC)
         val order = ClimateControlView.order(settingsStore, widgetId).toMutableList()
         val checked = ClimateControlView.selected(settingsStore, widgetId).toMutableSet()
-
-        val pad = (16 * resources.displayMetrics.density).toInt()
-        val content = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            setPadding(pad, pad / 2, pad, pad / 2)
+        val list = SettingsList(this, theme)
+            .section(getString(R.string.cc_items_title))
+            .reorder(order, checked, { getString(it.labelRes) })
+            .column()
+        val saveTile = list.tileSection(widgetId, withLook = false) {
+            segmented(
+                R.drawable.ic_palette, getString(R.string.cc_theme_title), null,
+                listOf(getString(R.string.cc_theme_classic), getString(R.string.cc_theme_retro)),
+                themes.indexOf(themeSel).coerceAtLeast(0)
+            ) { themeSel = themes[it] }
         }
-        fun header(res: Int) = android.widget.TextView(this).apply {
-            text = getString(res)
-            textSize = 14f
-            setTextColor(theme.secondaryText)
-            setPadding(0, pad / 2, 0, pad / 4)
+        showWidgetSettings(WidgetType.CLIMATE_CONTROL, list, 1400) {
+            settingsStore.setOption(widgetId, ClimateControlView.OPT_THEME, themeSel)
+            saveTile()
+            settingsStore.setOption(
+                widgetId, ClimateControlView.OPT_ORDER, order.joinToString(",") { it.key }
+            )
+            settingsStore.setOption(
+                widgetId, ClimateControlView.OPT_ITEMS,
+                order.filter { it in checked }.joinToString(",") { it.key }
+            )
         }
-        content.addView(header(R.string.cc_theme_title))
-        val themeRow = android.widget.RadioGroup(this).apply {
-            orientation = android.widget.LinearLayout.HORIZONTAL
-        }
-        listOf(R.string.cc_theme_classic, R.string.cc_theme_retro).forEachIndexed { i, res ->
-            themeRow.addView(android.widget.RadioButton(this).apply {
-                id = View.generateViewId()
-                text = getString(res)
-                textSize = 16f
-                setTextColor(theme.primaryText)
-                isChecked = themes[i] == themeSel
-                setOnCheckedChangeListener { _, on -> if (on) themeSel = themes[i] }
-            })
-        }
-        content.addView(themeRow)
-        content.addView(header(R.string.cc_items_title))
-        val list = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-        }
-        content.addView(list)
-        fun rebuild() {
-            list.removeAllViews()
-            order.forEachIndexed { index, item ->
-                val row = android.widget.LinearLayout(this).apply {
-                    orientation = android.widget.LinearLayout.HORIZONTAL
-                    gravity = android.view.Gravity.CENTER_VERTICAL
-                }
-                val box = android.widget.CheckBox(this).apply {
-                    isChecked = item in checked
-                    setOnCheckedChangeListener { _, on ->
-                        if (on) checked.add(item) else checked.remove(item)
-                    }
-                }
-                val label = android.widget.TextView(this).apply {
-                    text = getString(item.labelRes)
-                    textSize = 16f
-                    setTextColor(theme.primaryText)
-                }
-                val up = android.widget.Button(this).apply {
-                    text = "↑"
-                    isEnabled = index > 0
-                    setOnClickListener {
-                        order[index] = order[index - 1].also { order[index - 1] = order[index] }
-                        rebuild()
-                    }
-                }
-                val down = android.widget.Button(this).apply {
-                    text = "↓"
-                    isEnabled = index < order.size - 1
-                    setOnClickListener {
-                        order[index] = order[index + 1].also { order[index + 1] = order[index] }
-                        rebuild()
-                    }
-                }
-                row.addView(box)
-                row.addView(
-                    label,
-                    android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                )
-                row.addView(up)
-                row.addView(down)
-                list.addView(row)
-            }
-        }
-        rebuild()
-
-        val (bgView, saveBg) = lookPicker(widgetId, withLook = false)
-        content.addView(bgView, 0)
-        DashDialog.Builder(this)
-            .setTitle(R.string.cc_settings_title)
-            .setView(content)
-            .setPositiveButton(R.string.edit_done) { _, _ ->
-                settingsStore.setOption(widgetId, ClimateControlView.OPT_THEME, themeSel)
-                saveBg()
-                settingsStore.setOption(
-                    widgetId, ClimateControlView.OPT_ORDER, order.joinToString(",") { it.key }
-                )
-                settingsStore.setOption(
-                    widgetId, ClimateControlView.OPT_ITEMS,
-                    order.filter { it in checked }.joinToString(",") { it.key }
-                )
-                buildWidgets(readSpecs())
-            }
-            .setNegativeButton(R.string.dialog_cancel, null)
-            .showFullScreen()
     }
 
     /**
@@ -1508,87 +1285,48 @@ class MainActivity : AppCompatActivity() {
         var bold = ComboWidgetView.boldValue(settingsStore, widgetId)
         var flip = ComboWidgetView.styleValue(settingsStore, widgetId) == ComboWidgetView.STYLE_FLIP
         var invert = ComboWidgetView.invertValue(settingsStore, widgetId)
-
-        val pad = (16 * resources.displayMetrics.density).toInt()
-        val root = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            setPadding(pad, pad / 2, pad, 0)
+        val list = SettingsList(this, theme)
+            .section(getString(R.string.widget_clock))
+            .segmented(
+                R.drawable.ic_text_size, getString(R.string.clock_scale), null,
+                scales.map { "×$it" }, selected
+            ) { selected = it }
+            .switch(R.drawable.ic_bold, getString(R.string.clock_bold), null, bold) { bold = it }
+            .switch(R.drawable.ic_flip, getString(R.string.clock_flip), null, flip) { flip = it }
+            .switch(R.drawable.ic_contrast, getString(R.string.clock_flip_invert_t),
+                getString(R.string.clock_flip_invert_s), invert) { invert = it }
+            .column()
+        val saveTile = list.tileSection(widgetId)
+        showWidgetSettings(WidgetType.COMBO, list, 1400) {
+            settingsStore.setOption(widgetId, ComboWidgetView.OPT_SCALE, scales[selected])
+            settingsStore.setOption(widgetId, ComboWidgetView.OPT_BOLD, if (bold) "1" else "0")
+            settingsStore.setOption(
+                widgetId, ComboWidgetView.OPT_STYLE,
+                if (flip) ComboWidgetView.STYLE_FLIP else ComboWidgetView.STYLE_DIGITAL
+            )
+            settingsStore.setOption(widgetId, ComboWidgetView.OPT_INVERT, if (invert) "1" else "0")
+            saveTile()
         }
-        val radios = scales.mapIndexed { i, value ->
-            android.widget.RadioButton(this).apply {
-                text = "×$value"
-                textSize = 18f
-                setTextColor(theme.primaryText)
-                isChecked = i == selected
-                setOnCheckedChangeListener { _, isCheckedNow ->
-                    if (isCheckedNow) selected = i
-                }
-            }
-        }
-        root.addView(
-            android.widget.RadioGroup(this).apply {
-                orientation = android.widget.LinearLayout.VERTICAL
-                radios.forEach { addView(it) }
-            }
-        )
-        root.addView(
-            android.widget.CheckBox(this).apply {
-                text = getString(R.string.clock_bold)
-                textSize = 18f
-                setTextColor(theme.primaryText)
-                isChecked = bold
-                setOnCheckedChangeListener { _, isCheckedNow -> bold = isCheckedNow }
-            }
-        )
-        root.addView(
-            android.widget.CheckBox(this).apply {
-                text = getString(R.string.clock_flip)
-                textSize = 18f
-                setTextColor(theme.primaryText)
-                isChecked = flip
-                setOnCheckedChangeListener { _, isCheckedNow -> flip = isCheckedNow }
-            }
-        )
-        root.addView(
-            android.widget.CheckBox(this).apply {
-                text = getString(R.string.clock_flip_invert)
-                textSize = 18f
-                setTextColor(theme.primaryText)
-                isChecked = invert
-                setOnCheckedChangeListener { _, isCheckedNow -> invert = isCheckedNow }
-            }
-        )
-        val (lookView, look) = lookPicker(widgetId)
-        root.addView(lookView, 0)
-
-        DashDialog.Builder(this)
-            .setTitle(R.string.set_clock_title)
-            .setView(root)
-            .setPositiveButton(R.string.edit_done) { _, _ ->
-                settingsStore.setOption(widgetId, ComboWidgetView.OPT_SCALE, scales[selected])
-                settingsStore.setOption(
-                    widgetId, ComboWidgetView.OPT_BOLD, if (bold) "1" else "0"
-                )
-                settingsStore.setOption(
-                    widgetId, ComboWidgetView.OPT_STYLE,
-                    if (flip) ComboWidgetView.STYLE_FLIP else ComboWidgetView.STYLE_DIGITAL
-                )
-                settingsStore.setOption(
-                    widgetId, ComboWidgetView.OPT_INVERT, if (invert) "1" else "0"
-                )
-                look()
-                buildWidgets(readSpecs())
-            }
-            .setNegativeButton(R.string.dialog_cancel, null)
-            .showFullScreen()
     }
 
+    /**
+     * Настройки виджета «Автомобиль»: какие метрики показывать и в каком
+     * порядке (топливо / аккумулятор / двигатель / запас хода).
+     * Видимость — [CarWidgetView.OPT_ITEMS] (пусто = все),
+     * порядок всех метрик — [CarWidgetView.OPT_ORDER].
+     */
     private fun showCarSettings(widgetId: String) {
         val labelIds = mapOf(
             "fuel" to R.string.car_item_fuel,
             "batt" to R.string.car_item_batt,
             "eng" to R.string.car_item_eng,
             "range" to R.string.car_item_range
+        )
+        val icons = mapOf(
+            "fuel" to R.drawable.ic_fuel,
+            "batt" to R.drawable.ic_battery,
+            "eng" to R.drawable.ic_thermo,
+            "range" to R.drawable.ic_range
         )
         val orderRaw = settingsStore.getOption(widgetId, CarWidgetView.OPT_ORDER, "")
         val savedOrder = orderRaw.split(',')
@@ -1603,80 +1341,19 @@ class MainActivity : AppCompatActivity() {
         else order.filter { key ->
             itemsRaw.split(',').any { it.trim() == key }
         }).toMutableSet()
-
-        val pad = (16 * resources.displayMetrics.density).toInt()
-        val list = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            setPadding(pad, pad / 2, pad, pad / 2)
+        val list = SettingsList(this, theme)
+            .section(getString(R.string.car_items_section))
+            .reorder(order, checked, { getString(labelIds.getValue(it)) }, { icons[it] ?: 0 })
+            .column()
+        val saveTile = list.tileSection(widgetId)
+        showWidgetSettings(WidgetType.CAR, list, 1400) {
+            settingsStore.setOption(widgetId, CarWidgetView.OPT_ORDER, order.joinToString(","))
+            settingsStore.setOption(
+                widgetId, CarWidgetView.OPT_ITEMS,
+                order.filter { it in checked }.joinToString(",")
+            )
+            saveTile()
         }
-        fun rebuild() {
-            list.removeAllViews()
-            order.forEachIndexed { index, key ->
-                val row = android.widget.LinearLayout(this).apply {
-                    orientation = android.widget.LinearLayout.HORIZONTAL
-                    gravity = android.view.Gravity.CENTER_VERTICAL
-                }
-                val box = android.widget.CheckBox(this).apply {
-                    isChecked = key in checked
-                    setOnCheckedChangeListener { _, on ->
-                        if (on) checked.add(key) else checked.remove(key)
-                    }
-                }
-                val label = android.widget.TextView(this).apply {
-                    text = getString(labelIds.getValue(key))
-                    textSize = 16f
-                    setTextColor(theme.primaryText)
-                }
-                val up = android.widget.Button(this).apply {
-                    text = "↑"
-                    isEnabled = index > 0
-                    setOnClickListener {
-                        order[index] = order[index - 1].also { order[index - 1] = order[index] }
-                        rebuild()
-                    }
-                }
-                val down = android.widget.Button(this).apply {
-                    text = "↓"
-                    isEnabled = index < order.size - 1
-                    setOnClickListener {
-                        order[index] = order[index + 1].also { order[index + 1] = order[index] }
-                        rebuild()
-                    }
-                }
-                row.addView(box)
-                row.addView(
-                    label,
-                    android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                )
-                row.addView(up)
-                row.addView(down)
-                list.addView(row)
-            }
-        }
-        rebuild()
-        val (lookView, look) = lookPicker(widgetId)
-        val content = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            addView(lookView)
-            addView(list)
-        }
-
-        DashDialog.Builder(this)
-            .setTitle(R.string.set_car_title)
-            .setView(content)
-            .setPositiveButton(R.string.edit_done) { _, _ ->
-                settingsStore.setOption(
-                    widgetId, CarWidgetView.OPT_ORDER, order.joinToString(",")
-                )
-                settingsStore.setOption(
-                    widgetId, CarWidgetView.OPT_ITEMS,
-                    order.filter { it in checked }.joinToString(",")
-                )
-                look()
-                buildWidgets(readSpecs())
-            }
-            .setNegativeButton(R.string.dialog_cancel, null)
-            .showFullScreen()
     }
 
     /**
@@ -1690,42 +1367,51 @@ class MainActivity : AppCompatActivity() {
         ElmHub.start(this) // подхватить сохранённый профиль, если виджет ещё не создавался
         val metrics = ElmWidgetView.items(this)
         val profileName = ElmHub.profile()?.name ?: getString(R.string.elm_profile_none)
-        val items = arrayOf(
-            getString(R.string.elm_pick_adapter),
-            getString(R.string.elm_pick_profile, profileName)
-        ) + metrics.map { it.label }
         val selected = ElmWidgetView.selectedIds(settingsStore, widgetId).toMutableSet()
-        val checked = BooleanArray(items.size) { i -> i >= ELM_ROUTERS && metrics[i - ELM_ROUTERS].key in selected }
-        val (lookView, look) = lookPicker(widgetId)
-        DashDialog.Builder(this)
-            .setTitle(R.string.set_elm_title)
-            .setView(lookView)
-            .setMultiChoiceItems(items, checked, routers = setOf(0, 1)) { dlg, which, on ->
-                when (which) {
-                    0 -> {
-                        dlg.dismiss()
-                        showElmAdapterDialog()
-                    }
-                    1 -> {
-                        dlg.dismiss()
-                        showElmProfileDialog(widgetId)
-                    }
-                    else -> {
-                        val key = metrics[which - ELM_ROUTERS].key
-                        if (on) selected.add(key) else selected.remove(key)
-                    }
-                }
+        lateinit var dialogSave: () -> Unit
+        var dialog: android.app.Dialog? = null
+        // Переход к адаптеру/профилю закрывает диалог — сначала сохраняем
+        // то, что уже отметили, чтобы не потерять.
+        fun leave(next: () -> Unit) {
+            dialogSave()
+            dialog?.dismiss()
+            next()
+        }
+        val list = SettingsList(this, theme)
+            .section(getString(R.string.elm_sec_connection))
+            .nav(
+                R.drawable.ic_bluetooth, getString(R.string.elm_adapter_t), ElmHub.address(),
+                ElmHub.name() ?: getString(R.string.elm_adapter_none)
+            ) { leave { showElmAdapterDialog() } }
+            .nav(R.drawable.ic_book, getString(R.string.elm_profile_t), null, profileName) {
+                leave { showElmProfileDialog(widgetId) }
             }
+        val saveTile = list.tileSection(widgetId)
+        list.column().section(getString(R.string.elm_sec_metrics))
+        metrics.forEach { m ->
+            list.switch(R.drawable.ic_obd, m.label, null, m.key in selected) { on ->
+                if (on) selected.add(m.key) else selected.remove(m.key)
+            }
+        }
+        dialogSave = {
+            // Ничего не отмечено — сохраняем маркер «-»: пустая опция
+            // означала бы «ещё не настраивали» (дефолт).
+            val items = metrics.map { it.key }.filter { it in selected }
+            settingsStore.setOption(
+                widgetId,
+                ElmWidgetView.OPT_ITEMS,
+                if (items.isEmpty()) ElmWidgetView.NONE_ITEMS else items.joinToString(",")
+            )
+            saveTile()
+        }
+        val item = pickerItems().firstOrNull { it.type == WidgetType.ELM }
+        dialog = DashDialog.Builder(this)
+            .setIcon(item?.iconRes ?: R.drawable.ic_obd)
+            .setTitle(item?.let { getString(it.labelRes) } ?: getString(R.string.set_elm_title))
+            .setWidthDp(1400)
+            .setView(list.view)
             .setPositiveButton(R.string.edit_done) { _, _ ->
-                // Ничего не отмечено — сохраняем маркер «-»: пустая опция
-                // означала бы «ещё не настраивали» (дефолт).
-                val items = metrics.map { it.key }.filter { it in selected }
-                settingsStore.setOption(
-                    widgetId,
-                    ElmWidgetView.OPT_ITEMS,
-                    if (items.isEmpty()) ElmWidgetView.NONE_ITEMS else items.joinToString(",")
-                )
-                look()
+                dialogSave()
                 buildWidgets(readSpecs())
             }
             .setNegativeButton(R.string.dialog_cancel, null)
@@ -1995,24 +1681,15 @@ class MainActivity : AppCompatActivity() {
         ) + apps.filter { it.first != packageName }
             .map { it.second to it.first }
         var selected = options.indexOfFirst { it.second == current }.takeIf { it >= 0 } ?: 0
-        val (lookView, look) = lookPicker(widgetId)
-        DashDialog.Builder(this)
-            .setTitle(R.string.set_app_title)
-            .setView(lookView)
-            .setSingleChoiceItems(
-                options.map { it.first }.toTypedArray(), selected
-            ) { _, which ->
-                selected = which
-            }
-            .setPositiveButton(R.string.edit_done) { _, _ ->
-                settingsStore.setOption(
-                    widgetId, AppWidgetView.OPT_PKG, options[selected].second
-                )
-                look()
-                buildWidgets(readSpecs())
-            }
-            .setNegativeButton(R.string.dialog_cancel, null)
-            .showFullScreen()
+        val list = SettingsList(this, theme)
+            .section(getString(R.string.set_app_title))
+            .choices(options.map { it.first }, selected, R.drawable.ic_apps) { selected = it }
+            .column()
+        val saveTile = list.tileSection(widgetId)
+        showWidgetSettings(WidgetType.APP, list, 1400) {
+            settingsStore.setOption(widgetId, AppWidgetView.OPT_PKG, options[selected].second)
+            saveTile()
+        }
     }
 
     /** Все запускаемые приложения (label + package), по алфавиту. */
@@ -2092,7 +1769,6 @@ class MainActivity : AppCompatActivity() {
         private const val BRIGHTNESS_STEP = 5
 
         /** Строки-роутеры в начале настроек OBD: адаптер и профиль. */
-        private const val ELM_ROUTERS = 2
 
         /** Опция «Спидометра»: вид (см. [showSpeedSettings]). */
         private const val OPT_SPEED_STYLE = "style"

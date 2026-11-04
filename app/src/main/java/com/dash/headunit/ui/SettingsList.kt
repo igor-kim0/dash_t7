@@ -215,20 +215,165 @@ class SettingsList(private val context: Context, private val theme: DashTheme) {
         ).apply { setMargins(dp(16), 0, dp(16), dp(12)) })
     }
 
+    /**
+     * Строка-переход: справа текущее значение и шеврон, тап — [onClick]
+     * (открыть вложенный выбор).
+     */
+    fun nav(
+        icon: Int,
+        title: CharSequence,
+        subtitle: CharSequence?,
+        value: CharSequence?,
+        onClick: () -> Unit
+    ) = apply {
+        val trailing = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            value?.let {
+                addView(TextView(context).apply {
+                    text = it
+                    textSize = 16f
+                    maxLines = 1
+                    ellipsize = TextUtils.TruncateAt.END
+                    maxWidth = dp(260)
+                    setTextColor(theme.accent)
+                })
+            }
+            addView(ImageView(context).apply {
+                setImageResource(com.dash.headunit.R.drawable.ic_chevron)
+                imageTintList = ColorStateList.valueOf(theme.secondaryText)
+            }, LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginStart = dp(6) })
+        }
+        row(icon, title, subtitle, trailing).setOnClickListener { onClick() }
+    }
+
+    /**
+     * Список выбора одного из вариантов (длинный: приложения и т.п.):
+     * отмеченный — акцентом и галочкой. [icon] = 0 — строки без иконок.
+     */
+    fun choices(
+        options: List<CharSequence>,
+        selected: Int,
+        icon: Int = 0,
+        onChange: (Int) -> Unit
+    ) = apply {
+        val checks = ArrayList<ImageView>()
+        val titles = ArrayList<TextView>()
+        fun mark(sel: Int) {
+            checks.forEachIndexed { i, c -> c.visibility = if (i == sel) View.VISIBLE else View.INVISIBLE }
+            titles.forEachIndexed { i, t -> t.setTextColor(if (i == sel) theme.accent else theme.primaryText) }
+        }
+        options.forEachIndexed { i, text ->
+            val check = ImageView(context).apply {
+                setImageResource(com.dash.headunit.R.drawable.ic_check)
+                imageTintList = ColorStateList.valueOf(theme.accent)
+                layoutParams = LinearLayout.LayoutParams(dp(26), dp(26))
+            }
+            checks += check
+            val r = row(icon, text, null, check, minHeight = 56)
+            titles += r.titleView()
+            r.setOnClickListener { mark(i); onChange(i) }
+        }
+        mark(selected)
+    }
+
+    /**
+     * Состав и порядок: у каждой строки переключатель «показывать» и
+     * кнопки ↑/↓. [order] и [checked] меняются на месте.
+     */
+    fun <K> reorder(
+        order: MutableList<K>,
+        checked: MutableSet<K>,
+        label: (K) -> CharSequence,
+        icon: (K) -> Int = { 0 }
+    ) = apply {
+        val g = group ?: error("section() before rows")
+        val start = g.childCount
+        fun rebuild() {
+            while (g.childCount > start) g.removeViewAt(start)
+            order.forEachIndexed { index, key ->
+                val sw = DashSwitch(context, theme).apply { setChecked(key in checked, animate = false) }
+                val up = arrowButton(com.dash.headunit.R.drawable.ic_arrow_up, index > 0) {
+                    order[index] = order[index - 1].also { order[index - 1] = order[index] }
+                    rebuild()
+                }
+                val down = arrowButton(com.dash.headunit.R.drawable.ic_arrow_down, index < order.size - 1) {
+                    order[index] = order[index + 1].also { order[index + 1] = order[index] }
+                    rebuild()
+                }
+                val trailing = LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(up, LinearLayout.LayoutParams(dp(44), dp(44)))
+                    addView(down, LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginStart = dp(4) })
+                    addView(sw, LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply { marginStart = dp(14) })
+                }
+                val r = row(icon(key), label(key), null, trailing, minHeight = 60, target = g)
+                r.setOnClickListener {
+                    sw.setChecked(!sw.isOn, animate = true)
+                    if (sw.isOn) checked.add(key) else checked.remove(key)
+                }
+            }
+        }
+        rebuild()
+    }
+
+    /** Пояснение мелким текстом под секцией. */
+    fun hint(text: CharSequence) = apply {
+        col.addView(TextView(context).apply {
+            this.text = text
+            textSize = 13f
+            setLineSpacing(0f, 1.1f)
+            setTextColor(theme.secondaryText)
+            setPadding(dp(8), dp(8), dp(8), 0)
+        })
+    }
+
+    private fun arrowButton(icon: Int, enabled: Boolean, onClick: () -> Unit) = ImageView(context).apply {
+        setImageResource(icon)
+        imageTintList = ColorStateList.valueOf(theme.primaryText)
+        setPadding(dp(10), dp(10), dp(10), dp(10))
+        background = RippleDrawable(
+            ColorStateList.valueOf(ColorUtils.setAlphaComponent(theme.accent, 0x55)),
+            GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(ColorUtils.setAlphaComponent(theme.primaryText, 0x1A))
+            },
+            null
+        )
+        isEnabled = enabled
+        alpha = if (enabled) 1f else 0.25f
+        if (enabled) setOnClickListener { onClick() }
+    }
+
+    private fun LinearLayout.titleView(): TextView =
+        ((getChildAt(if (getChildAt(0) is ImageView) 1 else 0) as LinearLayout).getChildAt(0)) as TextView
+
     // ---------- строка ----------
 
-    private fun row(icon: Int, title: CharSequence, subtitle: CharSequence?, trailing: View?): LinearLayout {
-        val g = group ?: error("section() before rows")
+    private fun row(
+        icon: Int,
+        title: CharSequence,
+        subtitle: CharSequence?,
+        trailing: View?,
+        minHeight: Int = 72,
+        target: LinearLayout? = null
+    ): LinearLayout {
+        // [target] — своя секция при перестройке ([reorder]): к этому
+        // моменту [group] может указывать уже на следующую секцию.
+        val g = target ?: group ?: error("section() before rows")
         if (g.childCount > 0) {
             g.addView(View(context).apply { setBackgroundColor(dividerColor()) },
                 LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)).apply {
-                    marginStart = dp(72)
+                    marginStart = if (icon != 0) dp(72) else dp(16)
                 })
         }
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            minimumHeight = dp(72)
+            minimumHeight = dp(minHeight)
             setPadding(dp(16), dp(10), dp(16), dp(10))
             background = RippleDrawable(
                 ColorStateList.valueOf(ColorUtils.setAlphaComponent(theme.accent, 0x33)),
@@ -236,7 +381,7 @@ class SettingsList(private val context: Context, private val theme: DashTheme) {
             )
             isClickable = true
         }
-        row.addView(ImageView(context).apply {
+        if (icon != 0) row.addView(ImageView(context).apply {
             setImageResource(icon)
             imageTintList = ColorStateList.valueOf(theme.accent)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
@@ -248,7 +393,7 @@ class SettingsList(private val context: Context, private val theme: DashTheme) {
         }, LinearLayout.LayoutParams(dp(42), dp(42)))
         val texts = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), 0, dp(12), 0)
+            setPadding(if (icon != 0) dp(14) else dp(4), 0, dp(12), 0)
         }
         texts.addView(TextView(context).apply {
             text = title
