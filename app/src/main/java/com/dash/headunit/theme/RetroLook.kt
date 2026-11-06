@@ -89,12 +89,21 @@ object RetroLook {
             val bold = v.typeface?.isBold == true
             val face = if (bold) condensedBold else condensed
             if (v.typeface !== face) v.typeface = face
-            val glow = v.textSize * 0.25f
-            val color = v.currentTextColor
+            val glow = v.textSize * GLOW_PER_SIZE
+            val color = glowColor(v.currentTextColor)
             if (v.shadowColor != color || v.shadowRadius != glow) v.setShadowLayer(glow, 0f, 0f, color)
         }
         if (v is ViewGroup) for (i in 0 until v.childCount) walk(v.getChildAt(i))
     }
+
+    /**
+     * Ореол: радиус от кегля и полупрозрачный цвет лампы. Был 0.25 и
+     * непрозрачный — цифры «расплывались»; теперь узкий, контур чёткий.
+     */
+    const val GLOW_PER_SIZE = 0.1f
+    private const val GLOW_ALPHA = 0xB0
+
+    fun glowColor(color: Int): Int = (color and 0x00FFFFFF) or (GLOW_ALPHA shl 24)
 
     private fun dp(context: Context, v: Float): Float =
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, context.resources.displayMetrics)

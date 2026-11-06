@@ -7,6 +7,7 @@ import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
 import com.dash.headunit.car.ClimateHub
+import com.dash.headunit.theme.RetroLook
 import java.util.Locale
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -61,9 +62,10 @@ class RetroClimateIcons(private val hole: Paint) {
         iconFill.color = col
         text.color = col
         if (lit && glow) {
-            icon.setShadowLayer(10f, 0f, 0f, color)
-            iconFill.setShadowLayer(10f, 0f, 0f, color)
-            text.setShadowLayer(12f, 0f, 0f, color)
+            val g = RetroLook.glowColor(color)
+            icon.setShadowLayer(5f, 0f, 0f, g)
+            iconFill.setShadowLayer(5f, 0f, 0f, g)
+            text.setShadowLayer(6f, 0f, 0f, g)
         } else {
             icon.clearShadowLayer()
             iconFill.clearShadowLayer()
@@ -255,7 +257,7 @@ class RetroClimateIcons(private val hole: Paint) {
             c.drawPath(path, icon)
         }
         icon.color = litColor
-        if (glowing) icon.setShadowLayer(10f, 0f, 0f, litColor)
+        if (glowing) icon.setShadowLayer(5f, 0f, 0f, RetroLook.glowColor(litColor))
     }
 
     /** Руль с тремя волнами подогрева над ним. */

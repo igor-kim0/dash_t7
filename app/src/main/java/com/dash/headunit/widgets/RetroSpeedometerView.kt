@@ -367,7 +367,7 @@ class RetroSpeedometerView(context: Context) : View(context) {
             val cx = left + cw * i + cw / 2f
             if (i == gear) {
                 gearText.color = gearLamp(i)
-                gearText.setShadowLayer(14f, 0f, 0f, gearLamp(i))
+                gearText.setShadowLayer(7f, 0f, 0f, com.dash.headunit.theme.RetroLook.glowColor(gearLamp(i)))
             } else {
                 gearText.color = RetroClimateIcons.ENGRAVED
                 gearText.clearShadowLayer()
