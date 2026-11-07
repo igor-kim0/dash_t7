@@ -1,0 +1,62 @@
+{
+  "profile_name": "Ignition retard",
+  "profile_version": "1.0",
+  "description": "Для проверки угла зажигания через ELM327. 010E — итоговый угол: минус = задержка (retard), плюс = опережение. 220170–220173 — кандидаты на откат по цилиндрам, назначение и масштаб не сверены.",
+  "connection_settings": {
+    "protocol": "CAN_11bit_500",
+    "default_header": "7E0",
+    "timeout": 2000
+  },
+  "parameters": {
+    "engine": [
+      {
+        "name": "Ignition retard",
+        "short_name": "Retard",
+        "command": "010E",
+        "header": "7E0",
+        "formula": "(A/2)-64",
+        "unit": "°",
+        "min": -64,
+        "max": 64,
+        "precision": 1,
+        "note": "минус — задержка (retard), плюс — опережение; это итоговый угол, а не поправка по детонации"
+      },
+      {
+        "name": "Knock retard #1",
+        "short_name": "Knock 1",
+        "command": "220170",
+        "header": "7E0",
+        "formula": "A",
+        "precision": 0,
+        "note": "не сверено: кандидат на откат зажигания по детонации; в логе всегда 0"
+      },
+      {
+        "name": "Knock retard #2",
+        "short_name": "Knock 2",
+        "command": "220171",
+        "header": "7E0",
+        "formula": "A",
+        "precision": 0,
+        "note": "не сверено: кандидат на откат зажигания по детонации; в логе всегда 0"
+      },
+      {
+        "name": "Knock retard #3",
+        "short_name": "Knock 3",
+        "command": "220172",
+        "header": "7E0",
+        "formula": "A",
+        "precision": 0,
+        "note": "не сверено: кандидат на откат зажигания по детонации; в логе всегда 0"
+      },
+      {
+        "name": "Knock retard #4",
+        "short_name": "Knock 4",
+        "command": "220173",
+        "header": "7E0",
+        "formula": "A",
+        "precision": 0,
+        "note": "не сверено: кандидат на откат зажигания по детонации; в логе всегда 0"
+      }
+    ]
+  }
+}

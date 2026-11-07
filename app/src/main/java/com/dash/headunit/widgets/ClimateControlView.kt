@@ -51,7 +51,6 @@ class ClimateControlView(
         MAX_DEFROST("max_defrost", 1, R.string.cc_max_defrost, Cmd.MAX_DEFROST),
         SYNC("sync", 1, R.string.cc_sync, Cmd.SYNC),
         WINDSHIELD_HEAT("windshield_heat", 1, R.string.cc_windshield_heat, Cmd.WINDSHIELD_HEAT),
-        WHEEL_HEAT("wheel_heat", 1, R.string.cc_wheel_heat, Cmd.WHEEL_HEAT),
         SEAT_DRIVER("seat_driver", 1, R.string.cc_seat_driver, Cmd.SEAT_DRIVER),
         SEAT_PASS("seat_pass", 1, R.string.cc_seat_pass, Cmd.SEAT_PASS),
         SEAT_REAR_LEFT("seat_rear_left", 1, R.string.cc_seat_rear_left, Cmd.SEAT_REAR_LEFT),
@@ -291,10 +290,6 @@ class ClimateControlView(
                 lamp(v == 1, RetroClimateIcons.LAMP_AMBER, HEAT_ON)
                 scaled(c, cx, cy, k) { icons.windshieldHeat(c, cx, cy) }
             }
-            Item.WHEEL_HEAT -> {
-                lamp(v == 1, RetroClimateIcons.LAMP_AMBER, HEAT_ON)
-                scaled(c, cx, cy, k) { icons.wheel(c, cx, cy) }
-            }
             Item.SEAT_DRIVER, Item.SEAT_PASS, Item.SEAT_REAR_LEFT, Item.SEAT_REAR_RIGHT -> {
                 val level = v ?: 0
                 lamp(level > 0, RetroClimateIcons.LAMP_AMBER, HEAT_ON)
@@ -382,7 +377,6 @@ class ClimateControlView(
             Item.MAX_DEFROST -> b(s.defrostFront)
             Item.SYNC -> b(s.sync)
             Item.WINDSHIELD_HEAT -> b(s.windshieldHeat)
-            Item.WHEEL_HEAT -> b(s.wheelHeat)
             Item.SEAT_DRIVER -> s.seatHeatDriver
             Item.SEAT_PASS -> s.seatHeatPass
             Item.SEAT_REAR_LEFT -> s.seatHeatRearLeft
@@ -484,7 +478,7 @@ class ClimateControlView(
 
         /** Набор виджета «Подогрев» (тот же вид, только подогревы). */
         val HEAT_ITEMS = listOf(
-            Item.WINDSHIELD_HEAT, Item.WHEEL_HEAT, Item.SEAT_DRIVER,
+            Item.WINDSHIELD_HEAT, Item.SEAT_DRIVER,
             Item.SEAT_PASS, Item.SEAT_REAR_LEFT, Item.SEAT_REAR_RIGHT
         )
 

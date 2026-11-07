@@ -150,6 +150,95 @@ class TripTrackerTest {
     }
 
     @Test
+    fun engineHours_splitsIdleAndMoving() {
+        val clock = TripTracker.EngineClock()
+        val t0 = 1_000_000L
+        fun step(odo: Int, speed: Float, engineOn: Boolean, now: Long) =
+            TripTracker.accumulateEngineHours(
+                clock,
+                data(odo, 50f).copy(speedKmh = speed),
+                engineOn,
+                now,
+                gapMs = Long.MAX_VALUE
+            )
+
+        step(100, 0f, true, t0)
+        val idle = step(100, 0f, true, t0 + 600_000L)
+        assertEquals(600_000L, idle.idleMillis)
+        assertEquals(0L, idle.movingMillis)
+
+        val moving = step(110, 60f, true, t0 + 1_800_000L)
+        assertEquals(600_000L, moving.idleMillis)
+        assertEquals(1_200_000L, moving.movingMillis)
+        assertEquals(1_800_000L, moving.totalMillis)
+    }
+
+    @Test
+    fun engineHours_engineOffDoesNotCount() {
+        val clock = TripTracker.EngineClock()
+        val t0 = 1_000_000L
+        fun step(engineOn: Boolean, now: Long) = TripTracker.accumulateEngineHours(
+            clock,
+            data(100, 50f).copy(speedKmh = 0f),
+            engineOn,
+            now,
+            gapMs = Long.MAX_VALUE
+        )
+
+        step(true, t0)
+        // Заглушили: интервал не добавляем, состояние «выключен».
+        step(false, t0 + 300_000L)
+        // Новый пуск: первый тик — только точка отсчёта.
+        step(true, t0 + 600_000L)
+        val h = step(true, t0 + 900_000L)
+        assertEquals(300_000L, h.idleMillis)
+        assertEquals(0L, h.movingMillis)
+    }
+
+    @Test
+    fun engineHours_longGapIsNotEngineRun() {
+        val clock = TripTracker.EngineClock()
+        val t0 = 1_000_000L
+        TripTracker.accumulateEngineHours(
+            clock, data(100, 50f).copy(speedKmh = 0f), true, t0
+        )
+        // Ночь на стоянке, утром первый снимок «работает» — не прибавляем.
+        val h = TripTracker.accumulateEngineHours(
+            clock, data(100, 50f).copy(speedKmh = 0f), true, t0 + 8 * 3_600_000L
+        )
+        assertEquals(0L, h.totalMillis)
+    }
+
+    @Test
+    fun engineHours_movingByOdometerWhenSpeedMissing() {
+        val clock = TripTracker.EngineClock()
+        val t0 = 1_000_000L
+        TripTracker.accumulateEngineHours(
+            clock, data(100, 50f).copy(speedKmh = null), true, t0
+        )
+        val h = TripTracker.accumulateEngineHours(
+            clock, data(110, 50f).copy(speedKmh = null), true, t0 + 60_000L
+        )
+        assertEquals(60_000L, h.movingMillis)
+        assertEquals(0L, h.idleMillis)
+    }
+
+    @Test
+    fun engineHours_shortDataGapKeepsCounting() {
+        val clock = TripTracker.EngineClock()
+        val t0 = 1_000_000L
+        TripTracker.accumulateEngineHours(
+            clock, data(100, 50f).copy(speedKmh = 0f), true, t0
+        )
+        // Шина пропала на полминуты, двигатель работал — паузу засчитываем.
+        TripTracker.accumulateEngineHours(clock, null, false, t0 + 30_000L)
+        val h = TripTracker.accumulateEngineHours(
+            clock, data(100, 50f).copy(speedKmh = 0f), true, t0 + 60_000L
+        )
+        assertEquals(60_000L, h.idleMillis)
+    }
+
+    @Test
     fun finalizeEntry_skipsJunkTrips() {
         // Ни пробега, ни времени — в журнал не пишем.
         assertNull(

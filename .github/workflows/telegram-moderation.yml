@@ -1,0 +1,67 @@
+name: "Telegram: модерация чата"
+
+# Раз в 10 минут забирает новые сообщения из чата обсуждений канала через
+# getUpdates: удаляет спам, ограничивает/блокирует нарушителей, приветствует
+# новичков и отвечает на /help, /rules, /apk, /id.
+#
+# Состояние (offset, счётчики нарушений) хранится в actions/cache. Telegram
+# отдаёт обновления только за последние 24 часа, а cron в GitHub может
+# задерживаться — это не мгновенная модерация, но для канала достаточно.
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Ничего не удалять, только показать в логе
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: telegram-moderation
+  cancel-in-progress: false
+
+jobs:
+  moderate:
+    runs-on: ubuntu-latest
+    env:
+      TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+      TG_DISCUSSION_CHAT_ID: ${{ vars.TG_DISCUSSION_CHAT_ID }}
+      TG_STATE_DIR: .telegram-state
+      GITHUB_REPOSITORY: ${{ github.repository }}
+    steps:
+      - name: Проверить, что всё задано
+        id: check
+        run: |
+          if [ -z "$TG_BOT_TOKEN" ]; then
+            echo "::warning::Секрет TG_BOT_TOKEN не задан — модерация пропущена"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          elif [ -z "$TG_DISCUSSION_CHAT_ID" ]; then
+            echo "::warning::Переменная TG_DISCUSSION_CHAT_ID не задана — модерация пропущена"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.check.outputs.enabled == 'true'
+        uses: actions/checkout@v4
+
+      - name: Восстановить состояние
+        if: steps.check.outputs.enabled == 'true'
+        uses: actions/cache@v4
+        with:
+          path: .telegram-state
+          key: tg-moderation-${{ github.run_id }}
+          restore-keys: tg-moderation-
+
+      - name: Модерация
+        if: steps.check.outputs.enabled == 'true'
+        run: |
+          args=(moderate)
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then args+=(--dry-run); fi
+          python3 tools/telegram/bot.py "${args[@]}"

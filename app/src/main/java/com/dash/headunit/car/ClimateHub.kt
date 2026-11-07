@@ -102,8 +102,6 @@ object ClimateHub {
         val seatHeatDriver: Int? = null,
         /** Подогрев сиденья пассажира 0..3 (0,96). */
         val seatHeatPass: Int? = null,
-        /** Подогрев руля (16,70). */
-        val wheelHeat: Boolean? = null,
         /** Подогрев задних сидений 0..3 (0,139 / 0,141). */
         val seatHeatRearLeft: Int? = null,
         val seatHeatRearRight: Int? = null
@@ -225,7 +223,6 @@ object ClimateHub {
             windshieldHeat = boolOr(desay.readInt(G, 65)),
             seatHeatDriver = desay.readInt(0, 95).takeIf { it in 0..3 },
             seatHeatPass = desay.readInt(0, 96).takeIf { it in 0..3 },
-            wheelHeat = boolOr(desay.readInt(G, 70)),
             seatHeatRearLeft = desay.readInt(0, 139).takeIf { it in 0..3 },
             seatHeatRearRight = desay.readInt(0, 141).takeIf { it in 0..3 }
         )

@@ -53,4 +53,61 @@ class ShadeResumeTest {
         a.writeFailed()
         assertEquals(write, a.step(true, true) { 1 })
     }
+
+    @Test
+    fun finished_rearmedWhenEngineStartsAfterSleep() {
+        // ГУ спало с замершим процессом: автооткрытие отработало вчера.
+        val a = ShadeResume.AutoOpen()
+        a.finish()
+        val last = 1_000L
+        assertTrue(ShadeResume.rearmIfRestarted(a, last, last + ShadeResume.REARM_GAP_MS + 1))
+        assertFalse(a.finished)
+        assertEquals(write, a.step(true, true) { 1 })
+    }
+
+    @Test
+    fun finished_notRearmedWhileDriving() {
+        val a = ShadeResume.AutoOpen()
+        a.finish()
+        assertFalse(ShadeResume.rearmIfRestarted(a, 1_000L, 6_000L))
+        assertTrue(a.finished)
+    }
+
+    @Test
+    fun finished_rearmedOnFirstEngineStartInProcess() {
+        // Открывали ещё на зажигании без двигателя — на пуске повторяем.
+        val a = ShadeResume.AutoOpen()
+        a.finish()
+        assertTrue(ShadeResume.rearmIfRestarted(a, 0L, 5_000L))
+    }
+
+    @Test
+    fun pending_notResetByEngineStart() {
+        val a = ShadeResume.AutoOpen()
+        assertEquals(write, a.step(true, true) { 1 })
+        assertFalse(ShadeResume.rearmIfRestarted(a, 0L, 5_000L))
+        assertEquals(1, a.attempts)
+    }
+
+    @Test
+    fun recordLag_dropsLastTicksBeforeEngineOff() {
+        // Ехали с открытой шторкой; на глушении машина её закрывает,
+        // обороты в шине ещё «живые» — последние чтения уже 1.
+        val lag = ShadeResume.RecordLag(ticks = 2)
+        val recorded = mutableListOf<Int>()
+        for (raw in listOf(6, 6, 6, 6, 1, 1)) {
+            lag.push(raw)?.let { recorded += it }
+        }
+        // Двигатель заглох — хвост выбрасывается.
+        lag.clear()
+        assertEquals(listOf(6, 6, 6, 6), recorded)
+    }
+
+    @Test
+    fun recordLag_badReadsAreNotRecorded() {
+        val lag = ShadeResume.RecordLag(ticks = 1)
+        assertEquals(null, lag.push(-1))
+        assertEquals(null, lag.push(6))
+        assertEquals(6, lag.push(6))
+    }
 }

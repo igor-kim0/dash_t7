@@ -1,6 +1,7 @@
 package com.dash.headunit.screensaver
 
 import android.app.Activity
+import android.graphics.Color
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -8,6 +9,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.widget.FrameLayout
 import com.dash.headunit.dashboard.WidgetSettingsStore
 
 /**
@@ -16,7 +18,8 @@ import com.dash.headunit.dashboard.WidgetSettingsStore
  * Нет касаний экрана [Config.timeoutSec] — поверх всего окна кладётся фон
  * заставки ([BACKGROUNDS]: тёмный с часами, камин, северное сияние), яркость окна снижается до [Config.brightness] %. Любое касание
  * убирает заставку (само касание до виджетов не доходит), возвращает
- * яркость, и таймер начинается заново.
+ * яркость, и таймер начинается заново. С [Config.rotate] фоны сменяют друг
+ * друга по кругу каждые [Config.rotateSec] секунд.
  *
  * Яркость — атрибут окна (screenBrightness): без разрешений, действует, пока
  * окно дашборда на экране, и снимается системой, если приложение упадёт.
@@ -32,6 +35,10 @@ class Screensaver(
         val timeoutSec: Int,
         val brightness: Int,
         val background: String,
+        /** Менять фоны по кругу, пока заставка на экране. */
+        val rotate: Boolean = false,
+        /** Сколько секунд показывать каждый фон при смене по кругу. */
+        val rotateSec: Int = DEFAULT_ROTATE_SEC,
         /** Кнопка на плитке виджета: false — заставка не включается. */
         val enabled: Boolean = true
     )
@@ -40,7 +47,13 @@ class Screensaver(
     var config: Config? = null
         set(value) {
             field = value
-            if (value == null) hide() else schedule()
+            if (value == null) {
+                hide()
+            } else {
+                schedule()
+                // Настройки могли поменять интервал/выключить смену на ходу.
+                if (isShowing) scheduleRotate(value)
+            }
         }
 
     /** Можно ли сейчас показать (не редактирование, нет открытого диалога). */
@@ -51,11 +64,14 @@ class Screensaver(
 
     private val handler = Handler(Looper.getMainLooper())
     private val fire = Runnable { onTimer() }
+    private val rotate = Runnable { onRotate() }
     private var running = false
     private var lastTouch = SystemClock.uptimeMillis()
     // Касание, разбудившее заставку, — съедаем до отпускания пальца.
     private var swallowing = false
-    private var overlay: View? = null
+    private var overlay: FrameLayout? = null
+    // Индекс текущего фона в [BACKGROUNDS] — растёт при смене по кругу.
+    private var bgIndex = 0
     private var savedBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
 
     fun resume() {
@@ -124,18 +140,27 @@ class Screensaver(
         isShowing = true
         handler.removeCallbacks(fire)
         val decor = activity.window.decorView as ViewGroup
-        val view = createView(activity, c.background).apply {
-            setBackgroundColor(0xFF000000.toInt())
-            alpha = 0f
+        val container = FrameLayout(activity).apply {
+            setBackgroundColor(Color.BLACK)
             // Касания не должны провалиться к виджетам под заставкой.
             isClickable = true
         }
-        decor.addView(
+        bgIndex = BACKGROUNDS.indexOf(c.background).coerceAtLeast(0)
+        val view = createView(activity, BACKGROUNDS[bgIndex]).apply {
+            alpha = 0f
+            isClickable = true
+        }
+        container.addView(
             view,
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+        )
+        decor.addView(
+            container,
             ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         )
         view.animate().alpha(1f).setDuration(FADE_MS).start()
-        overlay = view
+        overlay = container
+        scheduleRotate(c)
         val lp = activity.window.attributes
         savedBrightness = lp.screenBrightness
         lp.screenBrightness = (c.brightness / 100f).coerceIn(MIN_BRIGHTNESS, 1f)
@@ -146,7 +171,9 @@ class Screensaver(
     private fun hide() {
         if (!isShowing) return
         isShowing = false
+        handler.removeCallbacks(rotate)
         overlay?.let {
+            for (i in 0 until it.childCount) it.getChildAt(i).animate().cancel()
             it.animate().cancel()
             (it.parent as? ViewGroup)?.removeView(it)
         }
@@ -159,16 +186,48 @@ class Screensaver(
         schedule()
     }
 
+    /** Запланировать смену фона через [Config.rotateSec] секунд. */
+    private fun scheduleRotate(c: Config) {
+        handler.removeCallbacks(rotate)
+        if (!isShowing || !c.rotate) return
+        handler.postDelayed(rotate, c.rotateSec * 1000L)
+    }
+
+    private fun onRotate() {
+        val c = config ?: return
+        if (!running || !isShowing) return
+        val container = overlay ?: return
+        bgIndex = (bgIndex + 1) % BACKGROUNDS.size
+        val old: View? = if (container.childCount > 0) {
+            container.getChildAt(container.childCount - 1)
+        } else null
+        val next = createView(activity, BACKGROUNDS[bgIndex]).apply { alpha = 0f }
+        container.addView(
+            next,
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+        )
+        next.animate().alpha(1f).setDuration(FADE_MS).withEndAction {
+            old?.let { container.removeView(it) }
+        }.start()
+        scheduleRotate(c)
+    }
+
     companion object {
         const val OPT_TIMEOUT = "ss_timeout_s"
         const val OPT_BRIGHTNESS = "ss_brightness"
         const val OPT_BACKGROUND = "ss_background"
+        const val OPT_ROTATE = "ss_rotate"
+        const val OPT_ROTATE_SEC = "ss_rotate_s"
         const val OPT_ENABLED = "ss_enabled"
 
         /** Варианты задержки, с. */
         val TIMEOUTS = listOf(30, 60, 120, 180, 300, 600, 900, 1800)
         const val DEFAULT_TIMEOUT = 60
         const val DEFAULT_BRIGHTNESS = 20
+
+        /** Через сколько секунд менять фон при смене по кругу. */
+        val ROTATE_INTERVALS = listOf(30, 60, 180, 300, 600)
+        const val DEFAULT_ROTATE_SEC = 60
 
         /** Фоны заставки: тёмный с часами, камин, северное сияние. */
         const val BG_DARK = "dark"
@@ -194,6 +253,9 @@ class Screensaver(
                 .toIntOrNull() ?: DEFAULT_BRIGHTNESS).coerceIn(0, 100),
             background = store.getOption(widgetId, OPT_BACKGROUND, BG_DARK)
                 .takeIf { it in BACKGROUNDS } ?: BG_DARK,
+            rotate = store.getOption(widgetId, OPT_ROTATE, "0") != "0",
+            rotateSec = store.getOption(widgetId, OPT_ROTATE_SEC, DEFAULT_ROTATE_SEC.toString())
+                .toIntOrNull()?.takeIf { it > 0 } ?: DEFAULT_ROTATE_SEC,
             enabled = store.getOption(widgetId, OPT_ENABLED, "1") != "0"
         )
 

@@ -11,14 +11,20 @@ import com.dash.headunit.settings.AppSettings
  * Состояние — ячейка 0,10: 6 = открыто (подтверждено), 1 = закрыто.
  *
  * Запоминание: [CarHub] читает 0,10 на каждом тике опроса, пока двигатель
- * работает (и ещё раз в момент конца поездки, если шина жива), и отдаёт
- * в [record]. В prefs остаётся последнее значение при работающем
- * двигателе = состояние в конце поездки. Раньше читали только в момент
+ * работает, и отдаёт в [observe] — в prefs попадает значение с отставанием
+ * [RECORD_LAG_TICKS] тиков = состояние незадолго до глушения. Именно «до»:
+ * машина сама закрывает шторку при глушении, и чтение в момент конца
+ * поездки (так было раньше) сохраняло «закрыто» — шторка не открывалась. Раньше читали только в момент
  * конца поездки — а ГУ обычно засыпает вместе с зажиганием, и поездка
  * закрывается «вслепую» (шины уже нет) или утром по разрыву: состояние
  * не записывалось никогда либо записывалось утреннее.
  *
- * Открытие — раз за запуск приложения, с проверкой: запись в шину oneway
+ * Открытие — раз за запуск двигателя, с проверкой. Раньше было «раз за
+ * запуск процесса» — но ГУ засыпает вместе с зажиганием и процесс при этом
+ * лишь замирает: утром он продолжает жить с уже отработавшим автооткрытием,
+ * и шторка не открывалась. Теперь автооткрытие заново взводится
+ * ([rearmIfRestarted]), когда двигатель снова работает после паузы
+ * дольше [REARM_GAP_MS] (сон ГУ / стоянка). Проверка: запись в шину oneway
  * (true значит лишь «транзакция ушла», машина могла её не принять — на
  * старте шина комфорта просыпается не сразу), поэтому через
  * [VERIFY_TICKS] тиков читаем 0,10; не открыто — повторяем, не больше
@@ -41,10 +47,18 @@ object ShadeResume {
     /** Чистая машина состояний автооткрытия (память процесса). */
     private val auto = AutoOpen()
 
+    /** Последний тик с работающим двигателем (elapsedRealtime, учитывает сон); 0 — не было. */
+    private var lastEngineOnAt = 0L
+
+    /** Чтения 0,10 при работающем двигателе, ещё не попавшие в prefs. */
+    private val lag = RecordLag()
+
     /** Для тестов. */
     fun resetForTests() {
         savedRaw = null
         auto.reset()
+        lastEngineOnAt = 0L
+        lag.clear()
     }
 
     /**
@@ -58,10 +72,18 @@ object ShadeResume {
     fun tick(
         context: Context,
         busAlive: Boolean,
+        engineOn: Boolean,
         readShade: () -> Int?,
-        writeOpen: () -> Boolean
+        writeOpen: () -> Boolean,
+        now: Long = android.os.SystemClock.elapsedRealtime()
     ) {
         if (savedRaw == null) savedRaw = loadRaw(context)
+        if (engineOn) {
+            if (rearmIfRestarted(auto, lastEngineOnAt, now)) {
+                android.util.Log.i(TAG, "engine started again — auto open re-armed")
+            }
+            lastEngineOnAt = now
+        }
         if (auto.finished) return
         if (!AppSettings.shadeResume(context)) {
             auto.finish()
@@ -89,6 +111,23 @@ object ShadeResume {
     val pending: Boolean get() = !auto.finished
 
     /**
+     * Тик запоминания ([CarHub], каждый свежий снимок). Чтение 0,10 при
+     * работающем двигателе запоминается не сразу, а через [RECORD_LAG_TICKS]
+     * тиков — и только если двигатель всё это время работал. Машина сама
+     * закрывает шторку при глушении: последние секунды перед «заглушили»
+     * (обороты в шине обновляются с запозданием) показывают уже едущую или
+     * закрытую шторку и затёрли бы «открыто». Двигатель заглох — хвост
+     * неподтверждённых чтений выбрасываем.
+     */
+    fun observe(context: Context, engineOn: Boolean, read: () -> Int?) {
+        if (!engineOn || pending) {
+            lag.clear()
+            return
+        }
+        lag.push(read())?.let { record(context, it) }
+    }
+
+    /**
      * Запомнить состояние шторки. Битое чтение (шина отвалилась) состояние
      * не портит; пока идёт автооткрытие — тоже не пишем.
      */
@@ -96,6 +135,7 @@ object ShadeResume {
         if (raw == null || raw < 0) return
         if (pending) return
         if (savedRaw == raw) return
+        android.util.Log.i(TAG, "shade state recorded: $raw (was $savedRaw)")
         savedRaw = raw
         store(context, raw)
     }
@@ -107,6 +147,34 @@ object ShadeResume {
     }
 
     /* Чистые — тестируются. */
+
+    /**
+     * Двигатель работает: если автооткрытие уже отработало, а прошлый тик
+     * с работающим двигателем был давно (или его не было в этом процессе —
+     * открывали ещё на зажигании без двигателя) — взвести заново.
+     * Открытая шторка от повторной команды «открыть» не страдает.
+     */
+    internal fun rearmIfRestarted(auto: AutoOpen, lastEngineOnAt: Long, now: Long): Boolean {
+        if (!auto.finished) return false
+        if (lastEngineOnAt > 0L && now - lastEngineOnAt <= REARM_GAP_MS) return false
+        auto.reset()
+        return true
+    }
+
+    /**
+     * Задержка запоминания: [push] возвращает чтение, сделанное
+     * [RECORD_LAG_TICKS] тиков назад (или null, пока очередь не набралась).
+     */
+    internal class RecordLag(private val ticks: Int = RECORD_LAG_TICKS) {
+        private val queue = ArrayDeque<Int?>()
+
+        fun push(raw: Int?): Int? {
+            queue.addLast(raw?.takeIf { it >= 0 })
+            return if (queue.size > ticks) queue.removeFirst() else null
+        }
+
+        fun clear() = queue.clear()
+    }
 
     /** «Открыта в конце поездки»: сырое значение ячейки 0,10. */
     internal fun wasOpen(raw: Int): Boolean = raw == OPEN_RAW
@@ -186,4 +254,8 @@ object ShadeResume {
     internal const val MAX_ATTEMPTS = 4
     /** Тиков опроса (по 5 с) между записью и проверкой — шторка едет. */
     internal const val VERIFY_TICKS = 2
+    /** Пауза в работе двигателя, после которой автооткрытие взводится заново. */
+    internal const val REARM_GAP_MS = 60_000L
+    /** На сколько тиков опроса (по 5 с) запоминание отстаёт от чтения. */
+    internal const val RECORD_LAG_TICKS = 2
 }

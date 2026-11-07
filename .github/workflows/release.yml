@@ -50,3 +50,12 @@ jobs:
           body_path: release-notes.md
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-dev') }}
+
+  # Анонс в Telegram-канале — только после успешной сборки и публикации
+  # релиза. Если секрет TG_BOT_TOKEN не задан, шаг аккуратно пропускается.
+  announce:
+    needs: release
+    uses: ./.github/workflows/telegram-post.yml
+    with:
+      tag: ${{ github.ref_name }}
+    secrets: inherit

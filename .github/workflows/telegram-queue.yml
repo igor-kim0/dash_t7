@@ -1,0 +1,73 @@
+name: "Telegram: отложенные посты"
+
+# Каждые 15 минут публикует посты из content/telegram/queue, у которых наступил
+# publish_at, и переносит их в content/telegram/sent (коммитом).
+# Расписание GitHub может задерживать запуск на несколько минут.
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Только показать, что было бы опубликовано
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: telegram-queue
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+      TG_CHANNEL_ID: ${{ vars.TG_CHANNEL_ID || '@tenet_t7_dash' }}
+    steps:
+      - name: Проверить, что секрет задан
+        id: check
+        run: |
+          if [ -z "$TG_BOT_TOKEN" ]; then
+            echo "::warning::Секрет TG_BOT_TOKEN не задан — очередь пропущена"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.check.outputs.enabled == 'true'
+        uses: actions/checkout@v4
+
+      - name: Опубликовать созревшее
+        if: steps.check.outputs.enabled == 'true'
+        run: |
+          args=(run-queue)
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then args+=(--dry-run); fi
+          python3 tools/telegram/bot.py "${args[@]}"
+
+      - name: Закоммитить перенесённые посты
+        if: steps.check.outputs.enabled == 'true' && github.event.inputs.dry_run != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add content/telegram
+          if git diff --cached --quiet; then
+            echo "Новых публикаций нет"
+            exit 0
+          fi
+          git commit -m "Telegram: опубликован отложенный пост [skip ci]"
+          # Если ветку успели обновить, повторяем с rebase, чтобы не потерять
+          # отметку об отправке (иначе пост уйдёт повторно).
+          for i in 1 2 3; do
+            git pull --rebase --autostash || true
+            if git push; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::Не удалось закоммитить отметку об отправке — проверьте защиту ветки"
+          exit 1

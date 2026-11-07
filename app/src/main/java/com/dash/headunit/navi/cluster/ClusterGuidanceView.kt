@@ -12,21 +12,26 @@ import android.graphics.Typeface
 import android.text.TextPaint
 import android.text.TextUtils
 import android.view.View
+import com.dash.headunit.car.CarHub
+import com.dash.headunit.car.ClusterPps
+import com.dash.headunit.car.CoolantCalibration
+import com.dash.headunit.widgets.engineTempColor
+import com.dash.headunit.widgets.fuelLevelColor
 
 /**
  * Картинка маршрута для приборки (дисплей 1, 1920×720) — карточка манёвра
  * в центральной полосе шириной [contentWidth] px (по бокам у приборки свои
  * шкалы):
  *
- *         ╭──────╮
- *         │  ↰   │  300 м
- *  ╭────╮ │      │  ▓▓▓▓▓▓▓▓░░░░   — сколько осталось до манёвра
- *  │(60)│ ╰──────╯  ул. Ленина          камера 60 · 350 м
- *  ╰────╯ 12 км · 18 мин · прибытие 14:35            ▮ светофор
+ *  ╭────╮ ╭──────╮
+ *  │(60)│ │  ↰   │  300 м
+ *  ╰────╯ │      │  ▓▓▓▓▓▓▓▓░░░░   — сколько осталось до манёвра
+ *         ╰──────╯  ул. Ленина          камера 60 · 350 м
+ *         12 км · 18 мин · прибытие 14:35            ▮ светофор
  *
  * Знак ограничения при маршруте — в своём блоке слева от карточки, в
- * секторе B рядом с текущей скоростью приборки (её «75» у x≈140…245,
- * y≈385…460 по фото ГУ 2026-11-03).
+ * секторе B, на уровне строки «расстояние + полоса до манёвра» (верх
+ * блока вровень с плиткой стрелки).
  *
  * Без маршрута ([Guidance.freeDrive]) карточки нет — строка от левого
  * края полосы: знак ограничения, камера, светофор, текущая улица.
@@ -35,6 +40,10 @@ import android.view.View
  * остаётся пустым чёрным — иначе на дисплей 1 вернётся зеркало главного
  * экрана. [calibration] — поверх всего дисплея сетка координат (полосы
  * A–H по 240 px, линии через 80 px) и контур центральной полосы.
+ *
+ * Внизу полосы, у правого края, — литры в баке и температура двигателя
+ * цифрами; цвет по тем же порогам, что у виджета «Автомобиль»
+ * ([fuelLevelColor], [engineTempColor]).
  */
 class ClusterGuidanceView(context: Context) : View(context) {
 
@@ -71,6 +80,10 @@ class ClusterGuidanceView(context: Context) : View(context) {
     private val grey = Color.rgb(0x9A, 0xA3, 0xAE)
     private val amber = Color.rgb(0xFF, 0xB3, 0x00)
     private val red = Color.rgb(0xE5, 0x39, 0x35)
+    private val green = Color.rgb(0x66, 0xBB, 0x6A)
+
+    /** Обновление данных авто (топливо/ОЖ) — перерисовать строку внизу. */
+    private val hubListener: () -> Unit = { invalidate() }
 
     private val cardFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(0x16, 0x1B, 0x22) }
     private val cardStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -89,6 +102,11 @@ class ClusterGuidanceView(context: Context) : View(context) {
         strokeJoin = Paint.Join.ROUND
     }
     private val headPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = white }
+    private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = white
+        alpha = 100
+        style = Paint.Style.STROKE
+    }
     private val bigText = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         color = white
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
@@ -207,6 +225,7 @@ class ClusterGuidanceView(context: Context) : View(context) {
 
         if (!g.hasManeuver) {
             drawWarningsRow(canvas, g, left, right, signCy, signR, s)
+            drawCarStatus(canvas, right, h, s)
             return
         }
         limit?.let { drawSideSign(canvas, it, g.overspeed, left, s) }
@@ -224,6 +243,53 @@ class ClusterGuidanceView(context: Context) : View(context) {
         ).joinToString("  ·  ")
         val etaW = cw - 2 * pad - if (g.trafficLight != null) 120f * s * TL_ASPECT + 24f * s else 0f
         if (eta.isNotEmpty()) canvas.drawText(fit(eta, smallText, etaW), left + pad, bottom + 70f * s, smallText)
+
+        drawCarStatus(canvas, right, h, s)
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        CarHub.init(context)
+        CarHub.addListener(hubListener)
+        CarHub.ensurePolling()
+    }
+
+    override fun onDetachedFromWindow() {
+        CarHub.removeListener(hubListener)
+        super.onDetachedFromWindow()
+    }
+
+    /**
+     * Строка состояния внизу полосы, прижата к правому краю: литры в баке
+     * и температура двигателя цифрами. Цвет — по тем же порогам, что у
+     * виджета «Автомобиль» ([fuelLevelColor], [engineTempColor]); нет
+     * данных — метрика не рисуется.
+     */
+    private fun drawCarStatus(canvas: Canvas, right: Float, h: Float, s: Float) {
+        val d = CarHub.data ?: return
+        val fuel = d.fuelLiters
+        // Прямые градусы, без них — оценка по стрелке ОЖ приборки
+        // (как в ретро-спидометре и виджете «Автомобиль»).
+        val exact = d.engineTempC
+        val eng = exact ?: ClusterPps.needle()?.let { CoolantCalibration.estimate(it) }
+        if (fuel == null && eng == null) return
+
+        smallText.textAlign = Paint.Align.RIGHT
+        smallText.textSize = 34f * s
+        var x = right - 30f * s
+        val y = h - 30f * s
+        if (eng != null) {
+            smallText.color = engineTempColor(eng, green)
+            val text = (if (exact == null) "≈" else "") + "${Math.round(eng)}°"
+            canvas.drawText(text, x, y, smallText)
+            x -= smallText.measureText(text) + 28f * s
+        }
+        if (fuel != null) {
+            smallText.color = d.fuelPct?.let { fuelLevelColor(it, green) } ?: grey
+            canvas.drawText("${Math.round(fuel)} л", x, y, smallText)
+        }
+        smallText.color = grey
+        smallText.textAlign = Paint.Align.LEFT
     }
 
     /**
@@ -411,15 +477,21 @@ class ClusterGuidanceView(context: Context) : View(context) {
                 return
             }
             Maneuver.ROUNDABOUT -> {
-                headPaint.style = Paint.Style.STROKE
-                headPaint.strokeWidth = u * 0.9f
-                canvas.drawCircle(cx, y + size * 0.45f, u * 2f, headPaint)
-                headPaint.style = Paint.Style.FILL
+                // Как context_ra_out_circular_movement Яндекса: бледное кольцо,
+                // ствол снизу, обход кольца справа (против часовой) и съезд
+                // вправо-вверх. Номер съезда навигатор не отдаёт.
+                val r = u * 2.7f
+                val ccy = y + size * 0.5f
+                ringPaint.strokeWidth = u * 0.9f
+                canvas.drawCircle(cx, ccy, r, ringPaint)
                 path.moveTo(cx, bottom)
-                path.lineTo(cx, y + size * 0.45f + u * 2f)
-                path.moveTo(cx + u * 1.4f, y + size * 0.45f - u * 1.4f)
-                path.lineTo(cx + u * 3.2f, y + u * 2f)
-                tip = Triple(cx + u * 3.2f, y + u * 2f, 35f)
+                path.lineTo(cx, ccy + r)
+                path.arcTo(cx - r, ccy - r, cx + r, ccy + r, 90f, -135f, false)
+                val d = r * 0.7071f
+                val tx = cx + d + u * 1.8f
+                val ty = ccy - d - u * 1.8f
+                path.lineTo(tx, ty)
+                tip = Triple(tx, ty, 45f)
             }
             Maneuver.STRAIGHT -> {
                 path.moveTo(cx, bottom)
@@ -485,7 +557,7 @@ class ClusterGuidanceView(context: Context) : View(context) {
         /** Блок знака ограничения при маршруте: сторона и центр, px дисплея 1920×720. */
         const val SIDE_BLOCK = 140f
         const val SIDE_SIGN_CX = 322f
-        const val SIDE_SIGN_CY = 422f
+        const val SIDE_SIGN_CY = 310f
         /** Лампы сверху вниз — в порядке [TrafficLight]: красная, жёлтая, зелёная. */
         val LAMP_ON = intArrayOf(Color.rgb(0xE5, 0x52, 0x45), Color.rgb(0xFF, 0xDF, 0x61), Color.rgb(0x85, 0xCC, 0x3D))
         val LAMP_OFF = Color.rgb(0x3A, 0x40, 0x4A)

@@ -260,25 +260,6 @@ class RetroClimateIcons(private val hole: Paint) {
         if (glowing) icon.setShadowLayer(5f, 0f, 0f, RetroLook.glowColor(litColor))
     }
 
-    /** Руль с тремя волнами подогрева над ним. */
-    fun wheel(c: Canvas, cx: Float, cy: Float) {
-        icon.strokeWidth = 2.5f
-        val oy = cy + 5f
-        c.drawCircle(cx, oy, 12f, icon)
-        c.drawCircle(cx, oy, 3.5f, icon)
-        c.drawLine(cx - 12f, oy, cx - 3.5f, oy, icon)
-        c.drawLine(cx + 3.5f, oy, cx + 12f, oy, icon)
-        c.drawLine(cx, oy + 3.5f, cx, oy + 12f, icon)
-        icon.strokeWidth = 2f
-        for (dx in listOf(-6f, 0f, 6f)) {
-            val x = cx + dx
-            path.reset()
-            path.moveTo(x, cy - 9f)
-            path.cubicTo(x - 2.5f, cy - 12f, x + 2.5f, cy - 14f, x, cy - 18f)
-            c.drawPath(path, icon)
-        }
-    }
-
     /** Обогрев лобового: стекло и зигзаг нити нагрева поперёк. */
     fun windshieldHeat(c: Canvas, cx: Float, cy: Float) {
         icon.strokeWidth = 2.5f

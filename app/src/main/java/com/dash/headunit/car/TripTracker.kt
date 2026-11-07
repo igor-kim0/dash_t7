@@ -11,6 +11,8 @@ import android.content.Context
  * Если доступен бортовой компьютер приборки ([ClusterTrip], a001), пробег,
  * расход и средняя скорость берутся с него (те же цифры, что на приборке,
  * и тоже «после запуска»); свой расчёт — запасной вариант.
+ * Накопительные моточасы (в движении / холостой ход) живут отдельно от
+ * поездки и сбрасываются только вручную.
  * Всё состояние переживает перезапуск (SharedPreferences).
  */
 object TripTracker {
@@ -44,6 +46,28 @@ object TripTracker {
         val avgSpeedKmh: Float? = null
     )
 
+    /**
+     * Накопительные моточасы. Всего — сумма [movingMillis] и [idleMillis];
+     * отдельного поля нет, чтобы разбивка не разошлась с итогом.
+     */
+    data class EngineHours(
+        /** Время работы двигателя в движении, мс. */
+        val movingMillis: Long = 0,
+        /** Время работы двигателя на холостом ходу, мс. */
+        val idleMillis: Long = 0
+    ) {
+        val totalMillis: Long get() = movingMillis + idleMillis
+    }
+
+    /** Сохраняемое состояние накопителя моточасов (переживает перезапуск). */
+    internal class EngineClock(
+        var movingMillis: Long = 0,
+        var idleMillis: Long = 0,
+        var lastTs: Long = 0,
+        var lastOn: Boolean = false,
+        var lastOdoKm: Int? = null
+    )
+
     data class Period(
         var odoStartKm: Int? = null,
         var fuelPctStart: Float? = null,
@@ -67,15 +91,6 @@ object TripTracker {
     private var blindSince: Long = 0L
 
     /**
-     * Счётчик завершённых поездок (перезаписи живого перехода, слепой
-     * финализации, «спали ГУ» — все через [finalizeLive]/[finalizeBlind]).
-     * [CarHub] ловит по нему момент конца поездки — единственное чтение
-     * ячейки шторки ([ShadeResume], запись «открыта в конце поездки»).
-     */
-    var tripEndTick: Long = 0L
-        private set
-
-    /**
      * Двигатель работает. Любой надёжный сигнал «заглушен» сильнее любого
      * «работает»: обороты Desay (4,62/4) ниже холостых ИЛИ честный флаг
      * Desay (0,27) через [CarData.charging] → «заглушено» — контраглэнды
@@ -90,6 +105,72 @@ object TripTracker {
         data.rpm?.let { return it > 400 }
         data.charging?.let { return it }
         return (data.voltageV ?: 0f) >= 13.0f
+    }
+
+    /**
+     * Один шаг накопителя моточасов. Прибавляем интервал только тогда,
+     * когда двигатель работал и на прошлом, и на текущем свежем снимке:
+     * стоянка, сон ГУ и пауза в данных в счёт не идут. Разрыв больше
+     * [GAP_MS] — это уже новая сессия (иначе утренний пуск добавил бы ночь).
+     * Чистая — тестируется.
+     */
+    internal fun accumulateEngineHours(
+        clock: EngineClock,
+        data: CarData?,
+        engineOn: Boolean,
+        now: Long,
+        gapMs: Long = GAP_MS
+    ): EngineHours {
+        if (data == null) {
+            return EngineHours(clock.movingMillis, clock.idleMillis)
+        }
+        val dt = (now - clock.lastTs).coerceAtLeast(0L)
+        if (clock.lastOn && engineOn && clock.lastTs > 0L && dt <= gapMs) {
+            if (engineMoving(data, clock.lastOdoKm)) {
+                clock.movingMillis += dt
+            } else {
+                clock.idleMillis += dt
+            }
+        }
+        clock.lastTs = now
+        clock.lastOn = engineOn
+        data.odoKm?.let { clock.lastOdoKm = it }
+        return EngineHours(clock.movingMillis, clock.idleMillis)
+    }
+
+    /**
+     * Двигатель работает «в движении»: скорость есть — по ней; скорости нет
+     * (шина/приборка молчат) — по приросту одометра. Иначе холостой ход.
+     */
+    private fun engineMoving(data: CarData, lastOdoKm: Int?): Boolean {
+        val speed = data.speedKmh
+        if (speed != null && speed.isFinite()) return speed >= ENGINE_MOVING_KMH
+        val odo = data.odoKm
+        return odo != null && lastOdoKm != null && odo > lastOdoKm
+    }
+
+    /** Накопленные моточасы (всего и разбивка). */
+    fun engineHours(context: Context): EngineHours {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return EngineHours(
+            movingMillis = prefs.getLong(KEY_EH_MOVING, 0L).coerceAtLeast(0L),
+            idleMillis = prefs.getLong(KEY_EH_IDLE, 0L).coerceAtLeast(0L)
+        )
+    }
+
+    /**
+     * Обнулить накопитель моточасов. [EngineClock.lastOn] сбрасываем, чтобы
+     * первый тик после сброса не добавил интервал, накопленный до нажатия.
+     */
+    @Synchronized
+    fun resetEngineHours(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putLong(KEY_EH_MOVING, 0L)
+            .putLong(KEY_EH_IDLE, 0L)
+            .putLong(KEY_EH_LAST_TS, 0L)
+            .putBoolean(KEY_EH_LAST_ON, false)
+            .apply()
     }
 
     /**
@@ -109,7 +190,10 @@ object TripTracker {
      *   в журнал ничего лишнего не пишем.
      *
      * Чистая относительно prefs часть вынесена в [compute] (тестируется).
+     * Synchronized: читает и пишет prefs целиком, а сброс моточасов и
+     * очистка журнала приходят с UI-потока — иначе тик затрёт сброс.
      */
+    @Synchronized
     fun update(
         context: Context,
         data: CarData?,
@@ -126,8 +210,10 @@ object TripTracker {
             prunePrefs(prefs, keepDays, now)
         }
         val t = load(prefs, PREFIX)
+        val engineClock = loadEngineClock(prefs)
 
         val on = engineOn(data)
+        accumulateEngineHours(engineClock, data, on, now)
         // prevEngineOn живёт только в памяти: после перезапуска процесса
         // (перезагрузка ГУ, убийство) восстанавливаем из prefs, иначе
         // переход «заглушили» потеряется и поездка не попадёт в журнал.
@@ -228,6 +314,11 @@ object TripTracker {
             edit.putInt("last_odo", data.odoKm ?: -1)
             edit.putFloat("last_fuel", data.fuelPct ?: -1f)
         }
+        edit.putLong(KEY_EH_MOVING, engineClock.movingMillis)
+            .putLong(KEY_EH_IDLE, engineClock.idleMillis)
+            .putLong(KEY_EH_LAST_TS, engineClock.lastTs)
+            .putBoolean(KEY_EH_LAST_ON, engineClock.lastOn)
+            .putInt(KEY_EH_LAST_ODO, engineClock.lastOdoKm ?: -1)
         edit.apply()
         return v
     }
@@ -246,7 +337,6 @@ object TripTracker {
         now: Long,
         endFallback: Long
     ) {
-        tripEndTick++
         val start = if (t.startTs > 0) t.startTs else now - v.driveMillis
         val final = withCluster(v.copy(cluster = null), lastClusterOn ?: cluster)
         finalizeTrip(start, endFallback, final)?.let { pushEntry(prefs, it) }
@@ -264,7 +354,6 @@ object TripTracker {
         tankLiters: Int,
         end: Long
     ) {
-        tripEndTick++
         val lastOdo = prefs.getInt("last_odo", -1)
         val dist = if (lastOdo >= 0 && t.odoStartKm != null) {
             (lastOdo - t.odoStartKm!!).toFloat().takeIf { it >= 0 }
@@ -356,6 +445,7 @@ object TripTracker {
         return decodeJournal(prefs.getString(KEY_JOURNAL, "") ?: "")
     }
 
+    @Synchronized
     fun clearJournal(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().remove(KEY_JOURNAL).apply()
@@ -539,6 +629,16 @@ object TripTracker {
         return TripView(dist.toFloat(), avgCons, avgSpeed, state.driveMillis)
     }
 
+    /** Состояние накопителя моточасов из prefs. */
+    private fun loadEngineClock(prefs: android.content.SharedPreferences): EngineClock =
+        EngineClock(
+            movingMillis = prefs.getLong(KEY_EH_MOVING, 0L),
+            idleMillis = prefs.getLong(KEY_EH_IDLE, 0L),
+            lastTs = prefs.getLong(KEY_EH_LAST_TS, 0L),
+            lastOn = prefs.getBoolean(KEY_EH_LAST_ON, false),
+            lastOdoKm = prefs.getInt(KEY_EH_LAST_ODO, -1).takeIf { it >= 0 }
+        )
+
     private fun load(
         prefs: android.content.SharedPreferences,
         prefix: String
@@ -587,6 +687,14 @@ object TripTracker {
      */
     private const val GAP_MS = 120_000L
     private const val KEY_CLUSTER = "last_cluster"
+    /** Моточасы: накопитель и его последний тик (переживают перезапуск). */
+    private const val KEY_EH_MOVING = "eh_moving"
+    private const val KEY_EH_IDLE = "eh_idle"
+    private const val KEY_EH_LAST_TS = "eh_last_ts"
+    private const val KEY_EH_LAST_ON = "eh_last_on"
+    private const val KEY_EH_LAST_ODO = "eh_last_odo"
+    /** Ниже этой скорости двигатель считается работающим на холостом ходу. */
+    private const val ENGINE_MOVING_KMH = 1f
 
     /** Диагностика для debug-экрана. */
     fun debugLines(context: Context): List<String> {
@@ -614,6 +722,12 @@ object TripTracker {
             out.add(
                 "trip: blind_ts=${prefs.getLong("blind_ts", 0L)} " +
                     "last_on_saved=${prefs.getBoolean("last_engine", false)}"
+            )
+            out.add(
+                "trip: engine hours total=${prefs.getLong(KEY_EH_MOVING, 0L) + prefs.getLong(KEY_EH_IDLE, 0L)} " +
+                    "moving=${prefs.getLong(KEY_EH_MOVING, 0L)} " +
+                    "idle=${prefs.getLong(KEY_EH_IDLE, 0L)} " +
+                    "last_on=${prefs.getBoolean(KEY_EH_LAST_ON, false)}"
             )
             val hub = CarHub.data
             out.add(

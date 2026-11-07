@@ -1,9 +1,11 @@
 package com.dash.headunit.widgets
 
 import android.content.Context
+import android.content.res.ColorStateList
 import android.text.SpannableString
 import android.util.TypedValue
 import android.view.Gravity
+import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -13,6 +15,7 @@ import com.dash.headunit.car.ClusterPps
 import com.dash.headunit.car.ClusterTrip
 import com.dash.headunit.car.DemoData
 import com.dash.headunit.car.TripTracker
+import com.dash.headunit.dashboard.WidgetSettingsStore
 import com.dash.headunit.ui.DashDialog
 import com.dash.headunit.theme.DashTheme
 import com.dash.headunit.theme.ThemeCard
@@ -21,15 +24,20 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Виджет «Бортовой компьютер»: метрики СРЕДНИЙ РАСХОД / ПРОБЕГ / СР. СКОРОСТЬ
- * крупно (как в «Автомобиле»); тап по виджету открывает журнал поездок
- * (завершённые поездки: глушение двигателя дописывает запись).
+ * Виджет «Бортовой компьютер»: колонки-метрики крупно (как в «Автомобиле»):
+ * СРЕДНИЙ РАСХОД / ПРОБЕГ / СР. СКОРОСТЬ за поездку и накопительные
+ * МОТОЧАСЫ (всего / в движении / холостой ход). Состав и порядок колонок
+ * и строка приборки внизу — в настройках виджета ([OPT_ITEMS], [OPT_ORDER],
+ * [OPT_FOOTER]). Тап по виджету открывает журнал поездок; у первой колонки
+ * моточасов — кнопка сброса.
  *
  * Данные считает [TripTracker] из [CarHub] (одометр, топливо, моточасы).
  */
 class TripWidgetView(
     context: Context,
-    private val theme: DashTheme = DashTheme.DARK
+    private val theme: DashTheme = DashTheme.DARK,
+    private val widgetId: String? = null,
+    private val settings: WidgetSettingsStore? = null
 ) : LinearLayout(context) {
 
     private var view: TripTracker.TripView? = null
@@ -54,17 +62,10 @@ class TripWidgetView(
         isFocusable = true
         setOnClickListener { showJournal() }
 
-        val mainRow = LinearLayout(context).apply {
-            orientation = HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
         content.orientation = HORIZONTAL
         content.gravity = Gravity.CENTER_VERTICAL
-        mainRow.addView(content, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
-        addView(
-            mainRow,
-            LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f)
-        )
+        addView(content, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+
         footerView.apply {
             setTextColor(theme.secondaryText)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
@@ -87,35 +88,80 @@ class TripWidgetView(
             real
         }
 
-        footerView.text = v?.cluster?.let { footer(it) }.orEmpty()
+        val showFooter = settings == null || widgetId == null ||
+            settings.getOption(widgetId, OPT_FOOTER, "1") != "0"
+        footerView.text = if (showFooter) v?.cluster?.let { footer(it) }.orEmpty() else ""
         footerView.visibility = if (footerView.text.isEmpty()) GONE else VISIBLE
 
+        val items = selectedItems(settings, widgetId)
+        val hours = if (items.any { it in HOURS_KEYS }) TripTracker.engineHours(context) else null
+        // Чем больше колонок, тем мельче цифры — чтобы влезали в ширину.
+        val valueSp = when (items.size) {
+            in 0..3 -> 44f
+            4 -> 38f
+            5 -> 32f
+            else -> 28f
+        }
+        val firstHours = items.firstOrNull { it in HOURS_KEYS }
         content.removeAllViews()
-        content.addView(
-            metric(
-                context.getString(R.string.trip_avg_cons),
-                v?.avgCons?.let { "%.1f".format(locale, it) },
-                context.getString(R.string.trip_avg_cons_unit)
-            ),
-            LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f)
-        )
-        content.addView(
-            metric(
-                context.getString(R.string.trip_dist),
-                v?.distKm?.let { "%.1f".format(locale, it) },
-                context.getString(R.string.trip_dist_unit)
-            ),
-            LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f)
-        )
-        content.addView(
-            metric(
-                context.getString(R.string.trip_avg_speed),
-                // Приборка даёт десятые — показываем как она.
-                v?.avgSpeedKmh?.let { (if (v.cluster != null) "%.1f" else "%.0f").format(locale, it) },
-                context.getString(R.string.trip_avg_speed_unit)
-            ),
-            LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f)
-        )
+        for (key in items) {
+            val (title, value, unit) = when (key) {
+                ITEM_CONS -> Triple(
+                    context.getString(R.string.trip_avg_cons),
+                    v?.avgCons?.let { "%.1f".format(locale, it) },
+                    context.getString(R.string.trip_avg_cons_unit)
+                )
+                ITEM_DIST -> Triple(
+                    context.getString(R.string.trip_dist),
+                    v?.distKm?.let { "%.1f".format(locale, it) },
+                    context.getString(R.string.trip_dist_unit)
+                )
+                ITEM_SPEED -> Triple(
+                    context.getString(R.string.trip_avg_speed),
+                    // Приборка даёт десятые — показываем как она.
+                    v?.avgSpeedKmh?.let { (if (v.cluster != null) "%.1f" else "%.0f").format(locale, it) },
+                    context.getString(R.string.trip_avg_speed_unit)
+                )
+                ITEM_HOURS -> Triple(
+                    context.getString(R.string.trip_engine_hours),
+                    hours?.let { engineHoursText(it.totalMillis) },
+                    context.getString(R.string.trip_journal_h)
+                )
+                ITEM_MOVING -> Triple(
+                    context.getString(R.string.trip_engine_moving),
+                    hours?.let { engineHoursText(it.movingMillis) },
+                    context.getString(R.string.trip_journal_h)
+                )
+                else -> Triple(
+                    context.getString(R.string.trip_engine_idle),
+                    hours?.let { engineHoursText(it.idleMillis) },
+                    context.getString(R.string.trip_journal_h)
+                )
+            }
+            content.addView(
+                metric(title, value, unit, valueSp, withReset = key == firstHours),
+                LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f)
+            )
+        }
+    }
+
+    /** Моточасы как на счётчике: часы с десятыми («12,4»). */
+    private fun engineHoursText(millis: Long): String =
+        "%.1f".format(locale, millis.coerceAtLeast(0L) / 3_600_000.0)
+
+    private fun confirmResetEngineHours() {
+        DashDialog.Builder(context)
+            .setTitle(R.string.trip_engine_reset_title)
+            .setMessage(R.string.trip_engine_reset_confirm)
+            .setPositiveButton(R.string.trip_engine_reset_ok) { _, _ ->
+                TripTracker.resetEngineHours(context)
+                render()
+                Toast.makeText(
+                    context, R.string.trip_engine_reset_done, Toast.LENGTH_SHORT
+                ).show()
+            }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .showFullScreen()
     }
 
     /** «После сброса 5036,6 км • Одометр 19 544 км • Запас 418 км». */
@@ -132,20 +178,51 @@ class TripWidgetView(
         ).joinToString(" • ")
     }
 
-    /** Колонка метрики: подпись / значение+единица (центрированы). */
-    private fun metric(title: String, value: String?, unit: String): LinearLayout {
+    /**
+     * Колонка метрики: подпись / значение+единица (центрированы).
+     * [withReset] — кнопка сброса моточасов справа от подписи.
+     */
+    private fun metric(
+        title: String,
+        value: String?,
+        unit: String,
+        valueSp: Float,
+        withReset: Boolean = false
+    ): LinearLayout {
         val col = LinearLayout(context).apply {
             orientation = VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
         }
         // Подпись генерируется во всю ширину колонки (дефолт вертикального
         // LinearLayout) — центрируем текст внутри, иначе она прижата влево.
-        col.addView(TextView(context).apply {
+        val titleView = TextView(context).apply {
             text = title
             setTextColor(theme.secondaryText)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             gravity = Gravity.CENTER_HORIZONTAL
-        })
+        }
+        if (withReset) {
+            val titleRow = LinearLayout(context).apply {
+                orientation = HORIZONTAL
+                gravity = Gravity.CENTER
+            }
+            titleRow.addView(titleView)
+            titleRow.addView(
+                ImageButton(context).apply {
+                    setImageResource(R.drawable.ic_rotate)
+                    imageTintList = ColorStateList.valueOf(theme.accent)
+                    background = null
+                    scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+                    contentDescription = context.getString(R.string.trip_engine_reset)
+                    setPadding(dp(4), dp(4), dp(4), dp(4))
+                    setOnClickListener { confirmResetEngineHours() }
+                },
+                LayoutParams(dp(28), dp(28)).apply { marginStart = dp(4) }
+            )
+            col.addView(titleRow)
+        } else {
+            col.addView(titleView)
+        }
         val row = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM
@@ -153,7 +230,7 @@ class TripWidgetView(
         row.addView(TextView(context).apply {
             text = value ?: "—"
             setTextColor(theme.primaryText)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 44f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, valueSp)
         })
         row.addView(TextView(context).apply {
             text = unit
@@ -430,5 +507,52 @@ class TripWidgetView(
     override fun onDetachedFromWindow() {
         CarHub.removeListener(hubListener)
         super.onDetachedFromWindow()
+    }
+
+    companion object {
+        const val ITEM_CONS = "cons"
+        const val ITEM_DIST = "dist"
+        const val ITEM_SPEED = "speed"
+        const val ITEM_HOURS = "hours"
+        const val ITEM_MOVING = "hours_moving"
+        const val ITEM_IDLE = "hours_idle"
+
+        /** Все колонки в порядке по умолчанию. */
+        val ITEM_KEYS = listOf(ITEM_CONS, ITEM_DIST, ITEM_SPEED, ITEM_HOURS, ITEM_MOVING, ITEM_IDLE)
+
+        /** Видны без настройки: поездка + моточасы всего (разбивка — по выбору). */
+        val DEFAULT_ITEMS = setOf(ITEM_CONS, ITEM_DIST, ITEM_SPEED, ITEM_HOURS)
+
+        private val HOURS_KEYS = setOf(ITEM_HOURS, ITEM_MOVING, ITEM_IDLE)
+
+        /** Опция [WidgetSettingsStore]: видимые колонки через запятую (пусто — [DEFAULT_ITEMS]). */
+        const val OPT_ITEMS = "items"
+
+        /** Опция [WidgetSettingsStore]: порядок всех колонок. */
+        const val OPT_ORDER = "order"
+
+        /** Опция [WidgetSettingsStore]: строка приборки внизу ("0" — скрыть). */
+        const val OPT_FOOTER = "footer"
+
+        /** Все колонки в порядке пользователя (новые ключи — в конец). */
+        fun order(settings: WidgetSettingsStore?, widgetId: String?): List<String> {
+            val raw = widgetId?.let { settings?.getOption(it, OPT_ORDER, "") }.orEmpty()
+            val saved = raw.split(',').map { it.trim() }.filter { it in ITEM_KEYS }.distinct()
+            return saved + ITEM_KEYS.filter { it !in saved }
+        }
+
+        /** Видимые колонки: набор из настройки или [DEFAULT_ITEMS]. */
+        fun checked(settings: WidgetSettingsStore?, widgetId: String?): Set<String> {
+            val raw = widgetId?.let { settings?.getOption(it, OPT_ITEMS, "") }.orEmpty()
+            if (raw.isEmpty()) return DEFAULT_ITEMS
+            return raw.split(',').map { it.trim() }.filter { it in ITEM_KEYS }.toSet()
+                .ifEmpty { DEFAULT_ITEMS }
+        }
+
+        /** Видимые колонки в порядке отображения. */
+        fun selectedItems(settings: WidgetSettingsStore?, widgetId: String?): List<String> {
+            val on = checked(settings, widgetId)
+            return order(settings, widgetId).filter { it in on }
+        }
     }
 }

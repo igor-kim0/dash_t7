@@ -16,3 +16,10 @@ logs_1111111/
 learn/
 # Локальные research-заметки и скриншоты — в репозиторий не выкладываем
 docs/research/
+
+# Состояние бота Telegram при локальных прогонах (в Actions — actions/cache)
+tools/telegram/.state/
+
+# Python-кэш (tools/*.py запускаются напрямую)
+__pycache__/
+*.pyc

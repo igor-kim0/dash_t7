@@ -1,0 +1,22 @@
+name: "Telegram: проверка"
+
+# Ручная проверка настройки: токен, канал, права бота, чат обсуждений,
+# выключен ли webhook. Запуск: Actions → «Telegram: проверка» → Run workflow.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+      TG_CHANNEL_ID: ${{ vars.TG_CHANNEL_ID || '@tenet_t7_dash' }}
+      TG_DISCUSSION_CHAT_ID: ${{ vars.TG_DISCUSSION_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Проверить
+        run: python3 tools/telegram/bot.py check

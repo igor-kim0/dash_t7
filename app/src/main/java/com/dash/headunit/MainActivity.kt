@@ -152,7 +152,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btn_done).setOnClickListener { setEditMode(false) }
         findViewById<View>(R.id.btn_clear).setOnClickListener { confirmClearDashboard() }
         findViewById<View>(R.id.btn_add).setOnClickListener { showAddDialog() }
-        // Диагностика: CAN/VHAL, приборка, ОЖ через ETM.
+        // Диагностика: проба подогрева руля.
         findViewById<View>(R.id.btn_debug).setOnClickListener {
             startActivity(android.content.Intent(this, com.dash.headunit.car.CarDebugActivity::class.java))
         }
@@ -760,7 +760,7 @@ class MainActivity : AppCompatActivity() {
                     onTapIdle = { if (!editMode) connectShell() }
                     onExpand = { openNaviFull() }
                 }
-                WidgetType.TRIP -> TripWidgetView(this, wTheme)
+                WidgetType.TRIP -> TripWidgetView(this, wTheme, spec.widgetId, settingsStore)
                 WidgetType.CLIMATE ->
                     if (settingsStore.getOption(spec.widgetId, OPT_CLIMATE_STYLE, CLIMATE_TEXT) == CLIMATE_ICONS) {
                         ClimateIconsView(this)
@@ -818,6 +818,9 @@ class MainActivity : AppCompatActivity() {
                     }
                     WidgetType.CAR -> {
                         { showCarSettings(spec.widgetId) }
+                    }
+                    WidgetType.TRIP -> {
+                        { showTripSettings(spec.widgetId) }
                     }
                     WidgetType.ELM -> {
                         { showElmSettings(spec.widgetId) }
@@ -1246,6 +1249,9 @@ class MainActivity : AppCompatActivity() {
         var brightness = cur.brightness
         val backgrounds = Screensaver.BACKGROUNDS
         var background = cur.background
+        var rotate = cur.rotate
+        val rotateIntervals = Screensaver.ROTATE_INTERVALS
+        var rotateSec = cur.rotateSec.takeIf { it in rotateIntervals } ?: Screensaver.DEFAULT_ROTATE_SEC
 
         val list = SettingsList(this, theme)
             .section(getString(R.string.screensaver_sec_saver))
@@ -1270,12 +1276,25 @@ class MainActivity : AppCompatActivity() {
                 backgrounds.indexOf(background).coerceAtLeast(0)
             ) { background = backgrounds[it] }
             .column()
+            .section(getString(R.string.screensaver_sec_rotate))
+            .switch(
+                R.drawable.ic_rotate, getString(R.string.screensaver_rotate_t),
+                getString(R.string.screensaver_rotate_s), rotate
+            ) { rotate = it }
+            .segmented(
+                R.drawable.ic_rotate, getString(R.string.screensaver_rotate_interval_t),
+                getString(R.string.screensaver_rotate_interval_s),
+                rotateIntervals.map { Screensaver.timeoutLabel(it) },
+                rotateIntervals.indexOf(rotateSec)
+            ) { rotateSec = rotateIntervals[it] }
         val saveTile = list.tileSection(widgetId)
 
         showWidgetSettings(WidgetType.SCREENSAVER, list, 1400, iconRes = R.drawable.ic_image) {
             settingsStore.setOption(widgetId, Screensaver.OPT_TIMEOUT, timeout.toString())
             settingsStore.setOption(widgetId, Screensaver.OPT_BRIGHTNESS, brightness.toString())
             settingsStore.setOption(widgetId, Screensaver.OPT_BACKGROUND, background)
+            settingsStore.setOption(widgetId, Screensaver.OPT_ROTATE, if (rotate) "1" else "0")
+            settingsStore.setOption(widgetId, Screensaver.OPT_ROTATE_SEC, rotateSec.toString())
             saveTile()
         }
     }
@@ -1435,6 +1454,52 @@ class MainActivity : AppCompatActivity() {
                 widgetId, CarWidgetView.OPT_ITEMS,
                 order.filter { it in checked }.joinToString(",")
             )
+            saveTile()
+        }
+    }
+
+    /**
+     * Настройки «Бортового компьютера»: какие колонки показывать и в каком
+     * порядке (расход / пробег / ср. скорость / моточасы всего, в движении,
+     * на холостом ходу) и строка приборки внизу.
+     */
+    private fun showTripSettings(widgetId: String) {
+        val labelIds = mapOf(
+            TripWidgetView.ITEM_CONS to R.string.trip_avg_cons,
+            TripWidgetView.ITEM_DIST to R.string.trip_dist,
+            TripWidgetView.ITEM_SPEED to R.string.trip_avg_speed,
+            TripWidgetView.ITEM_HOURS to R.string.trip_engine_hours,
+            TripWidgetView.ITEM_MOVING to R.string.trip_item_hours_moving,
+            TripWidgetView.ITEM_IDLE to R.string.trip_item_hours_idle
+        )
+        val icons = mapOf(
+            TripWidgetView.ITEM_CONS to R.drawable.ic_fuel,
+            TripWidgetView.ITEM_DIST to R.drawable.ic_range,
+            TripWidgetView.ITEM_SPEED to R.drawable.ic_gauge,
+            TripWidgetView.ITEM_HOURS to R.drawable.ic_clock,
+            TripWidgetView.ITEM_MOVING to R.drawable.ic_clock,
+            TripWidgetView.ITEM_IDLE to R.drawable.ic_clock
+        )
+        val order = TripWidgetView.order(settingsStore, widgetId).toMutableList()
+        val checked = TripWidgetView.checked(settingsStore, widgetId).toMutableSet()
+        var footer = settingsStore.getOption(widgetId, TripWidgetView.OPT_FOOTER, "1") != "0"
+        val list = SettingsList(this, theme)
+            .section(getString(R.string.car_items_section))
+            .reorder(order, checked, { getString(labelIds.getValue(it)) }, { icons[it] ?: 0 })
+            .column()
+        val saveTile = list.tileSection(widgetId) {
+            switch(
+                R.drawable.ic_journal, getString(R.string.trip_footer_t),
+                getString(R.string.trip_footer_s), footer
+            ) { footer = it }
+        }
+        showWidgetSettings(WidgetType.TRIP, list, 1400) {
+            settingsStore.setOption(widgetId, TripWidgetView.OPT_ORDER, order.joinToString(","))
+            settingsStore.setOption(
+                widgetId, TripWidgetView.OPT_ITEMS,
+                order.filter { it in checked }.joinToString(",")
+            )
+            settingsStore.setOption(widgetId, TripWidgetView.OPT_FOOTER, if (footer) "1" else "0")
             saveTile()
         }
     }

@@ -43,6 +43,12 @@ class AuroraView(context: Context) : SaverView(context, 20) {
     private class Star(val x: Float, val y: Float, val r: Float, val base: Float, val speed: Float, val phase: Float)
     private var stars = emptyList<Star>()
     private val starPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+    private val starGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+    private val sparkPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+    }
 
     private val forest = Path()
     private val forestPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF020407.toInt() }
@@ -135,9 +141,29 @@ class AuroraView(context: Context) : SaverView(context, 20) {
         canvas.drawBitmap(bmp, null, dst, bitmapPaint)
 
         for (s in stars) {
-            val a = s.base * (0.65f + 0.35f * sin(t * s.speed + s.phase))
+            // Две несоизмеримые волны — мерцание не выглядит одинаковым у всех.
+            val wave = 0.7f * sin(t * s.speed + s.phase) +
+                0.3f * sin(t * s.speed * 1.7f + s.phase * 2.3f)
+            val tw = 0.5f + 0.5f * wave
+            // Куб делает вспышки короткими, а между ними звезда почти гаснет.
+            val peak = tw * tw * tw
+            val a = s.base * (0.15f + 0.85f * peak)
+            val r = s.r * (0.8f + 0.35f * tw)
+            if (s.r > density) {
+                // Мягкий ореол у крупных звёзд — только на вспышке.
+                starGlowPaint.alpha = (120 * peak * s.base).toInt().coerceIn(0, 255)
+                canvas.drawCircle(s.x, s.y, r * 2.8f, starGlowPaint)
+            }
             starPaint.alpha = (255 * a).toInt().coerceIn(0, 255)
-            canvas.drawCircle(s.x, s.y, s.r, starPaint)
+            canvas.drawCircle(s.x, s.y, r, starPaint)
+            if (s.r > density * 1.2f && s.base > 0.65f && peak > 0.85f) {
+                // Яркая вспышка — короткие лучи-крестик, как у настоящих звёзд.
+                val len = r * (2.2f + 1.6f * peak)
+                sparkPaint.strokeWidth = (r * 0.5f).coerceAtLeast(1f)
+                sparkPaint.alpha = (200 * a).toInt().coerceIn(0, 255)
+                canvas.drawLine(s.x - len, s.y, s.x + len, s.y, sparkPaint)
+                canvas.drawLine(s.x, s.y - len, s.x, s.y + len, sparkPaint)
+            }
         }
         drawMeteor(canvas, t)
         canvas.drawPath(forest, forestPaint)

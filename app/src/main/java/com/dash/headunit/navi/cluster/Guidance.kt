@@ -184,7 +184,9 @@ object GuidanceText {
         val right = has("направо", "правее", "вправо", "right")
         return when {
             has("приехали", "финиш", "конечн", "пункт назначения", "arrive", "finish") -> Maneuver.FINISH
-            has("кругов", "кольц", "roundabout") -> Maneuver.ROUNDABOUT
+            // Не «кольц»: так называются улицы («Садовое кольцо», «Кольцевая»),
+            // а classify зовётся и для улицы — манёвр становился кольцом.
+            has("кругов", "roundabout") -> Maneuver.ROUNDABOUT
             has("разворот", "развернит", "u-turn", "uturn") ->
                 if (right) Maneuver.UTURN_RIGHT else Maneuver.UTURN_LEFT
             has("держитесь", "держись", "keep") && left -> Maneuver.KEEP_LEFT

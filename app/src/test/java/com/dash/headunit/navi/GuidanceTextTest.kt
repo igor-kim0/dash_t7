@@ -22,6 +22,8 @@ class GuidanceTextTest {
         assertEquals(Maneuver.STRAIGHT, GuidanceText.classify("Прямо"))
         assertEquals(Maneuver.FINISH, GuidanceText.classify("Вы приехали"))
         assertNull(GuidanceText.classify("ул. Ленина"))
+        assertNull(GuidanceText.classify("Садовое кольцо"))
+        assertNull(GuidanceText.classify("Кольцевая улица"))
         assertNull(GuidanceText.classify(null))
     }
 

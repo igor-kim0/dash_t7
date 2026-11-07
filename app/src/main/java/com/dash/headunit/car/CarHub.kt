@@ -52,8 +52,6 @@ object CarHub {
     private var desayAvailable: Boolean? = null
     private var scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var pollJob: Job? = null
-    /** Отметка конца поездки, обработанная [tickShadeTick] (чтение 0,10). */
-    private var lastShadeTick = 0L
 
     fun init(context: Context) {
         if (appContext == null) {
@@ -205,10 +203,9 @@ object CarHub {
 
     /**
      * Шторка ([ShadeResume]): пока двигатель работает, на каждом тике читаем
-     * 0,10 и запоминаем (последнее значение = состояние в конце поездки:
-     * ГУ обычно засыпает вместе с зажиганием, и живого момента «заглушили»
-     * может не быть). В момент конца поездки при живой шине — ещё одно
-     * чтение. Здесь же — автооткрытие на старте. Всё на IO: чтение/запись
+     * 0,10 и запоминаем с отставанием на пару тиков (состояние незадолго до
+     * глушения). В момент конца поездки НЕ читаем: машина сама закрывает
+     * шторку при глушении. Здесь же — автооткрытие на старте. Всё на IO: чтение/запись
      * шины синхронные.
      */
     private suspend fun tickShadeTick(freshSnapshot: CarData?) {
@@ -217,17 +214,19 @@ object CarHub {
         try {
             withContext(Dispatchers.IO) {
                 val read = { runCatching { d.readInt(0, 10) }.getOrDefault(-1) }
-                ShadeResume.tick(ctx, freshSnapshot != null, read) {
-                    d.connect() && d.write(
-                        ShadeResume.WRITE_GROUP, ShadeResume.WRITE_ID, ShadeResume.VALUE_OPEN
-                    )
-                }
-                val tripEnded = TripTracker.tripEndTick != lastShadeTick
-                lastShadeTick = TripTracker.tripEndTick
+                ShadeResume.tick(
+                    ctx,
+                    busAlive = freshSnapshot != null,
+                    engineOn = TripTracker.engineOn(freshSnapshot),
+                    readShade = read,
+                    writeOpen = {
+                        d.connect() && d.write(
+                            ShadeResume.WRITE_GROUP, ShadeResume.WRITE_ID, ShadeResume.VALUE_OPEN
+                        )
+                    }
+                )
                 if (freshSnapshot == null) return@withContext
-                if (tripEnded || TripTracker.engineOn(freshSnapshot)) {
-                    ShadeResume.record(ctx, read())
-                }
+                ShadeResume.observe(ctx, TripTracker.engineOn(freshSnapshot), read)
             }
         } catch (e: Exception) {
             android.util.Log.w(TAG, "shade tick", e)
@@ -340,7 +339,6 @@ object CarHub {
         lastFreshTs = 0L
         tripView = null
         pollJob = null
-        lastShadeTick = 0L
         appContext = null
         desay = null
         vhal = null

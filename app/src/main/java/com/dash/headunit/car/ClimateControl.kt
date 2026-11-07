@@ -18,7 +18,6 @@ import java.util.concurrent.Executors
  *   SYNC        16,30 → 16,3   (инверсия: 0 = SYNC вкл)
  *   MAX обдув   16,44 → 16,24
  *   обогрев лоб 16,53 → 16,65
- *   руль        16,70 → 16,70
  *   уставка     16,22 / 16,23 → 16,10 / 16,13 (сырое «1°», см. [ClimateHub.scaleTemp])
  *   вентилятор  16,24 → 16,12 (0..7)
  *   обдув       16,2  → 16,6  (запись 0..3 = чтение 1..4; 5 = лобовое, это MAX)
@@ -31,7 +30,8 @@ import java.util.concurrent.Executors
  * лобового пишут 1 = включить, 2 = выключить (по текущему состоянию); уставка —
  * то же сырое «1°», что читается, шаг ±1 в пределах 0..16; вентилятор — уровень
  * 1..7; режим обдува — 0..3 (четыре кнопки панели), лобовое — через MAX.
- * Руль svhvac не пишет вовсе (16,70 — только по таблице Request).
+ * Подогрева руля нет: штатно 16,70 никто не пишет, а проба 2026-11-07 показала,
+ * что кнопка руля на шине Desay не видна вовсе (идёт мимо ГУ).
  *
  * На случай другой комплектации у каждой команды есть запасные кодировки
  * ([Variant]): пишем, через [VERIFY_MS] перечитываем; совпало с ожидаемым —
@@ -66,7 +66,6 @@ object ClimateControl {
         SYNC("SYNC", 16 to 3, toggle(16, 30), { 1 - it }),
         MAX_DEFROST("MAX обдув", 16 to 24, toggle(16, 44)),
         WINDSHIELD_HEAT("обогрев лобового", 16 to 65, toggle(16, 53)),
-        WHEEL_HEAT("руль", 16 to 70, toggle(16, 70)),
         TEMP_DRIVER("уставка вод.", 16 to 10, temp(22)),
         TEMP_PASS("уставка пасс.", 16 to 13, temp(23)),
         FAN("вентилятор", 16 to 12, listOf(Variant(16, 24) { it }, Variant(16, 24) { it + 1 })),
@@ -109,8 +108,8 @@ object ClimateControl {
         val (rg, rid) = cmd.read
         val log = StringBuilder("${cmd.title} → $value:")
         for (i in order) {
-            val v = cmd.variants[i]
-            val raw = v.encode(value)
+            val variant = cmd.variants[i]
+            val raw = variant.encode(value)
             val before = runCatching { r.readInt(rg, rid) }.getOrNull()
             if (before == expected) {
                 // Уже в нужном состоянии: если ячейка — «нажатие», запись бы его сбросила.
@@ -118,11 +117,11 @@ object ClimateControl {
                 break
             }
             HvacShade.beforeWrite(app)
-            r.write(v.group, v.id, raw)
+            r.write(variant.group, variant.id, raw)
             HvacShade.afterWrite(app)
             SystemClock.sleep(VERIFY_MS)
             val after = runCatching { r.readInt(rg, rid) }.getOrNull()
-            log.append(" ${v.group},${v.id}=$raw · $rg,$rid $before→$after")
+            log.append(" ${variant.group},${variant.id}=$raw · $rg,$rid $before→$after")
             if (after == expected) {
                 if (i != learned) prefs.edit().putInt(cmd.name, i).apply()
                 log.append(" ок")

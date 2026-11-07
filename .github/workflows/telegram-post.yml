@@ -1,0 +1,75 @@
+name: "Telegram: анонс релиза"
+
+# Вызывается из Release после успешной сборки (workflow_call) либо вручную:
+# Actions → «Telegram: анонс релиза» → Run workflow → тег (например v1.8).
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Тег релиза (v1.8)
+        required: true
+        type: string
+      dry_run:
+        description: Только показать текст
+        required: false
+        type: boolean
+        default: false
+      no_apk:
+        description: Не прикреплять APK
+        required: false
+        type: boolean
+        default: false
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Тег релиза (v1.8)
+        required: true
+      dry_run:
+        description: Только показать текст, не публиковать
+        type: boolean
+        default: false
+      no_apk:
+        description: Не прикреплять APK
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: telegram-post-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    env:
+      TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+      TG_CHANNEL_ID: ${{ vars.TG_CHANNEL_ID || '@tenet_t7_dash' }}
+      GITHUB_TOKEN: ${{ github.token }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+    steps:
+      - name: Проверить, что секрет задан
+        id: check
+        run: |
+          if [ -z "$TG_BOT_TOKEN" ]; then
+            echo "::warning::Секрет TG_BOT_TOKEN не задан — анонс пропущен"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout тега
+        if: steps.check.outputs.enabled == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Опубликовать
+        if: steps.check.outputs.enabled == 'true'
+        run: |
+          args=(post-release --tag "${{ inputs.tag }}")
+          if [ "${{ inputs.dry_run }}" = "true" ]; then args+=(--dry-run); fi
+          if [ "${{ inputs.no_apk }}" = "true" ]; then args+=(--no-apk); fi
+          python3 tools/telegram/bot.py "${args[@]}"
