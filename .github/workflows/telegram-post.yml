@@ -60,16 +60,35 @@ jobs:
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Checkout тега
+      # Скрипт бота берём из основной ветки: в старых тегах (v1.8 и раньше)
+      # tools/telegram ещё нет. CHANGELOG — из тега, если там есть раздел
+      # этой версии, иначе из основной ветки.
+      - name: Checkout основной ветки
         if: steps.check.outputs.enabled == 'true'
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: CHANGELOG из тега
+        if: steps.check.outputs.enabled == 'true'
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          ver="${TAG#v}"; ver="${ver%-dev}"
+          cp CHANGELOG.md "$RUNNER_TEMP/CHANGELOG.md"
+          if git fetch --depth=1 origin "refs/tags/$TAG:refs/tags/$TAG" \
+             && git show "$TAG:CHANGELOG.md" > "$RUNNER_TEMP/CHANGELOG.tag.md" \
+             && grep -q "^## \[$ver\]" "$RUNNER_TEMP/CHANGELOG.tag.md"; then
+            mv "$RUNNER_TEMP/CHANGELOG.tag.md" "$RUNNER_TEMP/CHANGELOG.md"
+            echo "CHANGELOG из тега $TAG"
+          else
+            echo "::notice::В теге $TAG нет раздела [$ver] — CHANGELOG из основной ветки"
+          fi
 
       - name: Опубликовать
         if: steps.check.outputs.enabled == 'true'
         run: |
-          args=(post-release --tag "${{ inputs.tag }}")
+          args=(post-release --tag "${{ inputs.tag }}" --changelog "$RUNNER_TEMP/CHANGELOG.md")
           if [ "${{ inputs.dry_run }}" = "true" ]; then args+=(--dry-run); fi
           if [ "${{ inputs.no_apk }}" = "true" ]; then args+=(--no-apk); fi
           python3 tools/telegram/bot.py "${args[@]}"
