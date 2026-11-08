@@ -116,6 +116,11 @@
                 <action android:name="com.dash.headunit.CLUSTER_REC" />
             </intent-filter>
         </receiver>
+        <!-- Дерево окна Яндекс Навигатора по команде с ПК — см. diag/NaviTreeReceiver. -->
+        <receiver
+            android:name=".diag.NaviTreeReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
         <!-- Экран мог остаться сжатым (режим навигатора) — вернуть целиком. -->
         <receiver
             android:name=".navi.NaviBootReceiver"

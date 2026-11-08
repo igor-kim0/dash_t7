@@ -33,16 +33,18 @@ import com.dash.headunit.widgets.fuelLevelColor
  * секторе B, на уровне строки «расстояние + полоса до манёвра» (верх
  * блока вровень с плиткой стрелки).
  *
- * Без маршрута ([Guidance.freeDrive]) карточки нет — строка от левого
- * края полосы: знак ограничения, камера, светофор, текущая улица.
+ * Без маршрута ([Guidance.freeDrive]) карточка остаётся на месте, но
+ * пустая: в ней строка предупреждений (если есть) — знак ограничения,
+ * камера, светофор, текущая улица. Внизу карточки справа — литры в баке
+ * и температура двигателя.
  *
- * Чёрный фон: на приборке он сливается с рамкой. Без маршрута окно
- * остаётся пустым чёрным — иначе на дисплей 1 вернётся зеркало главного
- * экрана. [calibration] — поверх всего дисплея сетка координат (полосы
- * A–H по 240 px, линии через 80 px) и контур центральной полосы.
+ * Чёрный фон: на приборке он сливается с рамкой. Окно держим и без
+ * маршрута — иначе на дисплей 1 вернётся зеркало главного экрана.
+ * [calibration] — поверх всего дисплея сетка координат (полосы A–H
+ * по 240 px, линии через 80 px) и контур центральной полосы.
  *
- * Внизу полосы, у правого края, — литры в баке и температура двигателя
- * цифрами; цвет по тем же порогам, что у виджета «Автомобиль»
+ * Внизу блока маршрута, у правого края, — литры в баке и температура
+ * двигателя цифрами; цвет по тем же порогам, что у виджета «Автомобиль»
  * ([fuelLevelColor], [engineTempColor]).
  */
 class ClusterGuidanceView(context: Context) : View(context) {
@@ -144,7 +146,7 @@ class ClusterGuidanceView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         canvas.drawColor(Color.BLACK)
         if (calibration) drawCalibration(canvas)
-        val g = guidance ?: ClusterOverlay.SAMPLE.takeIf { calibration } ?: return
+        val g = guidance ?: ClusterOverlay.SAMPLE.takeIf { calibration } ?: Guidance()
         val h = height.toFloat()
         val s = h / 720f
         val cw = contentWidth.coerceAtMost(width).toFloat()
@@ -163,12 +165,14 @@ class ClusterGuidanceView(context: Context) : View(context) {
         val signCy = top + pad + signR
         val limit = g.speedLimit
 
-        if (g.hasManeuver) {
-            dst.set(left, top, right, bottom)
-            canvas.drawRoundRect(dst, 36f * s, 36f * s, cardFill)
-            cardStroke.strokeWidth = 2f * s
-            canvas.drawRoundRect(dst, 36f * s, 36f * s, cardStroke)
+        // Блок маршрута показываем всегда — без маршрута он пустой,
+        // чтобы на приборке оставалась привычная плашка.
+        dst.set(left, top, right, bottom)
+        canvas.drawRoundRect(dst, 36f * s, 36f * s, cardFill)
+        cardStroke.strokeWidth = 2f * s
+        canvas.drawRoundRect(dst, 36f * s, 36f * s, cardStroke)
 
+        if (g.hasManeuver) {
             // Плитка со стрелкой манёвра. Стрелки нет (навигатор в блоке:
             // карточка Яндекса скрыта, уведомления нет) — нет и плитки, а
             // не пустой серый квадрат (ГУ 2026-11-02).
@@ -223,28 +227,32 @@ class ClusterGuidanceView(context: Context) : View(context) {
             g.street?.let { canvas.drawText(fit(it, midText, streetRight - tx), tx, bottom - pad - 6f * s, midText) }
         }
 
-        if (!g.hasManeuver) {
+        if (g.hasManeuver) {
+            limit?.let { drawSideSign(canvas, it, g.overspeed, left, s) }
+            g.trafficLight?.let {
+                val th = 120f * s
+                // Светофор — ниже нижней строки блока: справа в ней
+                // теперь топливо и температура.
+                drawTrafficLight(canvas, it, right - pad - th * TL_ASPECT / 2, bottom + 100f * s + th / 2, th)
+            }
+        } else {
             drawWarningsRow(canvas, g, left, right, signCy, signR, s)
-            drawCarStatus(canvas, right, h, s)
-            return
-        }
-        limit?.let { drawSideSign(canvas, it, g.overspeed, left, s) }
-        g.trafficLight?.let {
-            val th = 120f * s
-            drawTrafficLight(canvas, it, right - pad - th * TL_ASPECT / 2, bottom + 24f * s + th / 2, th)
         }
 
-        // Под карточкой: остаток маршрута и время прибытия.
+        // Нижняя строка блока: слева остаток маршрута и время прибытия,
+        // справа — литры в баке и температура двигателя.
         smallText.textSize = 38f * s
         val eta = listOfNotNull(
             g.remainingDistance,
             g.remainingTime,
             g.arrival?.let { "прибытие $it" }
         ).joinToString("  ·  ")
-        val etaW = cw - 2 * pad - if (g.trafficLight != null) 120f * s * TL_ASPECT + 24f * s else 0f
-        if (eta.isNotEmpty()) canvas.drawText(fit(eta, smallText, etaW), left + pad, bottom + 70f * s, smallText)
-
-        drawCarStatus(canvas, right, h, s)
+        val statusW = drawCarStatus(canvas, right - pad, bottom + 70f * s, s)
+        val etaRight = right - pad - if (statusW > 0f) statusW + 28f * s else 0f
+        val etaW = etaRight - (left + pad)
+        if (eta.isNotEmpty() && etaW > 0f) {
+            canvas.drawText(fit(eta, smallText, etaW), left + pad, bottom + 70f * s, smallText)
+        }
     }
 
     override fun onAttachedToWindow() {
@@ -260,36 +268,38 @@ class ClusterGuidanceView(context: Context) : View(context) {
     }
 
     /**
-     * Строка состояния внизу полосы, прижата к правому краю: литры в баке
-     * и температура двигателя цифрами. Цвет — по тем же порогам, что у
-     * виджета «Автомобиль» ([fuelLevelColor], [engineTempColor]); нет
-     * данных — метрика не рисуется.
+     * Топливо и ОЖ в нижней строке блока маршрута, прижаты к правому краю.
+     * Возвращает занятую ширину (0 — данных нет): по ней слева ужимается
+     * остаток пути. Цвет — по тем же порогам, что у виджета «Автомобиль»
+     * ([fuelLevelColor], [engineTempColor]).
      */
-    private fun drawCarStatus(canvas: Canvas, right: Float, h: Float, s: Float) {
-        val d = CarHub.data ?: return
+    private fun drawCarStatus(canvas: Canvas, right: Float, baseline: Float, s: Float): Float {
+        val d = CarHub.data ?: return 0f
         val fuel = d.fuelLiters
         // Прямые градусы, без них — оценка по стрелке ОЖ приборки
         // (как в ретро-спидометре и виджете «Автомобиль»).
         val exact = d.engineTempC
         val eng = exact ?: ClusterPps.needle()?.let { CoolantCalibration.estimate(it) }
-        if (fuel == null && eng == null) return
+        if (fuel == null && eng == null) return 0f
 
         smallText.textAlign = Paint.Align.RIGHT
-        smallText.textSize = 34f * s
-        var x = right - 30f * s
-        val y = h - 30f * s
+        smallText.textSize = 38f * s
+        var x = right
         if (eng != null) {
             smallText.color = engineTempColor(eng, green)
             val text = (if (exact == null) "≈" else "") + "${Math.round(eng)}°"
-            canvas.drawText(text, x, y, smallText)
-            x -= smallText.measureText(text) + 28f * s
+            canvas.drawText(text, x, baseline, smallText)
+            x -= smallText.measureText(text) + if (fuel != null) 28f * s else 0f
         }
         if (fuel != null) {
             smallText.color = d.fuelPct?.let { fuelLevelColor(it, green) } ?: grey
-            canvas.drawText("${Math.round(fuel)} л", x, y, smallText)
+            val text = "${Math.round(fuel)} л"
+            canvas.drawText(text, x, baseline, smallText)
+            x -= smallText.measureText(text)
         }
         smallText.color = grey
         smallText.textAlign = Paint.Align.LEFT
+        return right - x
     }
 
     /**

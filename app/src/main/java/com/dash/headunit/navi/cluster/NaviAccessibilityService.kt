@@ -216,8 +216,29 @@ class NaviAccessibilityService : AccessibilityService() {
         "ошибка: ${e.javaClass.simpleName}: ${e.message}"
     }
 
-    /** Дерево окна навигатора текстом — для диагностики. */
-    fun dumpTree(): String {
+    /**
+     * Поиск узлов по id (findAccessibilityNodeInfosByViewId) — находит и те,
+     * что обход getChild не показывает; для диагностики.
+     */
+    fun probeIds(ids: List<String>): String {
+        val root = naviRoot() ?: return "окна $YANDEX_NAVI нет среди окон"
+        val sb = StringBuilder()
+        for (id in ids) {
+            val found = root.findAccessibilityNodeInfosByViewId("$YANDEX_NAVI:id/$id").orEmpty()
+            for (n in found) {
+                sb.append('#').append(id).append(' ').append(n.className?.toString()?.substringAfterLast('.'))
+                n.text?.let { sb.append(" \"").append(it).append('"') }
+                n.contentDescription?.let { sb.append(" desc=\"").append(it).append('"') }
+                if (!n.isVisibleToUser) sb.append(" (не виден)")
+                sb.append(' ').append(android.graphics.Rect().also { n.getBoundsInScreen(it) }.toShortString())
+                sb.append(" дети=").append(n.childCount).append('\n')
+            }
+        }
+        return sb.toString().ifEmpty { "(ничего)" }
+    }
+
+    /** Дерево окна навигатора текстом — для диагностики; [full] — границы у каждого узла. */
+    fun dumpTree(full: Boolean = false): String {
         val root = naviRoot() ?: return "окна $YANDEX_NAVI нет среди окон"
         val sb = StringBuilder()
         var count = 0
@@ -228,7 +249,7 @@ class NaviAccessibilityService : AccessibilityService() {
             n.text?.let { sb.append(" \"").append(it).append('"') }
             n.contentDescription?.let { sb.append(" desc=\"").append(it).append('"') }
             if (!n.isVisibleToUser) sb.append(" (не виден)")
-            if (n.viewIdResourceName?.endsWith("_maneuver") == true) {
+            if (full || n.viewIdResourceName?.endsWith("_maneuver") == true) {
                 sb.append(' ').append(android.graphics.Rect().also { n.getBoundsInScreen(it) }.toShortString())
             }
             sb.append('\n')

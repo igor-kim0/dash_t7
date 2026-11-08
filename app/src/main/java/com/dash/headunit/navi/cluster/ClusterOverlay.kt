@@ -89,17 +89,18 @@ object ClusterOverlay {
                 .registerDisplayListener(displayListener, main)
             GuidanceHub.addListener(guidanceListener)
             // Сразу занять дисплей 1 чёрным окном — чтобы в «Картах»
-            // приборки не было зеркала главного экрана.
-            if (AppSettings.clusterNavi(ctx)) addView(ctx)
+            // приборки не было зеркала главного экрана. Панель «Карты»
+            // держим поднятой и без маршрута: блок остаётся пустым.
+            if (AppSettings.clusterNavi(ctx) && addView(ctx)) naviArea(ctx, true)
         }
     }
 
-    /** Настройку включили: окно на приборку, идёт маршрут — поднять панель. */
+    /** Настройку включили: окно на приборку и панель «Карты» — даже без маршрута. */
     fun show() {
         main.post {
             val ctx = app ?: return@post
             if (view == null && !addView(ctx)) return@post
-            if (calibration || naviOnScreen || GuidanceHub.current != null) naviArea(ctx, true)
+            naviArea(ctx, true)
         }
     }
 
@@ -122,9 +123,9 @@ object ClusterOverlay {
             if (!AppSettings.clusterNavi(ctx)) {
                 removeView()
                 naviArea(ctx, false)
-            } else if (!routeActive && !naviOnScreen) {
-                naviArea(ctx, false)
             } else {
+                // Настройка включена — панель и пустой блок остаются.
+                naviArea(ctx, true)
                 ClusterWarnings.update(ctx)
             }
         }
@@ -236,8 +237,14 @@ object ClusterOverlay {
         view?.guidance = shown()
         val ctx = app ?: return@Runnable
         if (calibration) return@Runnable // рамка держит панель сама
-        status("маршрут/предупреждения закончились — опускаю панель")
-        naviArea(ctx, false)
+        if (AppSettings.clusterNavi(ctx)) {
+            // Блок маршрута остаётся на приборке пустым, панель не опускаем.
+            status("маршрут/предупреждения закончились — блок остаётся пустым")
+            naviArea(ctx, true)
+        } else {
+            status("маршрут/предупреждения закончились — опускаю панель")
+            naviArea(ctx, false)
+        }
     }
 
     /** Пересылка запроса приборки от SVMapService — только в лог (запрос ловит [meterListener]). */
@@ -265,8 +272,8 @@ object ClusterOverlay {
             status("приборка: убрать навигацию ($state)")
             return
         }
-        if (!calibration && !(AppSettings.clusterNavi(ctx) && (routeActive || naviOnScreen))) {
-            status("приборка: показать навигацию — не отвечаю, нечего показать ($state)")
+        if (!calibration && !AppSettings.clusterNavi(ctx)) {
+            status("приборка: показать навигацию — не отвечаю, настройка выключена ($state)")
             return
         }
         status("приборка: показать навигацию — поднимаю панель ($state)")
@@ -277,7 +284,7 @@ object ClusterOverlay {
     private val displayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(displayId: Int) {
             val ctx = app ?: return
-            if (view == null && AppSettings.clusterNavi(ctx) && addView(ctx) && (routeActive || naviOnScreen)) naviArea(ctx, true)
+            if (view == null && AppSettings.clusterNavi(ctx) && addView(ctx)) naviArea(ctx, true)
         }
 
         override fun onDisplayRemoved(displayId: Int) {
