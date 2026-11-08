@@ -256,7 +256,13 @@ object ElmHub {
                     applyProfile(id, ProfileStore.load(context, id))
                 } catch (e: Exception) {
                     Log.w(TAG, "профиль $id", e)
-                    lastStatus = "профиль $id не читается: ${e.message}"
+                    if (id.startsWith("asset:") &&
+                        context.assets.list("profiles").orEmpty().none { it == id.substringAfter(':') }) {
+                        // встроенный профиль убран из сборки — опрашиваем стандартный OBD-II
+                        ProfileStore.select(context, null)
+                    } else {
+                        lastStatus = "профиль $id не читается: ${e.message}"
+                    }
                 }
             }
         }

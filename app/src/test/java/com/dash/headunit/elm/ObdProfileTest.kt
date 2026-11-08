@@ -148,43 +148,6 @@ class ObdProfileTest {
         assertEquals("VIN", p.info.first().title)
     }
 
-    /** Минимальный профиль для проверки угла зажигания и кандидатов на откат. */
-    @Test
-    fun ignitionRetardProfile_parses() {
-        val p = ObdProfile.parse(File("src/main/assets/profiles/Ignition retard.json").readText())
-        assertEquals("Ignition retard", p.name)
-        assertEquals("6", p.elmProtocol)
-        assertEquals("7E0", p.defaultHeader)
-        assertTrue(p.warnings.toString(), p.warnings.isEmpty())
-        assertEquals(5, p.params.size)
-
-        val retard = p.params.first { it.command == "010E" }
-        assertEquals("7E0", retard.header)
-        assertEquals(1.5, retard.decode("410E83")!!, 1e-9)
-        assertEquals(-5.0, retard.decode("410E76")!!, 1e-9)
-
-        val knock = p.params.filter { it.command.startsWith("22017") }
-        assertEquals(listOf("220170", "220171", "220172", "220173"), knock.map { it.command })
-        assertEquals(0.0, knock.first().decode("62017000")!!, 1e-9)
-        assertEquals(5.0, knock.first().decode("62017005")!!, 1e-9)
-    }
-
-    /** Поисковый профиль отката зажигания: эталон 010E/F40E и кандидаты DID. */
-    @Test
-    fun ignitionRetardSearchProfile_parses() {
-        val p = ObdProfile.parse(File("src/main/assets/profiles/Ignition retard search.json").readText())
-        assertEquals("Ignition retard search", p.name)
-        assertTrue(p.warnings.toString(), p.warnings.isEmpty())
-        assertEquals(21, p.params.size)
-        assertTrue(p.params.all { it.header == "7E0" })
-
-        assertEquals(1.5, p.params.first { it.command == "010E" }.decode("410E83")!!, 1e-9)
-        assertEquals(1.5, p.params.first { it.command == "22F40E" }.decode("62F40E83")!!, 1e-9)
-        assertEquals(74.0, p.params.first { it.command == "22010E" }.decode("62010E4A")!!, 1e-9)
-        assertEquals(-1.5, p.params.first { it.command == "221221" }.decode("62122104")!!, 1e-9)
-        assertEquals(0.5, p.params.first { it.command == "221225" }.decode("62122501F4")!!, 1e-9)
-    }
-
     /** Тестовый набор DID из logs/ddd.csv: все 37 параметров разбираются. */
     @Test
     fun testTiggo7lProfile_parses() {
