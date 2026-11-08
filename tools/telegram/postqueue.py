@@ -132,3 +132,29 @@ def run_queue(*, tg: Telegram | None, chat_id: str | int, queue_dir: Path,
                 target = sent_dir / f"{path.stem}-{int(now.timestamp())}{path.suffix}"
             shutil.move(str(path), target)
     return sent, waiting
+
+
+def next_due(queue_dir: Path, now: dt.datetime | None = None, *,
+             future_only: bool = False) -> dt.datetime | None:
+    """Когда публиковать ближайший пост из очереди.
+
+    Пост без даты или с наступившей датой — это ``now``. С ``future_only``
+    такие посты пропускаются: так цепочка ожидания не зацикливается на посте,
+    который не удаётся отправить. Пустая очередь даёт ``None``.
+    """
+    now = now or dt.datetime.now(dt.timezone.utc)
+    if not queue_dir.exists():
+        return None
+    best: dt.datetime | None = None
+    for path in queue_dir.glob("*.md"):
+        try:
+            at = load_post(path)["publish_at"] or now
+        except Exception:
+            continue
+        if at <= now:
+            if future_only:
+                continue
+            at = now
+        if best is None or at < best:
+            best = at
+    return best

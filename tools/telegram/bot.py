@@ -5,6 +5,7 @@
 
     bot.py post-release --tag v1.8      # анонс релиза из CHANGELOG (+ APK)
     bot.py run-queue                    # отложенные посты из content/telegram/queue
+    bot.py queue-wait                   # сколько секунд ждать ближайший пост
     bot.py moderate                     # спам, приветствия, команды в чате обсуждений
     bot.py check                        # проверить токен, канал и права бота
     bot.py chat-id @some_group          # узнать ID чата для секретов
@@ -17,6 +18,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import os
 import sys
@@ -110,6 +112,16 @@ def cmd_run_queue(args: argparse.Namespace) -> int:
         dry_run=args.dry_run,
     )
     print(f"Итого: отправлено {sent}, ждут {waiting}")
+    return 0
+
+
+def cmd_queue_wait(args: argparse.Namespace) -> int:
+    now = queue.parse_date(args.now) if args.now else dt.datetime.now(dt.timezone.utc)
+    due = queue.next_due(Path(args.queue_dir), now, future_only=args.future_only)
+    if due is None:
+        print("wait=none")
+    else:
+        print(f"wait={max(0, int((due - now).total_seconds()))}")
     return 0
 
 
@@ -261,6 +273,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--now", help="проверить очередь на эту дату (ISO 8601)")
     p.add_argument("--dry-run", action="store_true")
     p.set_defaults(func=cmd_run_queue)
+
+    p = sub.add_parser("queue-wait",
+                       help="секунд до ближайшего поста: wait=N или wait=none")
+    p.add_argument("--queue-dir", default="content/telegram/queue")
+    p.add_argument("--now", help="считать от этой даты (ISO 8601)")
+    p.add_argument("--future-only", action="store_true",
+                   help="не учитывать посты, время которых уже наступило")
+    p.set_defaults(func=cmd_queue_wait)
 
     p = sub.add_parser("moderate", help="один проход модерации чата")
     p.add_argument("--chat-id", help="чат обсуждений (по умолчанию TG_DISCUSSION_CHAT_ID)")

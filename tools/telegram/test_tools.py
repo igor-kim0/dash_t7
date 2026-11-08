@@ -119,6 +119,27 @@ class QueueTest(unittest.TestCase):
                 now=dt.datetime(2026, 11, 1, tzinfo=dt.timezone.utc), dry_run=True)
             self.assertEqual((sent, waiting), (0, 1))
 
+    def test_next_due(self):
+        now = dt.datetime(2026, 11, 8, 12, tzinfo=dt.timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            q = Path(tmp) / "queue"
+            self.assertIsNone(queue.next_due(q, now))
+            q.mkdir()
+            self.assertIsNone(queue.next_due(q, now))
+            (q / "broken.md").write_text(
+                "---\npublish_at: завтра\n---\nТекст", encoding="utf-8")
+            (q / "a.md").write_text(
+                "---\npublish_at: 2026-11-09T09:00:00+03:00\n---\nА", encoding="utf-8")
+            (q / "b.md").write_text(
+                "---\npublish_at: 2026-11-08T18:00:00+03:00\n---\nБ", encoding="utf-8")
+            self.assertEqual(queue.next_due(q, now),
+                             dt.datetime(2026, 11, 8, 15, tzinfo=dt.timezone.utc))
+            (q / "late.md").write_text(
+                "---\npublish_at: 2026-11-08T11:00:00+03:00\n---\nВ", encoding="utf-8")
+            self.assertEqual(queue.next_due(q, now), now)
+            self.assertEqual(queue.next_due(q, now, future_only=True),
+                             dt.datetime(2026, 11, 8, 15, tzinfo=dt.timezone.utc))
+
 
 class ModerationTest(unittest.TestCase):
     def setUp(self):

@@ -141,12 +141,19 @@ photo: docs/screenshots/dashboard.png
 - Файлы с расширением `.md.example` бот не трогает — образец лежит в
   `content/telegram/queue/2026-11-10-example.md.example`.
 
-Workflow **Telegram: отложенные посты** запускается каждые 15 минут,
-публикует всё, чей `publish_at` уже наступил, и переносит файл в
-`content/telegram/sent/` коммитом `[skip ci]`. GitHub может задержать
-запуск на несколько минут — минутная точность не гарантируется. Ручной
+Workflow **Telegram: отложенные посты** запускается при push поста в
+очередь (в `master`). Job `wait` спит до ближайшего `publish_at` (не больше
+5,5 ч за раз), затем `publish` публикует всё, чьё время наступило, переносит
+файл в `content/telegram/sent/` коммитом `[skip ci]` и, если в очереди
+остались посты, перезапускает workflow ждать следующий. Новый push в
+очередь отменяет текущее ожидание и пересчитывает время. Точность — около
+минуты (старт runner'а).
+
+Cron (`'7 * * * *'`) — только страховка: GitHub запускает его раз в
+несколько часов, поэтому раньше посты уходили с опозданием до 7 ч. Ручной
 прогон: Actions → **Telegram: отложенные посты** → Run workflow (можно с
-`dry_run`).
+`dry_run` — тогда без ожидания). Проверить ожидание локально:
+`python3 tools/telegram/bot.py queue-wait`.
 
 Workflow делает коммит в текущую ветку. Если ветка защищена от push
 бота, отправленные посты не будут помечены и уйдут повторно — разрешите
@@ -219,7 +226,7 @@ python3 tools/telegram/test_tools.py
 
 | Файл | Назначение |
 | --- | --- |
-| `tools/telegram/bot.py` | CLI: `post-release`, `run-queue`, `moderate`, `check`, `chat-id`, `chats`, `webhook` |
+| `tools/telegram/bot.py` | CLI: `post-release`, `run-queue`, `queue-wait`, `moderate`, `check`, `chat-id`, `chats`, `webhook` |
 | `tools/telegram/tg.py` | клиент Bot API (stdlib, multipart для APK/фото) |
 | `tools/telegram/markdown.py` | Markdown → HTML Telegram, лимиты и разбиение |
 | `tools/telegram/releases.py` | раздел CHANGELOG, текст анонса, скачивание APK |
@@ -228,7 +235,7 @@ python3 tools/telegram/test_tools.py
 | `tools/telegram/moderation.json` | правила модерации и тексты |
 | `tools/telegram/test_tools.py` | проверки без сети |
 | `.github/workflows/telegram-post.yml` | анонс релиза (вызывается из `release.yml`) |
-| `.github/workflows/telegram-queue.yml` | отложенные посты, каждые 15 минут |
+| `.github/workflows/telegram-queue.yml` | отложенные посты: ждёт `publish_at`, цепочка перезапусков |
 | `.github/workflows/telegram-moderation.yml` | модерация, каждые 10 минут |
 | `.github/workflows/telegram-check.yml` | ручная проверка настройки |
 | `content/telegram/queue/` | очередь постов |
