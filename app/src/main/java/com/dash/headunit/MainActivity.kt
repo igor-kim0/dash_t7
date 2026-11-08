@@ -494,8 +494,9 @@ class MainActivity : AppCompatActivity() {
         if (!ok) Toast.makeText(this, R.string.contacts_no_app, Toast.LENGTH_LONG).show()
     }
 
-    /** Проверка обновлений при старте приложения. */
+    /** Проверка обновлений при старте приложения — только если есть интернет. */
     private fun checkForUpdates() {
+        if (!updateManager.isNetworkAvailable(this)) return
         updateManager.checkForUpdates { available, info ->
             if (available) info?.let { offerUpdate(it) }
         }

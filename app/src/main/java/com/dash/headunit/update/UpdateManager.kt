@@ -3,7 +3,10 @@ package com.dash.headunit.update
 import android.app.ProgressDialog
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
@@ -34,6 +37,24 @@ class UpdateManager(private val context: Context) {
     private var currentApk: File? = null
 
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    /** Есть ли активное сетевое соединение (Wi-Fi/мобильный/ETHERNET). */
+    fun isNetworkAvailable(context: Context): Boolean {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val network = cm.activeNetwork
+            if (network == null) return false
+            val capabilities = cm.getNetworkCapabilities(network)
+            return capabilities != null && (
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+            )
+        }
+        @Suppress("DEPRECATION")
+        val networkInfo = cm.activeNetworkInfo
+        return networkInfo != null && networkInfo.isConnected
+    }
 
     /**
      * Проверяет наличие нового релиза на GitHub.
