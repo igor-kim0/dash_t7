@@ -3,7 +3,7 @@
 Бот ведёт канал [@tenet_t7_dash](https://t.me/tenet_t7_dash):
 
 - **анонсирует релизы** — после успешной сборки по тегу `v*` публикует пост
-  из `CHANGELOG.md` и прикрепляет APK из GitHub Release;
+  из `CHANGELOG.md` со ссылкой на APK в GitHub Release;
 - **публикует отложенные посты** из очереди `content/telegram/queue/`;
 - **модерирует обсуждение** — удаляет спам, ограничивает и блокирует
   нарушителей, приветствует новичков, отвечает на `/help`, `/rules`, `/apk`,
@@ -76,7 +76,7 @@ GitHub → репозиторий → **Settings → Secrets and variables → A
 | Variable | `TG_CHANNEL_ID` | `@tenet_t7_dash` (можно не задавать — это значение по умолчанию) |
 | Variable | `TG_DISCUSSION_CHAT_ID` | ID группы обсуждений, `-100...`. Без неё модерация выключена |
 
-`GITHUB_TOKEN` для скачивания APK подставляется автоматически.
+`GITHUB_TOKEN` для ссылки на APK подставляется автоматически.
 
 ## 5. Проверить
 
@@ -104,15 +104,16 @@ Actions → **Telegram: проверка** → Run workflow. Должно быт
 2. собирает пост в HTML Telegram: заголовок, дата, списки, ссылки, код;
 3. обрезает слишком длинный текст по границе слова и добавляет ссылку на
    релиз (лимит сообщения — 4096 символов);
-4. скачивает APK из релиза и прикрепляет его отдельным сообщением, если файл
-   не больше 49 МБ (ограничение Bot API — 50 МБ);
+4. внизу поста — прямая ссылка на APK из релиза и ссылка на сам релиз; файл
+   APK в канал не прикрепляется (при ручном запуске можно включить
+   `attach_apk` — тогда APK до 49 МБ уходит отдельным сообщением);
 5. для тега с `-dev` добавляет пометку «тестовая сборка».
 
 Если раздела в CHANGELOG нет, текст берётся из описания GitHub Release. Если
 нет и его — workflow падает с понятной ошибкой, но релиз уже опубликован.
 
 Переопубликовать вручную: Actions → **Telegram: анонс релиза** → Run
-workflow → тег (`v1.8`). Сначала можно поставить `dry_run` — текст
+workflow → тег (`v1.8.1`). Сначала можно поставить `dry_run` — текст
 печатается в лог, ничего не отправляется. Учтите: повторный запуск создаст
 второй пост в канале.
 
@@ -204,7 +205,7 @@ export TG_CHANNEL_ID='@tenet_t7_dash'
 export TG_DISCUSSION_CHAT_ID='-1001234567890'   # если нужна модерация
 
 python3 tools/telegram/bot.py check
-python3 tools/telegram/bot.py post-release --tag v1.8 --dry-run
+python3 tools/telegram/bot.py post-release --tag v1.8.1 --dry-run
 python3 tools/telegram/bot.py run-queue --dry-run
 python3 tools/telegram/bot.py moderate --dry-run
 python3 tools/telegram/test_tools.py

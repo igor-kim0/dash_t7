@@ -15,8 +15,8 @@ on:
         required: false
         type: boolean
         default: false
-      no_apk:
-        description: Не прикреплять APK
+      attach_apk:
+        description: Прикрепить APK файлом (по умолчанию — только ссылка)
         required: false
         type: boolean
         default: false
@@ -29,8 +29,8 @@ on:
         description: Только показать текст, не публиковать
         type: boolean
         default: false
-      no_apk:
-        description: Не прикреплять APK
+      attach_apk:
+        description: Прикрепить APK файлом (по умолчанию — только ссылка)
         type: boolean
         default: false
 
@@ -90,5 +90,5 @@ jobs:
         run: |
           args=(post-release --tag "${{ inputs.tag }}" --changelog "$RUNNER_TEMP/CHANGELOG.md")
           if [ "${{ inputs.dry_run }}" = "true" ]; then args+=(--dry-run); fi
-          if [ "${{ inputs.no_apk }}" = "true" ]; then args+=(--no-apk); fi
+          if [ "${{ inputs.attach_apk }}" = "true" ]; then args+=(--apk); fi
           python3 tools/telegram/bot.py "${args[@]}"

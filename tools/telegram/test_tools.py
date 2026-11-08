@@ -94,6 +94,13 @@ class ReleaseTest(unittest.TestCase):
         self.assertIn(releases.release_url("igor-kim0/dash_t7", "v1.9"), html)
         self.assertLessEqual(markdown.visible_len(html), markdown.SAFE_LIMIT)
 
+    def test_post_links_apk(self):
+        apk = "https://github.com/igor-kim0/dash_t7/releases/download/v1.9/app.apk"
+        html, _ = releases.build_post(
+            tag="v1.9", repo="igor-kim0/dash_t7", changelog=CHANGELOG, apk_url=apk)
+        self.assertIn(f'<a href="{apk}">Скачать APK</a>', html)
+        self.assertIn(releases.release_url("igor-kim0/dash_t7", "v1.9"), html)
+
 
 class QueueTest(unittest.TestCase):
     def test_front_matter(self):

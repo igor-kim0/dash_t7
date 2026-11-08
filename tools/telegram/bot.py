@@ -3,7 +3,7 @@
 
 Команды:
 
-    bot.py post-release --tag v1.8.1     # анонс релиза из CHANGELOG (+ APK)
+    bot.py post-release --tag v1.8.1     # анонс релиза из CHANGELOG (+ ссылка на APK)
     bot.py run-queue                    # отложенные посты из content/telegram/queue
     bot.py queue-wait                   # сколько секунд ждать ближайший пост
     bot.py moderate                     # спам, приветствия, команды в чате обсуждений
@@ -51,9 +51,10 @@ def cmd_post_release(args: argparse.Namespace) -> int:
         print(f"Нет {changelog_path}")
         return 2
     changelog = changelog_path.read_text(encoding="utf-8")
+    apk_url = releases.apk_download_url(repo, tag, env("GITHUB_TOKEN") or None)
     try:
         html, truncated = releases.build_post(
-            tag=tag, repo=repo, changelog=changelog, prerelease=prerelease)
+            tag=tag, repo=repo, changelog=changelog, prerelease=prerelease, apk_url=apk_url)
     except ValueError as exc:
         print(f"⚠️ {exc}")
         if not repo or args.no_release_body:
@@ -66,7 +67,7 @@ def cmd_post_release(args: argparse.Namespace) -> int:
         version = releases.version_from_tag(tag)
         fake = f"## [{version}]\n\n{body}\n"
         html, truncated = releases.build_post(
-            tag=tag, repo=repo, changelog=fake, prerelease=prerelease)
+            tag=tag, repo=repo, changelog=fake, prerelease=prerelease, apk_url=apk_url)
 
     version = releases.version_from_tag(tag)
     print(f"Пост для {tag}: {markdown.visible_len(html)} символов"
@@ -82,7 +83,8 @@ def cmd_post_release(args: argparse.Namespace) -> int:
     tg.send_message(chat, html)
     print(f"✅ Анонс {version} опубликован в {chat}")
 
-    if args.no_apk:
+    # APK в канал не прикрепляем — в посте прямая ссылка на GitHub.
+    if not args.apk:
         return 0
     try:
         apk = releases.download_apk(repo, tag, env("GITHUB_TOKEN") or None)
@@ -260,7 +262,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--changelog", default="CHANGELOG.md")
     p.add_argument("--channel", help="канал (по умолчанию TG_CHANNEL_ID)")
     p.add_argument("--prerelease", action="store_true", help="пометить как тестовую сборку")
-    p.add_argument("--no-apk", action="store_true", help="не прикреплять APK")
+    p.add_argument("--apk", action="store_true",
+                   help="прикрепить APK файлом (по умолчанию — только ссылка на GitHub)")
     p.add_argument("--no-release-body", action="store_true",
                    help="не брать текст из GitHub Release, если нет раздела в CHANGELOG")
     p.add_argument("--dry-run", action="store_true")

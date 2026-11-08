@@ -76,8 +76,13 @@ def human_date(iso: str) -> str:
 
 
 def build_post(*, tag: str, repo: str, changelog: str, prerelease: bool = False,
+               apk_url: str | None = None,
                limit: int = markdown.SAFE_LIMIT) -> tuple[str, bool]:
-    """Собирает HTML-сообщение анонса. Возвращает (html, обрезано ли)."""
+    """Собирает HTML-сообщение анонса. Возвращает (html, обрезано ли).
+
+    apk_url — прямая ссылка на APK в GitHub Release; без неё — ссылка на
+    страницу релиза.
+    """
     version = version_from_tag(tag)
     found = find_section(changelog, version)
     if not found:
@@ -94,7 +99,10 @@ def build_post(*, tag: str, repo: str, changelog: str, prerelease: bool = False,
 
     url = release_url(repo, tag) if repo else ""
     footer = ""
-    if url:
+    if url and apk_url:
+        footer = (f'📦 <a href="{markdown.esc(apk_url)}">Скачать APK</a> · '
+                  f'<a href="{markdown.esc(url)}">релиз на GitHub</a>')
+    elif url:
         footer = (f'📦 <a href="{markdown.esc(url)}">Скачать APK и полный '
                   f"список изменений</a>")
     blocks = markdown.parse_blocks(section)
@@ -118,14 +126,30 @@ def release_body(repo: str, tag: str, token: str | None) -> str:
     return data.get("body") or ""
 
 
+def _apk_asset(repo: str, tag: str, token: str | None) -> dict | None:
+    release = _github_json(f"https://api.github.com/repos/{repo}/releases/tags/{tag}", token)
+    return next((a for a in release.get("assets", [])
+                 if a.get("name", "").endswith(".apk")), None)
+
+
+def apk_download_url(repo: str, tag: str, token: str | None) -> str | None:
+    """Прямая ссылка на APK из релиза (None — нет репозитория/релиза/APK)."""
+    if not repo:
+        return None
+    try:
+        asset = _apk_asset(repo, tag, token)
+    except Exception as exc:
+        print(f"⚠️ Ссылка на APK не получена: {exc}")
+        return None
+    return asset.get("browser_download_url") if asset else None
+
+
 def download_apk(repo: str, tag: str, token: str | None,
                  max_bytes: int = 49 * 1024 * 1024) -> Path | None:
     """Скачивает APK из релиза во временный файл (None — если нет/велик)."""
     if not repo:
         return None
-    release = _github_json(f"https://api.github.com/repos/{repo}/releases/tags/{tag}", token)
-    asset = next((a for a in release.get("assets", [])
-                  if a.get("name", "").endswith(".apk")), None)
+    asset = _apk_asset(repo, tag, token)
     if not asset:
         return None
     if int(asset.get("size", 0)) > max_bytes:
