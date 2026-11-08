@@ -118,7 +118,9 @@ object HvacShade {
             }
             lock.notifyAll()
         }
-        Log.i(TAG, if (ok) "штатная шторка климата придержана" else "придержать не вышло — CLOSE_PANEL вдогонку")
+        val msg = if (ok) "штатная шторка климата придержана" else "придержать не вышло — CLOSE_PANEL вдогонку"
+        Log.i(TAG, msg)
+        ClimateLog.write(app, "HvacShade: $msg")
     }
 
     private fun startWatcher(app: Context) {
@@ -165,6 +167,7 @@ object HvacShade {
         synchronized(lock) { held = false }
         prefs(app).edit().putBoolean(PREF_HELD, false).apply()
         Log.i(TAG, "штатная служба климата поднята обратно ($reason)")
+        ClimateLog.write(app, "HvacShade: svhvac поднята обратно ($reason)")
     }
 
     private fun closePanel(app: Context) {

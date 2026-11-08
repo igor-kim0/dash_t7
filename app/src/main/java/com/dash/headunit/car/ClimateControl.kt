@@ -4,6 +4,8 @@ import android.content.Context
 import android.os.SystemClock
 import android.util.Log
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Команды климата в шину Desay (CarInfoService, transact 4).
@@ -39,6 +41,14 @@ import java.util.concurrent.Executors
  *
  * Все записи — по одной на потоке [WRITER]; повторные тапы по той же команде
  * схлопываются до последнего значения.
+ *
+ * Сиденья ([Cmd.absolute]) пишутся абсолютным уровнем, поэтому пишем всегда,
+ * даже если ячейка чтения уже «как надо» (кодировка 0,95 не подтверждена:
+ * выкл = 0, одно штатное нажатие = 2). «Выкл» пишется во все варианты, чтобы
+ * в запасной ячейке не осталось старого уровня, и дожимается: через
+ * [OFF_CHECK_MS] (после подъёма svhvac [HvacShade]) перечитываем и, если
+ * сиденье снова греет, а новых команд не было, — пишем «выкл» ещё раз.
+ * Журнал — [ClimateLog] (files/climate_log).
  */
 object ClimateControl {
 
@@ -57,7 +67,9 @@ object ClimateControl {
         val title: String,
         val read: Pair<Int, Int>,
         val variants: List<Variant>,
-        val expect: (Int) -> Int = { it }
+        val expect: (Int) -> Int = { it },
+        /** Абсолютное значение (не «нажатие»): писать всегда, без пропуска по чтению. */
+        val absolute: Boolean = false
     ) {
         POWER("питание", 16 to 18, toggle(16, 0)),
         AUTO("AUTO", 16 to 4, toggle(16, 1)),
@@ -70,28 +82,43 @@ object ClimateControl {
         TEMP_PASS("уставка пасс.", 16 to 13, temp(23)),
         FAN("вентилятор", 16 to 12, listOf(Variant(16, 24) { it }, Variant(16, 24) { it + 1 })),
         MODE("обдув", 16 to 6, listOf(Variant(16, 2) { it - 1 }, Variant(16, 2) { it })),
-        SEAT_DRIVER("сиденье вод.", 0 to 95, listOf(Variant(0, 83) { it + 1 }, Variant(0, 135) { it + 1 })),
-        SEAT_PASS("сиденье пасс.", 0 to 96, listOf(Variant(0, 84) { it + 1 }, Variant(0, 136) { it + 1 })),
-        SEAT_REAR_LEFT("сиденье ЗЛ", 0 to 139, listOf(Variant(0, 139) { it + 1 }, Variant(0, 139) { it })),
-        SEAT_REAR_RIGHT("сиденье ЗП", 0 to 141, listOf(Variant(0, 141) { it + 1 }, Variant(0, 141) { it }))
+        SEAT_DRIVER("сиденье вод.", 0 to 95, listOf(Variant(0, 83) { it + 1 }, Variant(0, 135) { it + 1 }), absolute = true),
+        SEAT_PASS("сиденье пасс.", 0 to 96, listOf(Variant(0, 84) { it + 1 }, Variant(0, 136) { it + 1 }), absolute = true),
+        // Обе кодировки задних — одна ячейка: «выкл» пишем только первой (1), см. [writeOff].
+        SEAT_REAR_LEFT("сиденье ЗЛ", 0 to 139, listOf(Variant(0, 139) { it + 1 }, Variant(0, 139) { it }), absolute = true),
+        SEAT_REAR_RIGHT("сиденье ЗП", 0 to 141, listOf(Variant(0, 141) { it + 1 }, Variant(0, 141) { it }), absolute = true)
     }
 
+    /** Проверки «выкл» сиденья: после подъёма svhvac (~9 с тишины) и ещё раз позже. */
+    private val OFF_CHECK_MS = longArrayOf(13_000L, 25_000L)
+
     private val WRITER = Executors.newSingleThreadExecutor()
+    private val TIMER = Executors.newSingleThreadScheduledExecutor()
     private val pending = mutableMapOf<Cmd, Int>()
+
+    /** Номер последней команды по [Cmd] — отложенная проверка устарела, если он сменился. */
+    private val seq = mutableMapOf<Cmd, Int>()
     private var reader: DesayCarReader? = null
 
     /** Записать [value] команды [cmd]; [onDone] — на потоке записи, после проверки. */
     fun send(context: Context, cmd: Cmd, value: Int, onDone: (() -> Unit)? = null) {
         val app = context.applicationContext
         HvacShade.prepare(app)
-        val queued = synchronized(pending) { pending.put(cmd, value) != null }
+        val queued = synchronized(pending) {
+            seq[cmd] = (seq[cmd] ?: 0) + 1
+            pending.put(cmd, value) != null
+        }
         if (queued) return // задача уже в очереди — возьмёт новое значение
         WRITER.execute {
             val v = synchronized(pending) { pending.remove(cmd) } ?: return@execute
             try {
                 val r = reader ?: DesayCarReader(app).also { reader = it }
-                if (r.isAvailable()) sendVerified(app, r, cmd, v)
-                else Log.w(TAG, "${cmd.title}: CarInfoService недоступен")
+                if (r.isAvailable()) {
+                    if (cmd.absolute && v == 0) sendOff(app, r, cmd) else sendVerified(app, r, cmd, v)
+                } else {
+                    Log.w(TAG, "${cmd.title}: CarInfoService недоступен")
+                    ClimateLog.write(app, "${cmd.title} → $v: CarInfoService недоступен")
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "send ${cmd.title}", e)
             }
@@ -111,7 +138,7 @@ object ClimateControl {
             val variant = cmd.variants[i]
             val raw = variant.encode(value)
             val before = runCatching { r.readInt(rg, rid) }.getOrNull()
-            if (before == expected) {
+            if (!cmd.absolute && before == expected) {
                 // Уже в нужном состоянии: если ячейка — «нажатие», запись бы его сбросила.
                 log.append(" уже $before")
                 break
@@ -129,6 +156,66 @@ object ClimateControl {
             }
         }
         Log.i(TAG, log.toString())
+        ClimateLog.write(app, "$log (learned=$learned)")
+    }
+
+    /** Сиденье «выкл»: во все ячейки, проверка и отложенный дожим. */
+    private fun sendOff(app: Context, r: DesayCarReader, cmd: Cmd) {
+        val (rg, rid) = cmd.read
+        val before = runCatching { r.readInt(rg, rid) }.getOrNull()
+        val written = writeOff(app, r, cmd)
+        SystemClock.sleep(VERIFY_MS)
+        val after = runCatching { r.readInt(rg, rid) }.getOrNull()
+        val line = "${cmd.title} → 0: $written · $rg,$rid $before→$after"
+        Log.i(TAG, line)
+        ClimateLog.write(app, line)
+        val mySeq = synchronized(pending) { seq[cmd] ?: 0 }
+        val repeated = AtomicBoolean(false)
+        for (delay in OFF_CHECK_MS) {
+            TIMER.schedule({
+                WRITER.execute { checkOff(app, r, cmd, mySeq, delay, repeated) }
+            }, delay, TimeUnit.MILLISECONDS)
+        }
+    }
+
+    /** Записать «выкл» во все различные ячейки команды; строка «g,id=v …» для журнала. */
+    private fun writeOff(app: Context, r: DesayCarReader, cmd: Cmd): String {
+        val cells = cmd.variants.distinctBy { it.group to it.id }
+        return cells.joinToString(" ") { variant ->
+            val raw = variant.encode(0)
+            HvacShade.beforeWrite(app)
+            r.write(variant.group, variant.id, raw)
+            HvacShade.afterWrite(app)
+            "${variant.group},${variant.id}=$raw"
+        }
+    }
+
+    /** Отложенная проверка «выкл»: сиденье снова греет без новых команд — один дожим. */
+    private fun checkOff(app: Context, r: DesayCarReader, cmd: Cmd, mySeq: Int, delay: Long, repeated: AtomicBoolean) {
+        try {
+            if (synchronized(pending) { seq[cmd] } != mySeq) return // была новая команда
+            val (rg, rid) = cmd.read
+            val state = runCatching { r.readInt(rg, rid) }.getOrNull()
+            val tag = "${cmd.title} выкл, проверка через ${delay / 1000} с: $rg,$rid=$state"
+            if (state == null || state <= 0) {
+                ClimateLog.write(app, "$tag — выключено")
+                return
+            }
+            if (!repeated.compareAndSet(false, true)) {
+                Log.w(TAG, "$tag — снова греет, дожим уже был")
+                ClimateLog.write(app, "$tag — снова греет, дожим уже был")
+                return
+            }
+            val written = writeOff(app, r, cmd)
+            SystemClock.sleep(VERIFY_MS)
+            val after = runCatching { r.readInt(rg, rid) }.getOrNull()
+            val line = "$tag — снова греет, дожим: $written · →$after"
+            Log.w(TAG, line)
+            ClimateLog.write(app, line)
+            ClimateHub.refresh()
+        } catch (e: Exception) {
+            Log.w(TAG, "checkOff ${cmd.title}", e)
+        }
     }
 
     /** Тоггл: вкл/выкл = 1/2 (как SVHvac), запасные — 2/1 и 1/0. */
