@@ -97,6 +97,30 @@ object AppSettings {
         prefs(context).edit().putBoolean(KEY_ETM_COOLANT, enabled).apply()
     }
 
+    /** Автопроверка обновлений при старте приложения (вкл по умолчанию). */
+    fun otaAutoCheck(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_OTA_AUTO_CHECK, true)
+
+    fun setOtaAutoCheck(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_OTA_AUTO_CHECK, enabled).apply()
+    }
+
+    /** Версия, которую пользователь пропустил (не предлагать снова). */
+    fun skippedUpdateVersion(context: Context): String? =
+        prefs(context).getString(KEY_OTA_SKIPPED_VERSION, null)
+
+    fun setSkippedUpdateVersion(context: Context, version: String?) {
+        prefs(context).edit().putString(KEY_OTA_SKIPPED_VERSION, version).apply()
+    }
+
+    /** Время последней проверки обновлений, мс. */
+    fun otaLastCheckTime(context: Context): Long =
+        prefs(context).getLong(KEY_OTA_LAST_CHECK, 0)
+
+    fun setOtaLastCheckTime(context: Context, time: Long) {
+        prefs(context).edit().putLong(KEY_OTA_LAST_CHECK, time).apply()
+    }
+
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
 
@@ -109,6 +133,9 @@ object AppSettings {
     private const val KEY_JOURNAL_KEEP_DAYS = "journal_keep_days"
     private const val KEY_SHADE_RESUME = "shade_resume"
     private const val KEY_ETM_COOLANT = "etm_coolant"
+    private const val KEY_OTA_AUTO_CHECK = "ota_auto_check"
+    private const val KEY_OTA_SKIPPED_VERSION = "ota_skipped_version"
+    private const val KEY_OTA_LAST_CHECK = "ota_last_check"
 
     /** Срок хранения журнала поездок по умолчанию, дней. */
     private const val JOURNAL_KEEP_DEFAULT = 7

@@ -36,6 +36,8 @@
     <!-- Маршрут на приборке: окно-оверлей на дисплее приборки (navi/cluster).
          Выдаётся через свой adb-канал: appops set … SYSTEM_ALERT_WINDOW allow. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- Запрос установки пакетов (OTA-обновление через PackageInstaller). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Спектр в виджетах музыки: Visualizer на общем выходе (session 0).
          RECORD_AUDIO спрашивается при включении спектра; на ГУ можно выдать:
          adb shell pm grant com.dash.headunit android.permission.RECORD_AUDIO -->
@@ -142,5 +144,15 @@
             android:name=".car.CarDebugActivity"
             android:exported="false"
             android:screenOrientation="landscape" />
+        <!-- FileProvider для OTA: отдаёт скачанный APK системному установщику. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="com.dash.headunit.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

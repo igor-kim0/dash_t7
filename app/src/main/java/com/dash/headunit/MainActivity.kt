@@ -51,6 +51,8 @@ import com.dash.headunit.navi.cluster.ClusterOverlay
 import com.dash.headunit.navi.cluster.ClusterSetup
 import com.dash.headunit.settings.AppSettings
 import com.dash.headunit.theme.DashTheme
+import com.dash.headunit.update.UpdateInfo
+import com.dash.headunit.update.UpdateManager
 import com.dash.headunit.theme.RetroLook
 import com.dash.headunit.theme.ThemeCard
 import com.dash.headunit.theme.ThemeStore
@@ -99,6 +101,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var store: DashboardStore
     private lateinit var settingsStore: WidgetSettingsStore
     private lateinit var themeStore: ThemeStore
+    private lateinit var updateManager: UpdateManager
 
     private var editMode = false
     private lateinit var screensaver: Screensaver
@@ -133,6 +136,7 @@ class MainActivity : AppCompatActivity() {
         settingsStore = WidgetSettingsStore(this)
         themeStore = ThemeStore(ThemeStore.PREFS, this)
         theme = themeStore.current()
+        updateManager = UpdateManager(this)
         applyThemeChrome()
         dashboard = findViewById(R.id.dashboard)
         barNormal = findViewById(R.id.bar_normal)
@@ -145,6 +149,13 @@ class MainActivity : AppCompatActivity() {
             com.dash.headunit.ui.WifiConnectionDialog.show(this)
         }
         applyBarSide()
+
+        // Автопроверка обновлений при старте (если не отключено в настройках).
+        if (AppSettings.otaAutoCheck(this)) {
+            updateManager.checkForUpdates { available, info ->
+                if (available) info?.let { offerUpdate(it) }
+            }
+        }
 
         dashboard.onLayoutChanged = { persistLayout() }
 
@@ -308,6 +319,7 @@ class MainActivity : AppCompatActivity() {
         var lanes = AppSettings.clusterLanes(this)
         var lights = AppSettings.clusterTrafficLights(this)
         var etm = AppSettings.etmCoolant(this)
+        var otaAutoCheck = AppSettings.otaAutoCheck(this)
         var shade = AppSettings.shadeResume(this)
         var tank = CarHub.tankLiters(this)
         val keepOptions = intArrayOf(7, 14, 30, 0)
@@ -332,6 +344,16 @@ class MainActivity : AppCompatActivity() {
                 applyRef()
                 dialog?.dismiss()
                 showContactsDialog()
+            }
+            .switch(
+                R.drawable.ic_auto, getString(R.string.ota_auto_check),
+                getString(R.string.ota_auto_check_s), otaAutoCheck
+            ) { otaAutoCheck = it }
+            .nav(
+                R.drawable.ic_cloud, getString(R.string.ota_check_now),
+                null, null
+            ) {
+                checkForUpdates()
             }
             .column()
             .section(getString(R.string.settings_sec_cluster))
@@ -384,6 +406,7 @@ class MainActivity : AppCompatActivity() {
                 // меню (вернуть как было). Вход идёт при каждом
                 // подключении [ClusterPps] к qconn.
                 AppSettings.setEtmCoolant(this, etm)
+                AppSettings.setOtaAutoCheck(this, otaAutoCheck)
                 if (!etm) Thread { runCatching { CoolantEtm.send(0) } }.start()
                 if (tank != CarHub.tankLiters(this)) CarHub.setTankLiters(this, tank)
                 val days = keepOptions[keep]
@@ -469,6 +492,18 @@ class MainActivity : AppCompatActivity() {
         val ok = intent.resolveActivity(packageManager) != null &&
             runCatching { startActivity(intent) }.isSuccess
         if (!ok) Toast.makeText(this, R.string.contacts_no_app, Toast.LENGTH_LONG).show()
+    }
+
+    /** Проверка обновлений при старте приложения. */
+    private fun checkForUpdates() {
+        updateManager.checkForUpdates { available, info ->
+            if (available) info?.let { offerUpdate(it) }
+        }
+    }
+
+    /** Диалог предложения обновления с кнопкой «Скачать и установить». */
+    private fun offerUpdate(info: UpdateInfo) {
+        updateManager.offerUpdate(this, info)
     }
 
     /**

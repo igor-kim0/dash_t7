@@ -343,4 +343,21 @@
     <string name="contacts_open">Открыть</string>
     <string name="contacts_close">Закрыть</string>
     <string name="contacts_no_app">Нечем открыть ссылку — отсканируйте QR-код телефоном</string>
+    <!-- OTA обновления (Настройки → О приложении) -->
+    <string name="ota_title">Обновление приложения</string>
+    <string name="ota_check_now">Проверить обновления</string>
+    <string name="ota_checking">Проверка обновлений…</string>
+    <string name="ota_up_to_date">Установлена последняя версия (%1$s)</string>
+    <string name="ota_update_available">Доступна версия %1$s</string>
+    <string name="ota_update_message">Новая версия %1$s.\n\n%2$s</string>
+    <string name="ota_no_changelog">Без описания изменений.</string>
+    <string name="ota_download">Скачать и установить</string>
+    <string name="ota_skip">Пропустить эту версию</string>
+    <string name="ota_downloading">Скачивание</string>
+    <string name="ota_downloading_apk">Скачивание APK версии %1$s…</string>
+    <string name="ota_download_failed">Ошибка скачивания: %1$s</string>
+    <string name="ota_installing">Установка обновления… Подтвердите в системном диалоге.</string>
+    <string name="ota_install_failed">Ошибка установки обновления</string>
+    <string name="ota_auto_check">Автопроверка при старте</string>
+    <string name="ota_auto_check_s">Проверять наличие новой версии при запуске приложения</string>
 </resources>
