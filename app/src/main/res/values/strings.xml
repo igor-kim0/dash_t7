@@ -360,4 +360,7 @@
     <string name="ota_install_failed">Ошибка установки обновления</string>
     <string name="ota_auto_check">Автопроверка при старте</string>
     <string name="ota_auto_check_s">Проверять наличие новой версии при запуске приложения</string>
+    <string name="ota_no_network">Нет соединения с интернетом</string>
+    <string name="ota_check_failed">Не удалось проверить обновления: %1$s</string>
+    <string name="ota_check_failed_unknown">Не удалось проверить обновления</string>
 </resources>

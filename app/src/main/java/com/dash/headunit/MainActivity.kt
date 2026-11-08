@@ -152,9 +152,7 @@ class MainActivity : AppCompatActivity() {
 
         // Автопроверка обновлений при старте (если не отключено в настройках).
         if (AppSettings.otaAutoCheck(this)) {
-            updateManager.checkForUpdates { available, info ->
-                if (available) info?.let { offerUpdate(it) }
-            }
+            checkForUpdatesSilent()
         }
 
         dashboard.onLayoutChanged = { persistLayout() }
@@ -353,7 +351,7 @@ class MainActivity : AppCompatActivity() {
                 R.drawable.ic_cloud, getString(R.string.ota_check_now),
                 null, null
             ) {
-                checkForUpdates()
+                checkForUpdatesManual()
             }
             .column()
             .section(getString(R.string.settings_sec_cluster))
@@ -494,11 +492,40 @@ class MainActivity : AppCompatActivity() {
         if (!ok) Toast.makeText(this, R.string.contacts_no_app, Toast.LENGTH_LONG).show()
     }
 
-    /** Проверка обновлений при старте приложения — только если есть интернет. */
-    private fun checkForUpdates() {
+    /** Проверка обновлений при старте приложения — тихо, только если есть новая версия. */
+    private fun checkForUpdatesSilent() {
         if (!updateManager.isNetworkAvailable(this)) return
-        updateManager.checkForUpdates { available, info ->
-            if (available) info?.let { offerUpdate(it) }
+        updateManager.checkForUpdates { result ->
+            if (result is UpdateManager.UpdateCheckResult.UpdateAvailable) {
+                offerUpdate(result.info)
+            }
+        }
+    }
+
+    /** Ручная проверка обновлений (по кнопке «Проверить обновления») — с обратной связью. */
+    private fun checkForUpdatesManual() {
+        if (!updateManager.isNetworkAvailable(this)) {
+            Toast.makeText(this, R.string.ota_no_network, Toast.LENGTH_LONG).show()
+            return
+        }
+        updateManager.checkForUpdates { result ->
+            when (result) {
+                is UpdateManager.UpdateCheckResult.UpdateAvailable ->
+                    offerUpdate(result.info)
+                UpdateManager.UpdateCheckResult.NoUpdate ->
+                    Toast.makeText(
+                        this,
+                        getString(R.string.ota_up_to_date, BuildConfig.VERSION_NAME),
+                        Toast.LENGTH_LONG
+                    ).show()
+                is UpdateManager.UpdateCheckResult.Error ->
+                    Toast.makeText(
+                        this,
+                        result.message?.let { getString(R.string.ota_check_failed, it) }
+                            ?: getString(R.string.ota_check_failed_unknown),
+                        Toast.LENGTH_LONG
+                    ).show()
+            }
         }
     }
 

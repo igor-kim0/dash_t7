@@ -56,18 +56,31 @@ class UpdateManager(private val context: Context) {
         return networkInfo != null && networkInfo.isConnected
     }
 
+    /** Результат проверки обновлений. */
+    sealed class UpdateCheckResult {
+        /** Обновлений нет — установлена последняя версия. */
+        object NoUpdate : UpdateCheckResult()
+        /** Доступно новое обновление. */
+        data class UpdateAvailable(val info: UpdateInfo) : UpdateCheckResult()
+        /** Ошибка при проверке (сеть, API, парсинг). */
+        data class Error(val message: String?) : UpdateCheckResult()
+    }
+
     /**
      * Проверяет наличие нового релиза на GitHub.
-     * [onResult] — true если обновление доступно (с [UpdateInfo]), false если нет/ошибка.
+     * [onResult] вызывается в главном потоке с результатом проверки.
      */
-    fun checkForUpdates(onResult: (Boolean, UpdateInfo?) -> Unit) {
+    fun checkForUpdates(onResult: (UpdateCheckResult) -> Unit) {
         scope.launch {
             val info = repo.latestRelease(context)
             mainHandler.post {
-                if (info != null && info.isNewerThan(currentVersionCode(context))) {
-                    onResult(true, info)
-                } else {
-                    onResult(false, null)
+                when {
+                    info != null && info.isNewerThan(currentVersionCode(context)) ->
+                        onResult(UpdateCheckResult.UpdateAvailable(info))
+                    info == null ->
+                        onResult(UpdateCheckResult.Error(null))
+                    else ->
+                        onResult(UpdateCheckResult.NoUpdate)
                 }
             }
         }
