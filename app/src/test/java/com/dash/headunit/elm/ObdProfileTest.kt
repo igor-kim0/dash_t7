@@ -148,6 +148,20 @@ class ObdProfileTest {
         assertEquals("VIN", p.info.first().title)
     }
 
+    /** Профиль «Test»: 010E, поцилиндровый откат 22 101A / 22 01A4 и 01A4. */
+    @Test
+    fun testProfile_parses() {
+        val p = ObdProfile.parse(File("src/main/assets/profiles/Test.json").readText())
+        assertEquals("Test", p.name)
+        assertTrue(p.warnings.toString(), p.warnings.isEmpty())
+        assertEquals(10, p.params.size)
+
+        assertEquals(8.0, p.params.first { it.command == "010E" }.decode("7E8 04 41 0E 90")!!, 1e-9)
+        val kr = p.params.filter { it.command == "22101A" }
+        assertEquals(listOf(0.0, -9.0, 0.0, 0.0), kr.map { it.decode("62101A00180000")!! })
+        assertEquals(-1.0, p.params.first { it.command == "01A4" }.decode("41A401FC")!!, 1e-9)
+    }
+
     /** Тестовый набор DID из logs/ddd.csv: все 37 параметров разбираются. */
     @Test
     fun testTiggo7lProfile_parses() {
