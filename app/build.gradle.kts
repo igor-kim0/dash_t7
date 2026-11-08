@@ -39,8 +39,11 @@ android {
         // Приложение только для сайдлоада на ГУ, требований Play нет.
         minSdk = 28
         targetSdk = 28
-        versionCode = 9
-        versionName = "1.8"
+        // Версии вида X.Y.Z (с 1.8.1; раньше были X.Y). versionCode
+        // выводится из versionName: X·10000 + Y·100 + Z (1.8.1 → 10801),
+        // поэтому Y и Z — не больше 99. Тег релиза — vX.Y.Z.
+        versionName = "1.8.1"
+        versionCode = versionName!!.split('.').map(String::toInt).let { (x, y, z) -> x * 10000 + y * 100 + z }
 
         buildConfigField("String", "OPENWEATHER_KEY", "\"$owmKey\"")
     }

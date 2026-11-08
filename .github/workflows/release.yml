@@ -1,8 +1,9 @@
 name: Release
 
 # Единая сборка приложения: тег v* запускает юнит-тесты, собирает подписанный
-# релизный APK и публикует GitHub Release. Суффикс -dev у тега (например
-# v1.5-dev) остаётся допустимым и публикуется как prerelease. Подпись —
+# релизный APK и публикует GitHub Release. Тег — vX.Y.Z, равный versionName
+# из app/build.gradle.kts. Суффикс -dev у тега (например v1.8.1-dev)
+# остаётся допустимым и публикуется как prerelease. Подпись —
 # debug-ключом из keystore/debug.keystore (см. app/build.gradle.kts),
 # поэтому локальная и CI-сборки взаимозаменяемы и обновляются поверх
 # установленной.
@@ -21,6 +22,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Tag matches versionName (vX.Y.Z)
+        run: |
+          ver="${GITHUB_REF_NAME#v}"; ver="${ver%-dev}"
+          if ! [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Тег $GITHUB_REF_NAME не вида vX.Y.Z[-dev]"; exit 1
+          fi
+          name=$(sed -n 's/^ *versionName = "\(.*\)"/\1/p' app/build.gradle.kts)
+          if [ "$ver" != "$name" ]; then
+            echo "::error::Тег $GITHUB_REF_NAME не совпадает с versionName $name"; exit 1
+          fi
+          grep -q "^## \[$ver\]" CHANGELOG.md || echo "::warning::В CHANGELOG.md нет раздела [$ver] — релиз будет без текста"
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4

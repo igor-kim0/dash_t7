@@ -3,7 +3,7 @@
 
 Команды:
 
-    bot.py post-release --tag v1.8      # анонс релиза из CHANGELOG (+ APK)
+    bot.py post-release --tag v1.8.1     # анонс релиза из CHANGELOG (+ APK)
     bot.py run-queue                    # отложенные посты из content/telegram/queue
     bot.py queue-wait                   # сколько секунд ждать ближайший пост
     bot.py moderate                     # спам, приветствия, команды в чате обсуждений
@@ -255,7 +255,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("post-release", help="анонс релиза из CHANGELOG")
-    p.add_argument("--tag", required=True, help="тег релиза, например v1.8")
+    p.add_argument("--tag", required=True, help="тег релиза, например v1.8.1")
     p.add_argument("--repo", help="owner/repo (по умолчанию из git/GitHub)")
     p.add_argument("--changelog", default="CHANGELOG.md")
     p.add_argument("--channel", help="канал (по умолчанию TG_CHANNEL_ID)")

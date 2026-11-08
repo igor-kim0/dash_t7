@@ -1,13 +1,13 @@
 name: "Telegram: анонс релиза"
 
 # Вызывается из Release после успешной сборки (workflow_call) либо вручную:
-# Actions → «Telegram: анонс релиза» → Run workflow → тег (например v1.8).
+# Actions → «Telegram: анонс релиза» → Run workflow → тег (например v1.8.1).
 
 on:
   workflow_call:
     inputs:
       tag:
-        description: Тег релиза (v1.8)
+        description: Тег релиза (v1.8.1)
         required: true
         type: string
       dry_run:
@@ -23,7 +23,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Тег релиза (v1.8)
+        description: Тег релиза (v1.8.1)
         required: true
       dry_run:
         description: Только показать текст, не публиковать
