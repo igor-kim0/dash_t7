@@ -205,15 +205,13 @@ class ClusterGuidanceView(context: Context) : View(context) {
             bigText.textSize = 104f * s
             val distText = g.distance?.let { fit(it, bigText, distRight - tx) }
             distText?.let { canvas.drawText(it, tx, top + pad + 96f * s, bigText) }
-            // Знак полос (вырезка с экрана Яндекса) — справа от расстояния.
-            val lanesLeft = g.lanes?.let { drawLanes(canvas, it, tx + (distText?.let(bigText::measureText) ?: 0f) + 40f * s, distRight, top + pad, 136f * s) }
             val frac = progress.update(
                 // Без типа манёвра: он появляется со снимком через секунды — отсчёт не сбрасываем.
                 g.street.orEmpty(),
                 GuidanceText.meters(g.distance)
             )
             if (frac != null) {
-                val barW = minOf(560f * s, (lanesLeft ?: distRight) - 24f * s - tx)
+                val barW = minOf(560f * s, distRight - 24f * s - tx)
                 val by = top + pad + 128f * s
                 val bh = 12f * s
                 dst.set(tx, by, tx + barW, by + bh)
@@ -229,12 +227,6 @@ class ClusterGuidanceView(context: Context) : View(context) {
 
         if (g.hasManeuver) {
             limit?.let { drawSideSign(canvas, it, g.overspeed, left, s) }
-            g.trafficLight?.let {
-                val th = 120f * s
-                // Светофор — ниже нижней строки блока: справа в ней
-                // теперь топливо и температура.
-                drawTrafficLight(canvas, it, right - pad - th * TL_ASPECT / 2, bottom + 100f * s + th / 2, th)
-            }
         } else {
             drawWarningsRow(canvas, g, left, right, signCy, signR, s)
         }
@@ -302,23 +294,7 @@ class ClusterGuidanceView(context: Context) : View(context) {
         return right - x
     }
 
-    /**
-     * Картинка полос высотой до [maxH] от [top], прижата вправо к [r], не левее [l]
-     * (уже не влезает — уменьшается). Возвращает левый край нарисованного; null — места нет.
-     */
-    private fun drawLanes(canvas: Canvas, bmp: android.graphics.Bitmap, l: Float, r: Float, top: Float, maxH: Float): Float? {
-        val room = r - l
-        if (room < maxH * 0.5f || bmp.width <= 0 || bmp.height <= 0) return null
-        val k = minOf(maxH / bmp.height, room / bmp.width)
-        val w = bmp.width * k
-        val h = bmp.height * k
-        src.set(0, 0, bmp.width, bmp.height)
-        dst.set(r - w, top + (maxH - h) / 2, r, top + (maxH + h) / 2)
-        canvas.drawBitmap(bmp, src, dst, iconPaint)
-        return r - w
-    }
-
-    /** Без маршрута: знак, камера, светофор, улица — в ряд от левого края полосы. */
+    /** Без маршрута: знак, камера, улица — в ряд от левого края полосы. */
     private fun drawWarningsRow(canvas: Canvas, g: Guidance, left: Float, right: Float, cy: Float, r: Float, s: Float) {
         val gap = 48f * s
         val th = 2 * r
@@ -338,27 +314,10 @@ class ClusterGuidanceView(context: Context) : View(context) {
             x += midText.measureText(it) + gap
         }
         midText.color = white
-        g.trafficLight?.let {
-            drawTrafficLight(canvas, it, x + th * TL_ASPECT / 2, cy, th)
-            x += th * TL_ASPECT + gap
-        }
         g.currentStreet?.let {
             midText.textSize = 56f * s
             val fm = midText.fontMetrics
             canvas.drawText(fit(it, midText, right - 30f * s - x), x, cy - (fm.ascent + fm.descent) / 2, midText)
-        }
-    }
-
-    /** Светофор высотой [h] с центром (cx, cy): горит лампа [light], остальные тусклые. */
-    private fun drawTrafficLight(canvas: Canvas, light: TrafficLight, cx: Float, cy: Float, h: Float) {
-        val w = h * TL_ASPECT
-        dst.set(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)
-        canvas.drawRoundRect(dst, w * 0.3f, w * 0.3f, tileFill)
-        val lr = w * 0.32f
-        val step = h / 3
-        TrafficLight.entries.forEachIndexed { i, l ->
-            signFill.color = if (l == light) LAMP_ON[i] else LAMP_OFF
-            canvas.drawCircle(cx, cy - h / 2 + step * (i + 0.5f), lr, signFill)
         }
     }
 
@@ -562,15 +521,10 @@ class ClusterGuidanceView(context: Context) : View(context) {
     }
 
     private companion object {
-        /** Ширина светофора к высоте. */
-        const val TL_ASPECT = 0.42f
         /** Блок знака ограничения при маршруте: сторона и центр, px дисплея 1920×720. */
         const val SIDE_BLOCK = 140f
         const val SIDE_SIGN_CX = 322f
         const val SIDE_SIGN_CY = 310f
-        /** Лампы сверху вниз — в порядке [TrafficLight]: красная, жёлтая, зелёная. */
-        val LAMP_ON = intArrayOf(Color.rgb(0xE5, 0x52, 0x45), Color.rgb(0xFF, 0xDF, 0x61), Color.rgb(0x85, 0xCC, 0x3D))
-        val LAMP_OFF = Color.rgb(0x3A, 0x40, 0x4A)
         /** Цвета полос A–H (приглушённые, как в grid.png). */
         val BANDS = intArrayOf(
             Color.rgb(0x50, 0x00, 0x00), Color.rgb(0x50, 0x28, 0x00),

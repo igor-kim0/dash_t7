@@ -16,7 +16,7 @@ import com.dash.headunit.settings.Autostart
  * ограничение скорости (layout_map_speedlimit → text_speedlimit), камеры
  * (view_notification_speedcamera_*), остаток маршрута (textview_eta_*) и
  * карточку манёвра (contextmaneuverview: text_maneuverballoon_distance/metrics,
- * text_nextstreet), светофор (button_trafficlight → [TrafficLightGrab]). Так есть данные, даже когда навигатор на экране и
+ * text_nextstreet). Так есть данные, даже когда навигатор на экране и
  * фонового уведомления ведения нет. Тип манёвра — по снимку стрелки
  * ([ManeuverGrab]).
  *
@@ -153,30 +153,6 @@ class NaviAccessibilityService : AccessibilityService() {
                 else -> ManeuverGrab.known(street)
             }
         }
-        // Светофор (настройка): цвет только по снимку видимой кнопки (в блоке кнопки не рисуются).
-        val tl = visible("button_trafficlight")?.takeIf { AppSettings.clusterTrafficLights(this) }?.let {
-            val r = android.graphics.Rect().also { b -> it.getBoundsInScreen(b) }
-            TrafficLightGrab.light(this, r)
-        } ?: run {
-            TrafficLightGrab.reset()
-            null
-        }
-        // Полосы: плашка в карте (или видимый контейнер в карточке) — по снимку.
-        val lanes = if (AppSettings.clusterLanes(this)) {
-            fun bounds(n: AccessibilityNodeInfo?) =
-                n?.let { android.graphics.Rect().also { b -> it.getBoundsInScreen(b) } }?.takeUnless { it.isEmpty }
-            LaneGrab.lanes(
-                this,
-                window = bounds(root) ?: android.graphics.Rect(0, 0, 1920, 720),
-                card = bounds(visible("contextmaneuverview")),
-                container = bounds(visible("lane_signs_container")),
-                street = street,
-                distance = dist,
-            )
-        } else {
-            LaneGrab.reset("выключено в настройках")
-            null
-        }
         val camDist = text("view_notification_speedcamera_distance")
         val camLabel = text("view_notification_speedcamera_distance_label")
         val g = Guidance(
@@ -190,8 +166,6 @@ class NaviAccessibilityService : AccessibilityService() {
             cameraDistance = camDist?.let { if (camLabel != null) "$it $camLabel" else it },
             cameraLimit = GuidanceText.speedLimit(text("view_notification_speedcamera_limit")),
             overspeed = visible("view_speedlimit_alarm") != null,
-            trafficLight = tl,
-            lanes = lanes,
             // Строка состояния внизу карты: без маршрута — улица, по которой едем.
             currentStreet = GuidanceText.currentStreet(text("text_statuspanel")),
         )

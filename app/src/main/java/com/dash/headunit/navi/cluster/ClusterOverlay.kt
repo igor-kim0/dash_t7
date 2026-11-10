@@ -143,7 +143,6 @@ object ClusterOverlay {
                     " · слушатель уведомлений: ${onOff(ClusterSetup.isListenerEnabled(ctx))}",
                 "настройка «маршрут на приборке»: ${onOff(AppSettings.clusterNavi(ctx))}" +
                     " · ${if (GuidanceHub.current != null) "на карточке маршрут" else "на карточке образец"}",
-                "полосы: ${LaneGrab.info()}",
             )
             main.postDelayed(this, 1000)
         }
@@ -193,10 +192,10 @@ object ClusterOverlay {
 
     /**
      * Замороженное ведение: манёвр и остаток пути держим, а то, что быстро
-     * устаревает (камера, светофор), — нет. Без маршрута держать нечего.
+     * устаревает (камера), — нет. Без маршрута держать нечего.
      */
     private fun Guidance.frozen(): Guidance? =
-        takeIf { it.onRoute }?.copy(cameraDistance = null, cameraLimit = null, trafficLight = null, lanes = null)
+        takeIf { it.onRoute }?.copy(cameraDistance = null, cameraLimit = null)
 
     /** Настройку выключили: убрать окно и панель навигации. */
     fun remove() {
@@ -232,8 +231,6 @@ object ClusterOverlay {
         routeActive = false
         lastGuidance = null
         ManeuverGrab.reset()
-        TrafficLightGrab.reset()
-        LaneGrab.reset()
         view?.guidance = shown()
         val ctx = app ?: return@Runnable
         if (calibration) return@Runnable // рамка держит панель сама
@@ -397,7 +394,6 @@ object ClusterOverlay {
         speedLimit = 60,
         cameraDistance = "350 м",
         cameraLimit = 60,
-        trafficLight = TrafficLight.RED,
     )
 
     private const val CAMERA_REPEAT_MS = 1500L

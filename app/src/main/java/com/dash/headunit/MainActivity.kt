@@ -306,8 +306,6 @@ class MainActivity : AppCompatActivity() {
         var autostart = AppSettings.autostart(this)
         var barLeft = AppSettings.barSideLeft(this)
         var clusterNavi = AppSettings.clusterNavi(this)
-        var lanes = AppSettings.clusterLanes(this)
-        var lights = AppSettings.clusterTrafficLights(this)
         var etm = AppSettings.etmCoolant(this)
         var shade = AppSettings.shadeResume(this)
         var tank = CarHub.tankLiters(this)
@@ -337,14 +335,6 @@ class MainActivity : AppCompatActivity() {
             .column()
             .section(getString(R.string.settings_sec_cluster))
             .switch(R.drawable.ic_nav, getString(R.string.settings_cluster_navi), null, clusterNavi) { clusterNavi = it }
-            .switch(
-                R.drawable.ic_range, getString(R.string.settings_cluster_lanes_t),
-                getString(R.string.settings_cluster_lanes_s), lanes
-            ) { lanes = it }
-            .switch(
-                R.drawable.ic_cluster, getString(R.string.settings_cluster_lights_t),
-                getString(R.string.settings_cluster_lights_s), lights
-            ) { lights = it }
             .switch(
                 R.drawable.ic_thermo, getString(R.string.settings_etm_coolant_t),
                 getString(R.string.settings_etm_coolant_s), etm
@@ -377,8 +367,6 @@ class MainActivity : AppCompatActivity() {
                 AppSettings.setBarSideLeft(this, barLeft)
                 applyBarSide()
                 applyClusterNavi(clusterNavi)
-                AppSettings.setClusterTrafficLights(this, lights)
-                AppSettings.setClusterLanes(this, lanes)
                 // Шторка: настройка проверяется при следующем старте.
                 AppSettings.setShadeResume(this, shade)
                 // ETM: отключили — посылаем приборке выход из инженерного

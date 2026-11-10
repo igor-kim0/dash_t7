@@ -11,9 +11,6 @@ enum class Maneuver {
     UTURN_LEFT, UTURN_RIGHT, KEEP_LEFT, KEEP_RIGHT, ROUNDABOUT, FINISH
 }
 
-/** Сигнал светофора впереди (кнопка-светофор Яндекса, цвет — по снимку экрана). */
-enum class TrafficLight { RED, YELLOW, GREEN }
-
 /**
  * Состояние ведения по маршруту. Все поля необязательные: уведомление
  * навигатора и служба спец. возможностей дают разные части, [GuidanceHub]
@@ -40,12 +37,8 @@ data class Guidance(
     val cameraLimit: Int? = null,
     /** Навигатор показывает превышение (#view_speedlimit_alarm виден). */
     val overspeed: Boolean = false,
-    /** Светофор впереди и его сигнал; null — нет или не видно. */
-    val trafficLight: TrafficLight? = null,
     /** Улица, по которой едем (строка состояния Яндекса, #text_statuspanel). */
     val currentStreet: String? = null,
-    /** Знак полос перед перекрёстком — вырезка с экрана навигатора ([LaneGrab]). */
-    val lanes: Bitmap? = null,
 ) {
     /** Есть ли что показать про манёвр. */
     val hasManeuver: Boolean
@@ -60,11 +53,11 @@ data class Guidance(
 
     /** Есть предупреждения, которые показываем и без маршрута. */
     val hasWarnings: Boolean
-        get() = speedLimit != null || cameraDistance != null || trafficLight != null
+        get() = speedLimit != null || cameraDistance != null
 
     /**
-     * Без маршрута: только ограничение, камера ближе [CAMERA_NEAR_M],
-     * светофор и текущая улица; null — показывать нечего.
+     * Без маршрута: только ограничение, камера ближе [CAMERA_NEAR_M]
+     * и текущая улица; null — показывать нечего.
      */
     fun freeDrive(): Guidance? {
         val near = GuidanceText.meters(cameraDistance)?.let { it < CAMERA_NEAR_M } == true
@@ -73,7 +66,6 @@ data class Guidance(
             cameraDistance = cameraDistance.takeIf { near },
             cameraLimit = cameraLimit.takeIf { near },
             overspeed = overspeed,
-            trafficLight = trafficLight,
             currentStreet = currentStreet,
         ).takeIf { it.hasWarnings || it.currentStreet != null }
     }
@@ -93,9 +85,7 @@ data class Guidance(
             cameraDistance = cameraDistance ?: other.cameraDistance,
             cameraLimit = cameraLimit ?: other.cameraLimit,
             overspeed = overspeed || other.overspeed,
-            trafficLight = trafficLight ?: other.trafficLight,
             currentStreet = currentStreet ?: other.currentStreet,
-            lanes = lanes ?: other.lanes,
         )
     }
 }

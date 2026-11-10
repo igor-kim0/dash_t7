@@ -189,7 +189,7 @@ object ClusterNaviProbe {
     private val CLOCK = SimpleDateFormat("HH:mm:ss", Locale.US)
     private val PPS = listOf("ivi_service/0402", "ivi_service/0405", "hmi/status")
     private val SYSTEM_PKGS = listOf("com.desaysv.mapservice", "com.desaysv.carlan", "com.desaysv.meterinteraction")
-    private val OUR_TAGS = listOf("ClusterOverlay", "CarLan", "NaviA11y", "NaviNotif", "ManeuverGrab", "LaneGrab", "TrafficLightGrab", "NaviUnderlay")
+    private val OUR_TAGS = listOf("ClusterOverlay", "CarLan", "NaviA11y", "NaviNotif", "ManeuverGrab", "NaviUnderlay")
 
     private const val TAG = "ClusterNaviProbe"
     private const val PHASE_MS = 30_000L

@@ -78,10 +78,6 @@
     <string name="settings_sec_car">Автомобиль</string>
     <string name="settings_bar_left_t">Панель слева</string>
     <string name="settings_bar_left_s">Вертикальная панель у левого края, иначе справа</string>
-    <string name="settings_cluster_lanes_t">Полосы движения</string>
-    <string name="settings_cluster_lanes_s">Снимок экрана у перекрёстка</string>
-    <string name="settings_cluster_lights_t">Светофоры</string>
-    <string name="settings_cluster_lights_s">Яндекс на весь экран, снимок экрана раз в 3 с</string>
     <string name="settings_etm_coolant_t">Температура ОЖ</string>
     <string name="settings_etm_coolant_s">Вход в инженерное меню приборки при старте (запись в tx)</string>
     <string name="settings_shade_resume_t">Шторка люка</string>

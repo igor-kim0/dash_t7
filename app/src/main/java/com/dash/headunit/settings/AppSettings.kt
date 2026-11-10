@@ -29,28 +29,6 @@ object AppSettings {
         prefs(context).edit().putBoolean(KEY_CLUSTER_NAVI, enabled).apply()
     }
 
-    /**
-     * Светофоры на приборке ([com.dash.headunit.navi.cluster.TrafficLightGrab]):
-     * цвет узнаётся по снимку экрана раз в 3 с, пока Яндекс на весь экран —
-     * лишняя нагрузка на ГУ, поэтому по умолчанию выключено.
-     */
-    fun clusterTrafficLights(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_CLUSTER_TRAFFIC_LIGHTS, false)
-
-    fun setClusterTrafficLights(context: Context, enabled: Boolean) {
-        prefs(context).edit().putBoolean(KEY_CLUSTER_TRAFFIC_LIGHTS, enabled).apply()
-    }
-
-    /**
-     * Знак полос на приборке ([com.dash.headunit.navi.cluster.LaneGrab]):
-     * снимок экрана раз в 2,5 с, только ближе 700 м к манёвру. По умолчанию включено.
-     */
-    fun clusterLanes(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_CLUSTER_LANES, true)
-
-    fun setClusterLanes(context: Context, enabled: Boolean) {
-        prefs(context).edit().putBoolean(KEY_CLUSTER_LANES, enabled).apply()
-    }
 
     /** Ширина центральной полосы картинки на приборке, px (по бокам — шкалы приборки). */
     fun clusterWidth(context: Context): Int =
@@ -103,8 +81,6 @@ object AppSettings {
     private const val KEY_AUTOSTART = "autostart"
     private const val KEY_BAR_LEFT = "bar_side_left"
     private const val KEY_CLUSTER_NAVI = "cluster_navi"
-    private const val KEY_CLUSTER_TRAFFIC_LIGHTS = "cluster_traffic_lights"
-    private const val KEY_CLUSTER_LANES = "cluster_lanes"
     private const val KEY_CLUSTER_WIDTH = "cluster_width"
     private const val KEY_JOURNAL_KEEP_DAYS = "journal_keep_days"
     private const val KEY_SHADE_RESUME = "shade_resume"
