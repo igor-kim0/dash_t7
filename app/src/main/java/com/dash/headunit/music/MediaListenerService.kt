@@ -49,6 +49,8 @@ class MediaListenerService : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         if (sbn == null || sbn.packageName != YANDEX_NAVI) return
+        // Навигатор сам на приборке — ведение не нужно, не разбираем.
+        if (GuidanceHub.paused) return
         val r = YandexNotificationParser.parse(this, sbn)
         if (r.guidance != null) {
             guidanceKey = sbn.key

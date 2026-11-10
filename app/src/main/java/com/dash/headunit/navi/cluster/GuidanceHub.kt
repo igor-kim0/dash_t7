@@ -28,6 +28,29 @@ object GuidanceHub {
     @Volatile private var a11yAt = 0L
     @Volatile private var notifAt = 0L
 
+    /**
+     * Чтение Навигатора приостановлено: он сам на приборке ([NaviOnCluster]),
+     * наша карточка не показывается — ведение никому не нужно. Источники
+     * ([NaviAccessibilityService], уведомления) в это время ничего не делают.
+     */
+    @Volatile
+    var paused = false
+        private set
+
+    /** Приостановить / возобновить чтение (главный поток). */
+    fun setPaused(on: Boolean) {
+        if (paused == on) return
+        paused = on
+        if (on) {
+            fromNotification = null
+            fromA11y = null
+            main.removeCallbacks(expire)
+            publish()
+        } else {
+            NaviAccessibilityService.instance?.resume()
+        }
+    }
+
     /** Склеенное состояние; без маршрута — только предупреждения ([Guidance.freeDrive]); null — нечего показать. */
     @Volatile
     var current: Guidance? = null
@@ -47,6 +70,7 @@ object GuidanceHub {
 
     /** Уведомление ведения появилось/обновилось (null — снято). */
     fun setFromNotification(g: Guidance?) {
+        if (paused) return
         fromNotification = g
         notifAt = SystemClock.uptimeMillis()
         publish()
@@ -54,6 +78,7 @@ object GuidanceHub {
 
     /** Свежие данные из окна навигатора (null — ведения на экране нет). */
     fun setFromA11y(g: Guidance?) {
+        if (paused) return
         fromA11y = g
         a11yAt = SystemClock.uptimeMillis()
         publish()

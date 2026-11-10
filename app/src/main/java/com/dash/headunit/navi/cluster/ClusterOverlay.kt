@@ -111,6 +111,8 @@ object ClusterOverlay {
     fun setYandex(on: Boolean) {
         main.post {
             yandex = on
+            // Карточки нет — чтение Навигатора ни к чему.
+            GuidanceHub.setPaused(on)
             val ctx = app ?: return@post
             if (on) {
                 if (!calibration) removeView()

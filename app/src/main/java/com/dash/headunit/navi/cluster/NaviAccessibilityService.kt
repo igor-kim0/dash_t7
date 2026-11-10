@@ -56,6 +56,7 @@ class NaviAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event?.packageName?.toString() != YANDEX_NAVI) return
+        if (GuidanceHub.paused) return
         // Навигатор шлёт события пачками (карта перерисовывается) — не чаще
         // раза в SCAN_MS.
         if (scheduled) return
@@ -83,6 +84,9 @@ class NaviAccessibilityService : AccessibilityService() {
         // (стоим в пробке, навигатор под дашбордом), событий нет, а данные
         // в [GuidanceHub] через A11Y_FRESH_MS протухают — маршрут пропадал.
         bg.removeCallbacks(poll)
+        // Навигатор на приборке — не сканируем и не опрашиваем; снова
+        // запустит [resume].
+        if (GuidanceHub.paused) return
         val root = naviRoot()
         if (root == null) {
             publish(null)
@@ -97,6 +101,13 @@ class NaviAccessibilityService : AccessibilityService() {
         }
         publish(g)
         bg.postDelayed(poll, if (g != null) ROUTE_POLL_MS else IDLE_POLL_MS)
+    }
+
+    /** Чтение возобновили ([GuidanceHub.setPaused]) — запустить сканирование заново. */
+    fun resume() {
+        bg.removeCallbacks(scan)
+        scheduled = false
+        bg.post(scan)
     }
 
     /** Скан, закончившийся после onDestroy, не перетирает сброс. */
