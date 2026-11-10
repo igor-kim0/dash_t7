@@ -7,7 +7,6 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.dash.headunit.diag.BrightnessProbe
-import com.dash.headunit.diag.WheelHeatProbe
 import com.dash.headunit.navi.cluster.ClusterOverlay
 import com.dash.headunit.radio.RadioHub
 import kotlinx.coroutines.CoroutineScope
@@ -20,7 +19,7 @@ import kotlinx.coroutines.launch
 /**
  * Скрытый debug-экран (открывается из dev-сборки с главного экрана).
  * На нём калибровочная рамка на приборке ([ClusterOverlay.toggleCalibration]),
- * проба «Подогрев руля» ([WheelHeatProbe]) и проба штатного радио
+ * проба штатного радио
  * ([RadioHub]: команды + лог службы, он же в files/radio_log.txt), проба
  * яркости экрана ГУ ([BrightnessProbe], лог в files/brightness_log.txt); остальные
  * пробы и сканеры убраны — их классы в `diag/` и история в git.
@@ -93,17 +92,6 @@ class CarDebugActivity : AppCompatActivity() {
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
         ).apply { bottomMargin = dp(24) })
 
-        val btnWheel = Button(this).apply {
-            text = "Подогрев руля: что меняется при нажатии кнопки (~70 с)"
-            setOnClickListener { WheelHeatProbe.start(this@CarDebugActivity) }
-        }
-        val status = TextView(this).apply {
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
-            setTextIsSelectable(true)
-            setPadding(0, dp(12), 0, 0)
-        }
-        root.addView(btnWheel)
-        root.addView(status)
 
         // Радио: команды службе SVMedia и лог её ответов.
         val radioRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -141,8 +129,6 @@ class CarDebugActivity : AppCompatActivity() {
                     append(BrightnessProbe.state).append("\n\n")
                     BrightnessProbe.logLines().asReversed().forEach { append(it).append('\n') }
                 }
-                status.text = "Подогрев руля: ${WheelHeatProbe.status}"
-                btnWheel.isEnabled = !WheelHeatProbe.running
                 val st = RadioHub.state
                 radioLog.text = buildString {
                     append("Радио: connected=${RadioHub.connected} unavailable=${RadioHub.unavailable}\n")
