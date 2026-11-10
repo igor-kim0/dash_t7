@@ -16,6 +16,8 @@ enum class WidgetType(val id: String) {
     MUSIC("music"),
     /** Яндекс Музыка: обложка, транспорт, выбор коллекции (дерево MediaBrowser). */
     YANDEX_MUSIC("yandex_music"),
+    /** Радио: штатный FM/AM-тюнер ГУ через службу SVMedia (RadioHub). */
+    RADIO("radio"),
     /** Виджет-приложение: встраивание чужого приложения (ActivityView). */
     APP("app"),
     /** Бортовой компьютер: расход/пробег/скорость за поездку. */

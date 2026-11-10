@@ -176,6 +176,11 @@
     <string name="car_item_range">Запас хода</string>
     <string name="music_bluetooth">BLUETOOTH</string>
     <string name="music_yandex">ЯНДЕКС МУЗЫКА</string>
+    <string name="widget_radio">Радио</string>
+    <string name="radio_band_label">РАДИО %1$s</string>
+    <string name="radio_unavailable">Штатное радио недоступно</string>
+    <string name="radio_connecting">Подключение к радио…</string>
+    <string name="radio_paused">Пауза</string>
     <string name="widget_yandex_music">Яндекс Музыка</string>
     <string name="yam_not_installed">Яндекс Музыка не установлена</string>
     <string name="yam_nothing">Нет воспроизведения</string>

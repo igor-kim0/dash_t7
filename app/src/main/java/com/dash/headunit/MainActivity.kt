@@ -60,6 +60,7 @@ import com.dash.headunit.widgets.ClockWidgetView
 import com.dash.headunit.widgets.ComboWidgetView
 import com.dash.headunit.widgets.ForecastStripView
 import com.dash.headunit.widgets.MusicWidgetView
+import com.dash.headunit.widgets.RadioWidgetView
 import com.dash.headunit.widgets.SpectrumView
 import com.dash.headunit.music.SpectrumHub
 import com.dash.headunit.widgets.YandexMusicWidgetView
@@ -755,6 +756,7 @@ class MainActivity : AppCompatActivity() {
                 WidgetType.CAR -> CarWidgetView(this, wTheme, spec.widgetId, settingsStore)
                 WidgetType.MUSIC -> MusicWidgetView(this, wTheme, spec.widgetId, settingsStore)
                 WidgetType.YANDEX_MUSIC -> YandexMusicWidgetView(this, wTheme, spec.widgetId, settingsStore)
+                WidgetType.RADIO -> RadioWidgetView(this, wTheme)
                 WidgetType.WIFI -> WifiWidgetView(this, wTheme)
                 WidgetType.APP -> AppWidgetView(this, spec.widgetId, wTheme, settingsStore).apply {
                     onTapIdle = { if (!editMode) connectShell() }
@@ -926,6 +928,7 @@ class MainActivity : AppCompatActivity() {
         PickerItem(WidgetType.CAR, R.string.widget_car, R.drawable.ic_fuel),
         PickerItem(WidgetType.MUSIC, R.string.widget_music, R.drawable.ic_play),
         PickerItem(WidgetType.YANDEX_MUSIC, R.string.widget_yandex_music, R.drawable.ic_ymusic),
+        PickerItem(WidgetType.RADIO, R.string.widget_radio, R.drawable.ic_radio),
         PickerItem(WidgetType.WIFI, R.string.widget_wifi, R.drawable.ic_wifi),
         PickerItem(WidgetType.APP, R.string.widget_app, R.drawable.ic_nav),
         PickerItem(WidgetType.TRIP, R.string.widget_trip, R.drawable.ic_journal),
@@ -1072,6 +1075,7 @@ class MainActivity : AppCompatActivity() {
             WidgetType.CAR -> 92 to 24
             WidgetType.MUSIC -> 92 to 24
             WidgetType.YANDEX_MUSIC -> 92 to 30
+            WidgetType.RADIO -> 92 to 24
             WidgetType.APP -> 92 to 40
             WidgetType.TRIP -> 92 to 24
             WidgetType.CLIMATE -> 92 to 40

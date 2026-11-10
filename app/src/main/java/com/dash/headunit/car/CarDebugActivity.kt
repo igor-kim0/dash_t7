@@ -7,6 +7,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.dash.headunit.diag.WheelHeatProbe
+import com.dash.headunit.radio.RadioHub
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -16,7 +17,8 @@ import kotlinx.coroutines.launch
 
 /**
  * Скрытый debug-экран (открывается из dev-сборки с главного экрана).
- * Сейчас на нём только проба «Подогрев руля» ([WheelHeatProbe]); остальные
+ * На нём проба «Подогрев руля» ([WheelHeatProbe]) и проба штатного радио
+ * ([RadioHub]: команды + лог службы, он же в files/radio_log.txt); остальные
  * пробы и сканеры убраны — их классы в `diag/` и история в git.
  */
 class CarDebugActivity : AppCompatActivity() {
@@ -41,12 +43,45 @@ class CarDebugActivity : AppCompatActivity() {
         }
         root.addView(btnWheel)
         root.addView(status)
-        setContentView(root)
+
+        // Радио: команды службе SVMedia и лог её ответов.
+        val radioRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        listOf(
+            "Радио: обновить" to { RadioHub.init(this); RadioHub.refresh() },
+            "◀◀" to { RadioHub.seekDown() },
+            "⏯" to { RadioHub.toggle() },
+            "▶▶" to { RadioHub.seekUp() },
+            "FM/AM" to { RadioHub.switchBand(this) },
+            "★" to { RadioHub.toggleFavorite() },
+            "Открыть" to { RadioHub.open(this) },
+        ).forEach { (label, action) ->
+            radioRow.addView(Button(this).apply {
+                text = label
+                setOnClickListener { action() }
+            })
+        }
+        val radioLog = TextView(this).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setTextIsSelectable(true)
+            setPadding(0, dp(8), 0, 0)
+        }
+        root.addView(radioRow, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(24) })
+        root.addView(radioLog)
+        setContentView(android.widget.ScrollView(this).apply { addView(root) })
+        RadioHub.init(this)
 
         scope.launch {
             while (true) {
                 status.text = "Подогрев руля: ${WheelHeatProbe.status}"
                 btnWheel.isEnabled = !WheelHeatProbe.running
+                val st = RadioHub.state
+                radioLog.text = buildString {
+                    append("Радио: connected=${RadioHub.connected} unavailable=${RadioHub.unavailable}\n")
+                    append("$st\n\n")
+                    RadioHub.logLines().asReversed().forEach { append(it).append('\n') }
+                }
                 delay(1000)
             }
         }
