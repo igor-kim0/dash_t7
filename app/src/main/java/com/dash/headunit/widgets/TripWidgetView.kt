@@ -1,11 +1,9 @@
 package com.dash.headunit.widgets
 
 import android.content.Context
-import android.content.res.ColorStateList
 import android.text.SpannableString
 import android.util.TypedValue
 import android.view.Gravity
-import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -28,8 +26,8 @@ import java.util.Locale
  * СРЕДНИЙ РАСХОД / ПРОБЕГ / СР. СКОРОСТЬ за поездку и накопительные
  * МОТОЧАСЫ (всего / в движении / холостой ход). Состав и порядок колонок
  * и строка приборки внизу — в настройках виджета ([OPT_ITEMS], [OPT_ORDER],
- * [OPT_FOOTER]). Тап по виджету открывает журнал поездок; у первой колонки
- * моточасов — кнопка сброса.
+ * [OPT_FOOTER]). Тап по виджету открывает журнал поездок; сброс моточасов —
+ * в настройках виджета ([confirmResetEngineHours]).
  *
  * Данные считает [TripTracker] из [CarHub] (одометр, топливо, моточасы).
  */
@@ -102,14 +100,13 @@ class TripWidgetView(
             5 -> 32f
             else -> 28f
         }
-        val firstHours = items.firstOrNull { it in HOURS_KEYS }
         content.removeAllViews()
         for (key in items) {
             val (title, value, unit) = when (key) {
                 ITEM_CONS -> Triple(
                     context.getString(R.string.trip_avg_cons),
                     v?.avgCons?.let { "%.1f".format(locale, it) },
-                    context.getString(R.string.trip_avg_cons_unit)
+                    context.getString(R.string.trip_avg_cons_unit_short)
                 )
                 ITEM_DIST -> Triple(
                     context.getString(R.string.trip_dist),
@@ -139,7 +136,7 @@ class TripWidgetView(
                 )
             }
             content.addView(
-                metric(title, value, unit, valueSp, withReset = key == firstHours),
+                metric(title, value, unit, valueSp),
                 LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f)
             )
         }
@@ -148,21 +145,6 @@ class TripWidgetView(
     /** Моточасы как на счётчике: часы с десятыми («12,4»). */
     private fun engineHoursText(millis: Long): String =
         "%.1f".format(locale, millis.coerceAtLeast(0L) / 3_600_000.0)
-
-    private fun confirmResetEngineHours() {
-        DashDialog.Builder(context)
-            .setTitle(R.string.trip_engine_reset_title)
-            .setMessage(R.string.trip_engine_reset_confirm)
-            .setPositiveButton(R.string.trip_engine_reset_ok) { _, _ ->
-                TripTracker.resetEngineHours(context)
-                render()
-                Toast.makeText(
-                    context, R.string.trip_engine_reset_done, Toast.LENGTH_SHORT
-                ).show()
-            }
-            .setNegativeButton(R.string.dialog_cancel, null)
-            .showFullScreen()
-    }
 
     /** «После сброса 5036,6 км • Одометр 19 544 км • Запас 418 км». */
     private fun footer(c: ClusterTrip): String {
@@ -178,16 +160,12 @@ class TripWidgetView(
         ).joinToString(" • ")
     }
 
-    /**
-     * Колонка метрики: подпись / значение+единица (центрированы).
-     * [withReset] — кнопка сброса моточасов справа от подписи.
-     */
+    /** Колонка метрики: подпись / значение+единица (центрированы). */
     private fun metric(
         title: String,
         value: String?,
         unit: String,
-        valueSp: Float,
-        withReset: Boolean = false
+        valueSp: Float
     ): LinearLayout {
         val col = LinearLayout(context).apply {
             orientation = VERTICAL
@@ -201,28 +179,7 @@ class TripWidgetView(
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             gravity = Gravity.CENTER_HORIZONTAL
         }
-        if (withReset) {
-            val titleRow = LinearLayout(context).apply {
-                orientation = HORIZONTAL
-                gravity = Gravity.CENTER
-            }
-            titleRow.addView(titleView)
-            titleRow.addView(
-                ImageButton(context).apply {
-                    setImageResource(R.drawable.ic_rotate)
-                    imageTintList = ColorStateList.valueOf(theme.accent)
-                    background = null
-                    scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
-                    contentDescription = context.getString(R.string.trip_engine_reset)
-                    setPadding(dp(4), dp(4), dp(4), dp(4))
-                    setOnClickListener { confirmResetEngineHours() }
-                },
-                LayoutParams(dp(28), dp(28)).apply { marginStart = dp(4) }
-            )
-            col.addView(titleRow)
-        } else {
-            col.addView(titleView)
-        }
+        col.addView(titleView)
         val row = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM
@@ -510,6 +467,25 @@ class TripWidgetView(
     }
 
     companion object {
+        /**
+         * Подтверждение и сброс моточасов (из настроек виджета). [done] —
+         * после сброса; виджеты перерисуются сами на следующем опросе CarHub.
+         */
+        fun confirmResetEngineHours(context: Context, done: () -> Unit = {}) {
+            DashDialog.Builder(context)
+                .setTitle(R.string.trip_engine_reset_title)
+                .setMessage(R.string.trip_engine_reset_confirm)
+                .setPositiveButton(R.string.trip_engine_reset_ok) { _, _ ->
+                    TripTracker.resetEngineHours(context)
+                    Toast.makeText(
+                        context, R.string.trip_engine_reset_done, Toast.LENGTH_SHORT
+                    ).show()
+                    done()
+                }
+                .setNegativeButton(R.string.dialog_cancel, null)
+                .showFullScreen()
+        }
+
         const val ITEM_CONS = "cons"
         const val ITEM_DIST = "dist"
         const val ITEM_SPEED = "speed"

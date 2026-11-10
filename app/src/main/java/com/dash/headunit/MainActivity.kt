@@ -1570,7 +1570,8 @@ class MainActivity : AppCompatActivity() {
     /**
      * Настройки «Бортового компьютера»: какие колонки показывать и в каком
      * порядке (расход / пробег / ср. скорость / моточасы всего, в движении,
-     * на холостом ходу) и строка приборки внизу.
+     * на холостом ходу), строка приборки внизу и сброс моточасов (сразу,
+     * с подтверждением — не ждёт «Готово»).
      */
     private fun showTripSettings(widgetId: String) {
         val labelIds = mapOf(
@@ -1596,6 +1597,16 @@ class MainActivity : AppCompatActivity() {
             .section(getString(R.string.car_items_section))
             .reorder(order, checked, { getString(labelIds.getValue(it)) }, { icons[it] ?: 0 })
             .column()
+            .section(getString(R.string.trip_engine_hours))
+            .nav(
+                R.drawable.ic_rotate, getString(R.string.trip_engine_reset),
+                getString(R.string.trip_engine_reset_s),
+                "%.1f %s".format(
+                    java.util.Locale("ru"),
+                    TripTracker.engineHours(this).totalMillis.coerceAtLeast(0L) / 3_600_000.0,
+                    getString(R.string.trip_journal_h)
+                )
+            ) { TripWidgetView.confirmResetEngineHours(this) }
         val saveTile = list.tileSection(widgetId) {
             switch(
                 R.drawable.ic_journal, getString(R.string.trip_footer_t),

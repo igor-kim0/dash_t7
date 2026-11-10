@@ -117,6 +117,7 @@
     <string name="widget_trip">Бортовой компьютер</string>
     <string name="trip_avg_cons">Средний расход</string>
     <string name="trip_avg_cons_unit">л/100 км</string>
+    <string name="trip_avg_cons_unit_short">л</string>
     <string name="trip_dist">Пробег</string>
     <string name="trip_dist_unit">км</string>
     <string name="trip_avg_speed">Ср. скорость</string>
@@ -128,6 +129,7 @@
     <string name="trip_engine_moving">В движении</string>
     <string name="trip_engine_idle">Холостой ход</string>
     <string name="trip_engine_reset">Сброс моточасов</string>
+    <string name="trip_engine_reset_s">Обнулить счётчик и разбивку «в движении / холостой ход»</string>
     <string name="trip_item_hours_moving">Моточасы в движении</string>
     <string name="trip_item_hours_idle">Моточасы на холостом ходу</string>
     <string name="trip_footer_t">Строка приборки</string>
