@@ -12,9 +12,13 @@
     <string name="cd_bluetooth">Bluetooth</string>
     <string name="cd_night">Тема оформления</string>
     <string name="cd_debug">Диагностика</string>
-    <string name="cd_cluster_navi">Маршрут навигатора на приборке: вкл/выкл</string>
-    <string name="cluster_navi_on">Маршрут навигатора на приборке включён</string>
-    <string name="cluster_navi_off">Маршрут навигатора на приборке выключен</string>
+    <string name="cd_cluster_navi">Приборка: выкл → Яндекс Навигатор → наш маршрут</string>
+    <string name="cluster_mode_yandex">На приборке — Яндекс Навигатор</string>
+    <string name="cluster_mode_ours">На приборке — маршрут Dash</string>
+    <string name="cluster_mode_off">Навигация на приборке выключена</string>
+    <string name="cluster_mode_no_display">Дисплей приборки не найден — показываю маршрут Dash</string>
+    <string name="cluster_mode_yandex_failed">Яндекс Навигатор не перенёсся на приборку — показываю маршрут Dash.\n%1$s</string>
+    <string name="navi_on_cluster">%1$s сейчас на приборке</string>
     <string name="cd_edit">Изменить виджеты (долгое нажатие — сбросить раскладку)</string>
     <string name="msg_dark">Тёмная тема включена</string>
     <string name="set_theme_title">Тема оформления</string>

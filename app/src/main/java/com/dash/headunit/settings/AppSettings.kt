@@ -29,6 +29,17 @@ object AppSettings {
         prefs(context).edit().putBoolean(KEY_CLUSTER_NAVI, enabled).apply()
     }
 
+    /**
+     * При включённом [clusterNavi]: на приборке сам Яндекс Навигатор
+     * ([com.dash.headunit.navi.cluster.NaviOnCluster]), а не наша карточка.
+     */
+    fun clusterYandex(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_CLUSTER_YANDEX, false)
+
+    fun setClusterYandex(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_CLUSTER_YANDEX, enabled).apply()
+    }
+
 
     /** Ширина центральной полосы картинки на приборке, px (по бокам — шкалы приборки). */
     fun clusterWidth(context: Context): Int =
@@ -82,6 +93,7 @@ object AppSettings {
     private const val KEY_BAR_LEFT = "bar_side_left"
     private const val KEY_CLUSTER_NAVI = "cluster_navi"
     private const val KEY_CLUSTER_WIDTH = "cluster_width"
+    private const val KEY_CLUSTER_YANDEX = "cluster_yandex"
     private const val KEY_JOURNAL_KEEP_DAYS = "journal_keep_days"
     private const val KEY_SHADE_RESUME = "shade_resume"
     private const val KEY_ETM_COOLANT = "etm_coolant"

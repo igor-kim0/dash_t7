@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.hardware.display.DisplayManager
 import android.os.Handler
 import android.os.Looper
@@ -52,6 +53,10 @@ import com.dash.headunit.settings.AppSettings
  * без своего содержимого HDMI-дисплей зеркалит главный экран, и в «Картах»
  * приборки оказывается дашборд. Без маршрута окно просто чёрное.
  *
+ * Режим «Яндекс на приборке» ([setYandex], [NaviOnCluster]): на дисплее 1
+ * сам навигатор, нашего окна нет (оверлей лёг бы поверх карты), панель
+ * «Карты» поднята как обычно.
+ *
  * Калибровка ([toggleCalibration], кнопка на экране диагностики) — окно на весь
  * дисплей 1 с сеткой координат и образцом маршрута ([SAMPLE]), панель
  * навигации и знак лимита подняты: видно, какая часть 1920×720 попадает
@@ -69,6 +74,9 @@ object ClusterOverlay {
     /** Последнее непустое ведение — держим на карточке, пока навигатор на экране. */
     private var lastGuidance: Guidance? = null
     private var grantTried = false
+
+    /** На дисплее приборки сам Яндекс Навигатор — своё окно не ставим. */
+    private var yandex = false
 
     /** Включена калибровочная рамка. */
     var calibration = false
@@ -93,6 +101,39 @@ object ClusterOverlay {
             // держим поднятой и без маршрута: блок остаётся пустым.
             if (AppSettings.clusterNavi(ctx) && addView(ctx)) naviArea(ctx, true)
         }
+    }
+
+    /**
+     * Режим «Яндекс на приборке» вкл/выкл (навигатор уже перенесён /
+     * возвращён [NaviOnCluster]). Выкл при включённой настройке — снова
+     * наше окно, иначе дисплей 1 зеркалил бы дашборд.
+     */
+    fun setYandex(on: Boolean) {
+        main.post {
+            yandex = on
+            val ctx = app ?: return@post
+            if (on) {
+                if (!calibration) removeView()
+                status("на приборке Яндекс Навигатор")
+                naviArea(ctx, true)
+            } else {
+                status("на приборке снова наше окно")
+                if (AppSettings.clusterNavi(ctx) && view == null && addView(ctx)) naviArea(ctx, true)
+            }
+        }
+    }
+
+    /** Дисплей приборки и видимая в «Картах» полоса на нём (для [NaviOnCluster]); null — дисплея нет. */
+    fun clusterTarget(context: Context): Pair<Int, Rect>? {
+        val ctx = context.applicationContext
+        val display = clusterDisplay(ctx) ?: return null
+        val size = android.graphics.Point().also {
+            @Suppress("DEPRECATION")
+            display.getRealSize(it)
+        }
+        val cw = AppSettings.clusterWidth(ctx).coerceAtMost(size.x)
+        val left = (size.x - cw) / 2
+        return display.displayId to Rect(left, 0, left + cw, size.y)
     }
 
     /** Настройку включили: окно на приборку и панель «Карты» — даже без маршрута. */
@@ -120,6 +161,7 @@ object ClusterOverlay {
             naviArea(ctx, true)
         } else {
             status("калибровка выключена")
+            if (yandex) removeView()
             if (!AppSettings.clusterNavi(ctx)) {
                 removeView()
                 naviArea(ctx, false)
@@ -152,7 +194,7 @@ object ClusterOverlay {
 
     /** Состояние одной строкой — для диагностики ([com.dash.headunit.diag.ClusterNaviProbe]). */
     fun debugState(): String =
-        "навигатор в блоке=$naviOnScreen маршрут=$routeActive калибровка=$calibration " +
+        "яндекс на приборке=$yandex навигатор в блоке=$naviOnScreen маршрут=$routeActive калибровка=$calibration " +
             "окно=${view != null} последнее ведение=${lastGuidance != null} на карточке=${shown() != null}"
 
     /**
@@ -302,6 +344,8 @@ object ClusterOverlay {
     }
 
     private fun addView(ctx: Context): Boolean {
+        // Яндекс на дисплее 1 сам — окно не нужно, панель поднимать можно.
+        if (yandex && !calibration) return true
         val display = clusterDisplay(ctx)
         if (display == null) {
             status("второго дисплея (приборки) нет")

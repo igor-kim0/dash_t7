@@ -49,6 +49,8 @@ import com.dash.headunit.ui.QrCode
 import com.dash.headunit.ui.SettingsList
 import com.dash.headunit.navi.cluster.ClusterOverlay
 import com.dash.headunit.navi.cluster.ClusterSetup
+import com.dash.headunit.navi.cluster.NaviOnCluster
+import com.dash.headunit.navi.cluster.YANDEX_NAVI
 import com.dash.headunit.settings.AppSettings
 import com.dash.headunit.theme.DashTheme
 import com.dash.headunit.theme.RetroLook
@@ -157,14 +159,21 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btn_debug).setOnClickListener {
             startActivity(android.content.Intent(this, com.dash.headunit.car.CarDebugActivity::class.java))
         }
-        // Вкл/выкл маршрут навигатора на приборке (та же настройка, что в диалоге).
+        // Приборка по кругу: выкл → сам Яндекс Навигатор → наша карточка → выкл.
         findViewById<View>(R.id.btn_cluster_navi).setOnClickListener {
-            val on = !AppSettings.clusterNavi(this)
-            applyClusterNavi(on)
-            updateClusterNaviButton()
+            val next = when (clusterMode()) {
+                CLUSTER_OFF -> CLUSTER_YANDEX
+                CLUSTER_YANDEX -> CLUSTER_OURS
+                else -> CLUSTER_OFF
+            }
+            setClusterMode(next)
             Toast.makeText(
                 this,
-                if (on) R.string.cluster_navi_on else R.string.cluster_navi_off,
+                when (next) {
+                    CLUSTER_YANDEX -> R.string.cluster_mode_yandex
+                    CLUSTER_OURS -> R.string.cluster_mode_ours
+                    else -> R.string.cluster_mode_off
+                },
                 Toast.LENGTH_SHORT
             ).show()
         }
@@ -370,8 +379,9 @@ class MainActivity : AppCompatActivity() {
                 applyAutostart(autostart)
                 AppSettings.setBarSideLeft(this, barLeft)
                 applyBarSide()
-                applyClusterNavi(clusterNavi)
-                updateClusterNaviButton()
+                // Выключили — выкл (Яндекс вернётся с приборки); включили — наша карточка.
+                if (!clusterNavi) setClusterMode(CLUSTER_OFF)
+                else if (clusterMode() == CLUSTER_OFF) setClusterMode(CLUSTER_OURS)
                 // Шторка: настройка проверяется при следующем старте.
                 AppSettings.setShadeResume(this, shade)
                 // ETM: отключили — посылаем приборке выход из инженерного
@@ -512,10 +522,100 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
-    /** Кнопка «маршрут на приборке» в баре: выключено — полупрозрачная. */
+    /** Что сейчас на приборке по настройкам: [CLUSTER_OFF], [CLUSTER_YANDEX], [CLUSTER_OURS]. */
+    private fun clusterMode(): Int = when {
+        !AppSettings.clusterNavi(this) -> CLUSTER_OFF
+        AppSettings.clusterYandex(this) -> CLUSTER_YANDEX
+        else -> CLUSTER_OURS
+    }
+
+    /**
+     * Переключить приборку. Уход из режима Яндекса — сначала вернуть
+     * навигатор на главный экран; вход — перенести его на приборку
+     * ([moveYandexToCluster]).
+     */
+    private fun setClusterMode(mode: Int) {
+        val wasYandex = clusterMode() == CLUSTER_YANDEX
+        AppSettings.setClusterYandex(this, mode == CLUSTER_YANDEX)
+        if (wasYandex && mode != CLUSTER_YANDEX) {
+            ClusterOverlay.setYandex(false)
+            NaviOnCluster.moveBack(this, YANDEX_NAVI) { ok ->
+                if (!ok) Toast.makeText(this, NaviOnCluster.lastStatus, Toast.LENGTH_LONG).show()
+                if (isDestroyed) return@moveBack
+                // Навигатор вернулся на ГУ поверх дашборда — дашборд наверх,
+                // блок «Навигатор» снова заберёт его к себе.
+                bringDashboardToFront()
+                refreshNavi()
+            }
+        }
+        applyClusterNavi(mode != CLUSTER_OFF)
+        if (mode == CLUSTER_YANDEX) moveYandexToCluster()
+        updateClusterNaviButton()
+        refreshNavi()
+    }
+
+    // Перенос навигатора на приборку идёт.
+    private var yandexMoving = false
+
+    /**
+     * Режим «Яндекс на приборке»: перенести навигатор на дисплей приборки,
+     * если он ещё не там (после перезагрузки — на старте). Не вышло —
+     * откатиться на нашу карточку.
+     */
+    private fun moveYandexToCluster() {
+        if (yandexMoving || NaviOnCluster.onCluster) return
+        val target = ClusterOverlay.clusterTarget(this)
+        if (target == null) {
+            Toast.makeText(this, R.string.cluster_mode_no_display, Toast.LENGTH_LONG).show()
+            setClusterMode(CLUSTER_OURS)
+            return
+        }
+        yandexMoving = true
+        // Навигатор заберёт фокус — наш onStop в это время не уход с экрана.
+        underlayLaunchedAt = System.currentTimeMillis()
+        NaviOnCluster.moveToCluster(this, YANDEX_NAVI, target.first, target.second) { ok ->
+            yandexMoving = false
+            if (isDestroyed) return@moveToCluster
+            if (clusterMode() != CLUSTER_YANDEX) return@moveToCluster
+            if (ok) {
+                ClusterOverlay.setYandex(true)
+                // Блок «Навигатор» больше не держит его под собой.
+                underlayPkg = null
+                // Android 9: навигатор на приборке забрал фокус — вернуть дашборд.
+                window.decorView.postDelayed({ bringDashboardToFront() }, YANDEX_FOCUS_BACK_MS)
+            } else {
+                Toast.makeText(
+                    this, getString(R.string.cluster_mode_yandex_failed, NaviOnCluster.lastStatus),
+                    Toast.LENGTH_LONG
+                ).show()
+                setClusterMode(CLUSTER_OURS)
+            }
+            refreshNavi()
+        }
+    }
+
+    private fun bringDashboardToFront() {
+        if (isDestroyed) return
+        underlayLaunchedAt = System.currentTimeMillis()
+        try {
+            startActivity(
+                android.content.Intent(this, MainActivity::class.java).addFlags(
+                    android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                        android.content.Intent.FLAG_ACTIVITY_NO_ANIMATION or
+                        android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                )
+            )
+        } catch (e: Exception) {
+            Toast.makeText(this, e.message ?: "?", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /** Кнопка приборки в баре: выкл — полупрозрачная, Яндекс — стрелка навигации. */
     private fun updateClusterNaviButton() {
-        findViewById<View>(R.id.btn_cluster_navi).alpha =
-            if (AppSettings.clusterNavi(this)) 1f else 0.4f
+        val btn = findViewById<ImageButton>(R.id.btn_cluster_navi)
+        val mode = clusterMode()
+        btn.setImageResource(if (mode == CLUSTER_YANDEX) R.drawable.ic_nav else R.drawable.ic_cluster)
+        btn.alpha = if (mode == CLUSTER_OFF) 0.4f else 1f
     }
 
     /** Перенести вертикальную колонку иконок влево или вправо по настройке. */
@@ -605,10 +705,16 @@ class MainActivity : AppCompatActivity() {
             if (other != null && other !== view) other.showMessage(getString(R.string.app_none))
         }
         val pkg = view?.pkg().orEmpty()
+        val yandexMode = clusterMode() == CLUSTER_YANDEX
+        // Режим «Яндекс на приборке», а перенос ещё не делали (старт приложения).
+        if (yandexMode && !NaviOnCluster.onCluster && NaviUnderlay.shellReady == true) moveYandexToCluster()
+        // Навигатор блока сейчас на приборке — в блоке только надпись.
+        val naviAway = yandexMode && pkg == YANDEX_NAVI
         val message: String? = when {
             view == null -> ""
             pkg.isEmpty() -> getString(R.string.app_none)
             !view.installed(pkg) -> getString(R.string.navi_not_installed, pkg)
+            naviAway -> getString(R.string.navi_on_cluster, view.appLabel(pkg))
             editMode -> getString(R.string.navi_edit, view.appLabel(pkg))
             connecting -> getString(R.string.navi_connecting)
             NaviUnderlay.shellReady != true -> getString(R.string.navi_need_adb, view.appLabel(pkg))
@@ -619,7 +725,7 @@ class MainActivity : AppCompatActivity() {
             // Канал разрешали раньше и он вот-вот подключится — запустить
             // навигатор уже сейчас: его холодный старт — самое долгое на
             // запуске дашборда, пусть идёт параллельно с adb и первым кадром.
-            if (view != null && pkg.isNotEmpty() && !editMode && view.installed(pkg) &&
+            if (view != null && pkg.isNotEmpty() && !editMode && !naviAway && view.installed(pkg) &&
                 (connecting || NaviUnderlay.shellReady == null) && NaviUnderlay.isAuthorized(this)
             ) launchNavi(pkg)
             setNaviHole(null)
@@ -1910,6 +2016,10 @@ class MainActivity : AppCompatActivity() {
     companion object {
         /** onStop в этот срок после запуска навигатора под себя — не уход с экрана. */
         private const val UNDERLAY_GRACE_MS = 5000L
+        private const val CLUSTER_OFF = 0
+        private const val CLUSTER_YANDEX = 1
+        private const val CLUSTER_OURS = 2
+        private const val YANDEX_FOCUS_BACK_MS = 2000L
 
         private const val REQ_LOCATION = 1001
         private const val REQ_ELM_JSON = 1002
