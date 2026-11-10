@@ -77,6 +77,7 @@ import com.dash.headunit.widgets.ClimateIconsView
 import com.dash.headunit.widgets.ClimateWidgetView
 import com.dash.headunit.widgets.OutsideWidgetView
 import com.dash.headunit.widgets.ElmWidgetView
+import com.dash.headunit.widgets.RetroRadioView
 import com.dash.headunit.widgets.RetroSpeedometerView
 import com.dash.headunit.widgets.SpeedWidgetView
 import com.dash.headunit.widgets.VazClusterView
@@ -861,7 +862,9 @@ class MainActivity : AppCompatActivity() {
                 WidgetType.CAR -> CarWidgetView(this, wTheme, spec.widgetId, settingsStore)
                 WidgetType.MUSIC -> MusicWidgetView(this, wTheme, spec.widgetId, settingsStore)
                 WidgetType.YANDEX_MUSIC -> YandexMusicWidgetView(this, wTheme, spec.widgetId, settingsStore)
-                WidgetType.RADIO -> RadioWidgetView(this, wTheme)
+                WidgetType.RADIO ->
+                    if (RetroLook.isOn(settingsStore, spec.widgetId)) RetroRadioView(this)
+                    else RadioWidgetView(this, wTheme)
                 WidgetType.WIFI -> WifiWidgetView(this, wTheme)
                 WidgetType.APP -> AppWidgetView(this, spec.widgetId, wTheme, settingsStore).apply {
                     onTapIdle = { if (!editMode) connectShell() }
@@ -2054,6 +2057,8 @@ class MainActivity : AppCompatActivity() {
         private const val CLIMATE_ICONS = "icons"
 
         /** Виджеты со своим ретро-видом в настройках — общий [RetroLook] им не нужен. */
-        private val OWN_RETRO = setOf(WidgetType.SPEED, WidgetType.CLIMATE, WidgetType.CLIMATE_CONTROL, WidgetType.HEAT)
+        private val OWN_RETRO = setOf(
+            WidgetType.SPEED, WidgetType.CLIMATE, WidgetType.CLIMATE_CONTROL, WidgetType.HEAT, WidgetType.RADIO
+        )
     }
 }
