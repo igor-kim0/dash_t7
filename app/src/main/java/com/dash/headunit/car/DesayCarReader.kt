@@ -137,6 +137,31 @@ class DesayCarReader(private val appContext: Context) {
     }
 
     /**
+     * Вендорское свойство: transact(6, prop, area, int[]) oneway —
+     * ICarInfo.setProperty, как CarInfoProxy.sendValues(II[I) в SystemUI
+     * (ползунок яркости). Сервис сам пересылает в CarVendorExtensionManager
+     * от своего (системного) имени; проверки вызывающего в CarInfoBinder нет.
+     */
+    fun setProperty(prop: Int, area: Int, vararg values: Int): Boolean {
+        if (!ensureBound()) return false
+        val binder = binder ?: return false
+        val data = Parcel.obtain()
+        try {
+            data.writeInterfaceToken("com.desaysv.libsvcarinfo.ICarInfo")
+            data.writeInt(prop)
+            data.writeInt(area)
+            data.writeIntArray(values)
+            binder.transact(6, data, null, IBinder.FLAG_ONEWAY)
+            return true
+        } catch (e: Exception) {
+            Log.w(TAG, "setProperty(0x${Integer.toHexString(prop)},$area)", e)
+            return false
+        } finally {
+            data.recycle()
+        }
+    }
+
+    /**
      * Частичный снимок (снапшоты new_logs/snapshots + test_rec с ГУ):
      * 4,68 топливо (десятые %; проверено: −1.5% за 11 км ≈ 7 л/100),
      * 4,72 запас хода (км), 4,76 напряжение (десятые В, 14.2–14.8),

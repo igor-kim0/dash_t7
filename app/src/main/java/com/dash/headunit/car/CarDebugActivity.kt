@@ -6,6 +6,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import com.dash.headunit.diag.BrightnessProbe
 import com.dash.headunit.diag.WheelHeatProbe
 import com.dash.headunit.navi.cluster.ClusterOverlay
 import com.dash.headunit.radio.RadioHub
@@ -20,7 +21,8 @@ import kotlinx.coroutines.launch
  * Скрытый debug-экран (открывается из dev-сборки с главного экрана).
  * На нём калибровочная рамка на приборке ([ClusterOverlay.toggleCalibration]),
  * проба «Подогрев руля» ([WheelHeatProbe]) и проба штатного радио
- * ([RadioHub]: команды + лог службы, он же в files/radio_log.txt); остальные
+ * ([RadioHub]: команды + лог службы, он же в files/radio_log.txt), проба
+ * яркости экрана ГУ ([BrightnessProbe], лог в files/brightness_log.txt); остальные
  * пробы и сканеры убраны — их классы в `diag/` и история в git.
  */
 class CarDebugActivity : AppCompatActivity() {
@@ -46,6 +48,51 @@ class CarDebugActivity : AppCompatActivity() {
         root.addView(btnFrame, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
         ).apply { bottomMargin = dp(24) })
+        // Яркость ГУ: три пути записи + живое чтение состояния.
+        root.addView(TextView(this).apply {
+            text = "Яркость ГУ (каждый ряд — свой путь; затем «Вернуть как было»)"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+        })
+        fun row(title: String, items: List<Pair<String, () -> Unit>>) {
+            val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            r.addView(TextView(this).apply {
+                text = title
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                minWidth = dp(260)
+            })
+            items.forEach { (label, action) ->
+                r.addView(Button(this).apply {
+                    text = label
+                    setOnClickListener { action() }
+                })
+            }
+            root.addView(r)
+        }
+        row("Desay (штатный ползунок):", listOf(1, 3, 5, 8, 10).map { lv ->
+            "$lv" to { BrightnessProbe.setDesay(this, lv) }
+        })
+        row("Android screen_brightness:", listOf(0, 4, 9, 102, 255).map { v ->
+            "$v" to { BrightnessProbe.setSetting(this, v) }
+        })
+        row("Окно (пока открыт экран):", listOf(
+            "0.05" to { BrightnessProbe.setWindow(this, 0.05f) },
+            "0.5" to { BrightnessProbe.setWindow(this, 0.5f) },
+            "1.0" to { BrightnessProbe.setWindow(this, 1f) },
+            "сброс" to { BrightnessProbe.setWindow(this, -1f) },
+        ))
+        root.addView(Button(this).apply {
+            text = "Вернуть как было"
+            setOnClickListener { BrightnessProbe.restore(this@CarDebugActivity) }
+        })
+        val brightLog = TextView(this).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setTextIsSelectable(true)
+            setPadding(0, dp(8), 0, 0)
+        }
+        root.addView(brightLog, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { bottomMargin = dp(24) })
+
         val btnWheel = Button(this).apply {
             text = "Подогрев руля: что меняется при нажатии кнопки (~70 с)"
             setOnClickListener { WheelHeatProbe.start(this@CarDebugActivity) }
@@ -89,6 +136,11 @@ class CarDebugActivity : AppCompatActivity() {
         scope.launch {
             while (true) {
                 btnFrame.text = frameLabel()
+                BrightnessProbe.refresh(this@CarDebugActivity)
+                brightLog.text = buildString {
+                    append(BrightnessProbe.state).append("\n\n")
+                    BrightnessProbe.logLines().asReversed().forEach { append(it).append('\n') }
+                }
                 status.text = "Подогрев руля: ${WheelHeatProbe.status}"
                 btnWheel.isEnabled = !WheelHeatProbe.running
                 val st = RadioHub.state
