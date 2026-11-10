@@ -157,14 +157,18 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btn_debug).setOnClickListener {
             startActivity(android.content.Intent(this, com.dash.headunit.car.CarDebugActivity::class.java))
         }
-        findViewById<View>(R.id.btn_cluster_calibration).setOnClickListener {
-            val on = ClusterOverlay.toggleCalibration()
+        // Вкл/выкл маршрут навигатора на приборке (та же настройка, что в диалоге).
+        findViewById<View>(R.id.btn_cluster_navi).setOnClickListener {
+            val on = !AppSettings.clusterNavi(this)
+            applyClusterNavi(on)
+            updateClusterNaviButton()
             Toast.makeText(
                 this,
-                if (on) R.string.cluster_calibration_on else R.string.cluster_calibration_off,
+                if (on) R.string.cluster_navi_on else R.string.cluster_navi_off,
                 Toast.LENGTH_SHORT
             ).show()
         }
+        updateClusterNaviButton()
         findViewById<View>(R.id.btn_night).setOnClickListener {
             showThemeDialog()
         }
@@ -262,7 +266,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btn_edit).background = ThemeCard.card(this, theme)
         findViewById<View>(R.id.btn_clear).background = ThemeCard.card(this, theme)
         findViewById<View>(R.id.btn_add).background = ThemeCard.card(this, theme)
-        findViewById<View>(R.id.btn_cluster_calibration).background = ThemeCard.card(this, theme)
+        findViewById<View>(R.id.btn_cluster_navi).background = ThemeCard.card(this, theme)
         findViewById<View>(R.id.btn_debug).background = ThemeCard.card(this, theme)
         findViewById<View>(R.id.btn_done).background = ThemeCard.accent(this, theme)
         findViewById<ImageButton>(R.id.btn_done).setColorFilter(theme.background)
@@ -367,6 +371,7 @@ class MainActivity : AppCompatActivity() {
                 AppSettings.setBarSideLeft(this, barLeft)
                 applyBarSide()
                 applyClusterNavi(clusterNavi)
+                updateClusterNaviButton()
                 // Шторка: настройка проверяется при следующем старте.
                 AppSettings.setShadeResume(this, shade)
                 // ETM: отключили — посылаем приборке выход из инженерного
@@ -505,6 +510,12 @@ class MainActivity : AppCompatActivity() {
                 ClusterOverlay.show()
             }
         }.start()
+    }
+
+    /** Кнопка «маршрут на приборке» в баре: выключено — полупрозрачная. */
+    private fun updateClusterNaviButton() {
+        findViewById<View>(R.id.btn_cluster_navi).alpha =
+            if (AppSettings.clusterNavi(this)) 1f else 0.4f
     }
 
     /** Перенести вертикальную колонку иконок влево или вправо по настройке. */

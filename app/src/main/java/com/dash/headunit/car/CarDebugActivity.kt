@@ -7,6 +7,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.dash.headunit.diag.WheelHeatProbe
+import com.dash.headunit.navi.cluster.ClusterOverlay
 import com.dash.headunit.radio.RadioHub
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -17,7 +18,8 @@ import kotlinx.coroutines.launch
 
 /**
  * Скрытый debug-экран (открывается из dev-сборки с главного экрана).
- * На нём проба «Подогрев руля» ([WheelHeatProbe]) и проба штатного радио
+ * На нём калибровочная рамка на приборке ([ClusterOverlay.toggleCalibration]),
+ * проба «Подогрев руля» ([WheelHeatProbe]) и проба штатного радио
  * ([RadioHub]: команды + лог службы, он же в files/radio_log.txt); остальные
  * пробы и сканеры убраны — их классы в `diag/` и история в git.
  */
@@ -32,6 +34,18 @@ class CarDebugActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(16), dp(16), dp(16))
         }
+        // Калибровочная рамка и образец маршрута на приборке — видно,
+        // какая часть дисплея 1 попадает в «Карты».
+        val btnFrame = Button(this).apply {
+            setOnClickListener {
+                ClusterOverlay.init(this@CarDebugActivity)
+                // init асинхронный (main.post) — переключаем следующим постом.
+                post { ClusterOverlay.toggleCalibration(); text = frameLabel() }
+            }
+        }
+        root.addView(btnFrame, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { bottomMargin = dp(24) })
         val btnWheel = Button(this).apply {
             text = "Подогрев руля: что меняется при нажатии кнопки (~70 с)"
             setOnClickListener { WheelHeatProbe.start(this@CarDebugActivity) }
@@ -74,6 +88,7 @@ class CarDebugActivity : AppCompatActivity() {
 
         scope.launch {
             while (true) {
+                btnFrame.text = frameLabel()
                 status.text = "Подогрев руля: ${WheelHeatProbe.status}"
                 btnWheel.isEnabled = !WheelHeatProbe.running
                 val st = RadioHub.state
@@ -91,6 +106,9 @@ class CarDebugActivity : AppCompatActivity() {
         scope.cancel()
         super.onDestroy()
     }
+
+    private fun frameLabel() =
+        "Рамка на приборке: ${if (ClusterOverlay.calibration) "выключить" else "включить"}"
 
     private fun dp(v: Int): Int =
         TypedValue.applyDimension(

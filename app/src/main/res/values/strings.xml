@@ -12,9 +12,9 @@
     <string name="cd_bluetooth">Bluetooth</string>
     <string name="cd_night">Тема оформления</string>
     <string name="cd_debug">Диагностика</string>
-    <string name="cd_cluster_calibration">Калибровочная рамка и образец маршрута на приборке</string>
-    <string name="cluster_calibration_on">Рамка на приборке включена — вид «Карты»</string>
-    <string name="cluster_calibration_off">Рамка на приборке выключена</string>
+    <string name="cd_cluster_navi">Маршрут навигатора на приборке: вкл/выкл</string>
+    <string name="cluster_navi_on">Маршрут навигатора на приборке включён</string>
+    <string name="cluster_navi_off">Маршрут навигатора на приборке выключен</string>
     <string name="cd_edit">Изменить виджеты (долгое нажатие — сбросить раскладку)</string>
     <string name="msg_dark">Тёмная тема включена</string>
     <string name="set_theme_title">Тема оформления</string>

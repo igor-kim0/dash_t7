@@ -94,15 +94,14 @@
                     android:padding="15dp"
                     android:src="@drawable/ic_grid" />
 
-                <!-- Калибровочная рамка на приборке (временно, пока подбираем
-                     видимую зону «Карт»), см. ClusterOverlay.toggleCalibration. -->
+                <!-- Вкл/выкл маршрут навигатора на приборке (AppSettings.clusterNavi). -->
                 <ImageButton
-                    android:id="@+id/btn_cluster_calibration"
+                    android:id="@+id/btn_cluster_navi"
                     android:layout_width="68dp"
                     android:layout_height="68dp"
                     android:layout_marginBottom="10dp"
                     android:background="@drawable/widget_card"
-                    android:contentDescription="@string/cd_cluster_calibration"
+                    android:contentDescription="@string/cd_cluster_navi"
                     android:padding="15dp"
                     android:src="@drawable/ic_cluster" />
 
