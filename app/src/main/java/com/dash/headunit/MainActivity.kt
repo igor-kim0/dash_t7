@@ -23,7 +23,6 @@ import android.view.WindowManager
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.Space
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -32,6 +31,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.dash.headunit.dashboard.DashboardGridLayout
 import com.dash.headunit.dashboard.DashboardStore
+import com.dash.headunit.dashboard.PickerGrid
 import com.dash.headunit.dashboard.WidgetFrame
 import com.dash.headunit.dashboard.WidgetSettingsStore
 import com.dash.headunit.dashboard.WidgetSpec
@@ -1161,109 +1161,106 @@ class MainActivity : AppCompatActivity() {
         dialog = DashDialog.Builder(this)
             .setTitle(R.string.add_title)
             .setView(grid)
+            .setWidthDp(PICKER_WIDTH_DP)
             .setNegativeButton(R.string.dialog_cancel, null)
             .showFullScreen()
     }
 
     /**
      * Сетка карточек; [onPick] вызывается по тапу. Уже добавленные — отмечены.
+     * Ячейки квадратные: сторона — по ширине диалога, содержимое карточки
+     * ужимается под неё ([PickerGrid]).
      */
     private fun buildPickerGrid(
         items: List<PickerItem>,
         added: Set<WidgetType>,
         onPick: (WidgetType) -> Unit
     ): View {
-        val columns = 5
-        val gap = dp(10)
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+        val grid = PickerGrid(this, PICKER_COLUMNS, dp(10)).apply {
             setPadding(dp(24), 0, dp(24), dp(4))
         }
-        val rows: (List<PickerItem>) -> Unit = { list ->
-            list.chunked(columns).forEach { rowItems ->
-                val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-                rowItems.forEach { item ->
-                    row.addView(
-                        pickerCard(item, item.type in added, onPick),
-                        LinearLayout.LayoutParams(0, dp(130), 1f).apply {
-                            marginStart = if (row.childCount > 0) gap else 0
-                        }
-                    )
-                }
-                // Пустышки, чтобы карточки не растягивались на всю строку.
-                for (i in rowItems.size until columns) {
-                    row.addView(
-                        Space(this),
-                        LinearLayout.LayoutParams(0, 1, 1f).apply {
-                            marginStart = if (row.childCount > 0) gap else 0
-                        }
-                    )
-                }
-                container.addView(
-                    row,
-                    LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT
-                    ).apply { topMargin = gap }
-                )
-            }
+        items.forEach { item ->
+            grid.addView(PickerCard(item, item.type in added, onPick))
         }
-        rows(items)
         // Вертикальная прокрутка: пунктов больше, чем влезает на экран.
         return ScrollView(this).apply {
             isVerticalScrollBarEnabled = true
-            addView(container)
+            addView(
+                grid,
+                android.view.ViewGroup.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            )
         }
     }
 
-    /** Карточка виджета: иконка сверху, подпись, отметка «Уже на главной». */
-    private fun pickerCard(
+    /**
+     * Карточка виджета: иконка сверху, подпись, отметка «Уже на главной».
+     * Содержимое ужимается под квадратную ячейку ([PickerGrid.Cell]).
+     */
+    private inner class PickerCard(
         item: PickerItem,
         added: Boolean,
         onPick: (WidgetType) -> Unit
-    ): View {
-        val card = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+    ) : LinearLayout(this@MainActivity), PickerGrid.Cell {
+
+        private val icon = ImageView(this@MainActivity)
+        private val label = TextView(this@MainActivity)
+        private val note = TextView(this@MainActivity)
+
+        /** Последний применённый ужим — чтобы не дёргать вёрстку вхолостую. */
+        private var applied = -1f
+
+        init {
+            orientation = VERTICAL
             gravity = Gravity.CENTER
-            setPadding(dp(8), dp(12), dp(8), dp(12))
             background = ThemeCard.card(this@MainActivity, theme)
             isClickable = true
             setOnClickListener { onPick(item.type) }
-        }
-        card.addView(
-            ImageView(this).apply {
+            icon.apply {
                 setImageResource(item.iconRes)
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
                 if (!item.colored) setColorFilter(if (added) theme.accent else theme.primaryText)
-            },
-            LinearLayout.LayoutParams(dp(30), dp(30))
-        )
-        card.addView(
-            TextView(this).apply {
+            }
+            label.apply {
                 text = getString(item.labelRes)
-                textSize = 14f
                 gravity = Gravity.CENTER
                 maxLines = 2
                 setTextColor(theme.primaryText)
-            },
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(8) }
-        )
-        card.addView(
-            TextView(this).apply {
+            }
+            note.apply {
                 text = if (added) getString(R.string.add_on_dashboard) else ""
-                textSize = 12f
                 gravity = Gravity.CENTER
+                maxLines = 1
                 setTextColor(theme.accent)
-            },
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(4) }
-        )
-        return card
+            }
+            addView(icon, LayoutParams(dp(30), dp(30)))
+            addView(
+                label,
+                LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
+                    .apply { topMargin = dp(8) }
+            )
+            addView(
+                note,
+                LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
+                    .apply { topMargin = dp(4) }
+            )
+            applyScale(1f)
+        }
+
+        /** Ужать содержимое под сторону ячейки: [scale] — доля полного размера. */
+        override fun applyScale(scale: Float) {
+            if (scale == applied) return
+            applied = scale
+            val s = scale
+            setPadding(dp((8 * s).toInt()), dp((12 * s).toInt()), dp((8 * s).toInt()), dp((12 * s).toInt()))
+            icon.layoutParams = LayoutParams(dp((30 * s).toInt()), dp((30 * s).toInt()))
+            label.textSize = 14f * s
+            (label.layoutParams as LayoutParams).topMargin = dp((8 * s).toInt())
+            note.textSize = 12f * s
+            (note.layoutParams as LayoutParams).topMargin = dp((4 * s).toInt())
+        }
     }
 
     private fun dp(value: Int): Int = TypedValue.applyDimension(
@@ -2154,6 +2151,10 @@ class MainActivity : AppCompatActivity() {
         private const val OPT_CLIMATE_STYLE = "style"
         private const val CLIMATE_TEXT = "text"
         private const val CLIMATE_ICONS = "icons"
+
+        /** Сетка выбора виджета: колонок в ряду и ширина диалога под них. */
+        private const val PICKER_COLUMNS = 7
+        private const val PICKER_WIDTH_DP = 1020
 
         /** Виджеты со своим ретро-видом в настройках — общий [RetroLook] им не нужен. */
         private val OWN_RETRO = setOf(
