@@ -80,7 +80,6 @@ class ReferenceWidgetView(
             text = if (prop.id == null) "ID не известен" else "—"
             setTextColor(theme.primaryText)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            gravity = Gravity.END
         }
         values[prop] = value
         box.addView(value, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
