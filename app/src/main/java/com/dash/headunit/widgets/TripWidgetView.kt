@@ -160,7 +160,7 @@ class TripWidgetView(
         ).joinToString(" • ")
     }
 
-    /** Колонка метрики: подпись / значение+единица (центрированы). */
+    /** Колонка метрики: значение+единица, под ними подпись (центрированы). */
     private fun metric(
         title: String,
         value: String?,
@@ -171,15 +171,6 @@ class TripWidgetView(
             orientation = VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
         }
-        // Подпись генерируется во всю ширину колонки (дефолт вертикального
-        // LinearLayout) — центрируем текст внутри, иначе она прижата влево.
-        val titleView = TextView(context).apply {
-            text = title
-            setTextColor(theme.secondaryText)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-            gravity = Gravity.CENTER_HORIZONTAL
-        }
-        col.addView(titleView)
         val row = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM
@@ -196,6 +187,16 @@ class TripWidgetView(
             setPadding(dp(4), 0, 0, 0)
         })
         col.addView(row)
+        // Подпись метрики — под значением (как во всех виджетах).
+        // Подпись генерируется во всю ширину колонки (дефолт вертикального
+        // LinearLayout) — центрируем текст внутри, иначе она прижата влево.
+        val titleView = TextView(context).apply {
+            text = title
+            setTextColor(theme.secondaryText)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            gravity = Gravity.CENTER_HORIZONTAL
+        }
+        col.addView(titleView)
         return col
     }
 
@@ -382,14 +383,15 @@ class TripWidgetView(
                             topMargin = dp(12)
                         }
                     addView(TextView(context).apply {
-                        text = label
-                        setTextColor(theme.secondaryText)
-                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-                    })
-                    addView(TextView(context).apply {
                         text = value
                         setTextColor(theme.primaryText)
                         setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                    })
+                    // Подпись метрики — под значением (как в самом виджете).
+                    addView(TextView(context).apply {
+                        text = label
+                        setTextColor(theme.secondaryText)
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
                     })
                 })
             }

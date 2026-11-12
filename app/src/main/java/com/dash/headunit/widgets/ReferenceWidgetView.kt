@@ -70,31 +70,27 @@ class ReferenceWidgetView(
             TypedValue.COMPLEX_UNIT_DIP, value.toFloat(), resources.displayMetrics
         ).toInt()
 
-    /** Строка: имя + ID, справа значение; ниже описание. */
+    /** Строка: значение, под ним имя + ID, ещё ниже описание. */
     private fun row(prop: Prop): LinearLayout {
         val box = LinearLayout(context).apply {
             orientation = VERTICAL
             setPadding(0, dp(2), 0, dp(2))
         }
-        val line = LinearLayout(context).apply {
-            orientation = HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        val idText = prop.id?.let { "0x%08X · %d".format(Locale.US, it, it) } ?: "вендорский"
-        line.addView(TextView(context).apply {
-            text = "${prop.name}  $idText"
-            setTextColor(theme.primaryText)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-        }, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
         val value = TextView(context).apply {
             text = if (prop.id == null) "ID не известен" else "—"
             setTextColor(theme.primaryText)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-            setPadding(dp(8), 0, 0, 0)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            gravity = Gravity.END
         }
-        line.addView(value, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
         values[prop] = value
-        box.addView(line)
+        box.addView(value, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        // Подпись метрики — под значением (как во всех виджетах).
+        val idText = prop.id?.let { "0x%08X · %d".format(Locale.US, it, it) } ?: "вендорский"
+        box.addView(TextView(context).apply {
+            text = "${prop.name}  $idText"
+            setTextColor(theme.secondaryText)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+        }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         box.addView(TextView(context).apply {
             text = prop.desc
             setTextColor(theme.secondaryText)

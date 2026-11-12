@@ -11,7 +11,7 @@ import com.dash.headunit.car.DemoData
 import com.dash.headunit.theme.DashTheme
 
 /**
- * Виджет «За бортом»: подпись + крупная забортная температура
+ * Виджет «За бортом»: крупная забортная температура, подпись под ней.
  * (раньше жила в виджете «Часы»).
  *
  * Температура — из общего [CarHub]: сначала приборка (PPS spi_service a006,
@@ -44,8 +44,9 @@ class OutsideWidgetView(
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 44f)
             gravity = Gravity.CENTER
         }
-        addView(labelView, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
+        // Подпись метрики — под значением.
         addView(tempView, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
+        addView(labelView, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
 
         setOnClickListener { CarHub.refresh() }
         render()

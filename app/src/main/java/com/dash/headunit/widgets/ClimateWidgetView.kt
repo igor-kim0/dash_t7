@@ -13,6 +13,7 @@ import java.util.Locale
 /**
  * Виджет «Климат»: только чтение состояния HVAC (Desay шина + VHAL, [ClimateHub]).
  * Пока данных нет — прочерк. Никаких команд — только показ.
+ * У каждого параметра название стоит под его значением.
  */
 class ClimateWidgetView(
     context: Context,
@@ -51,23 +52,24 @@ class ClimateWidgetView(
         render()
     }
 
+    /** Строка параметра: значение сверху, название параметра под ним. */
     private fun row(name: String, value: TextView): LinearLayout =
         LinearLayout(context).apply {
-            orientation = HORIZONTAL
+            orientation = VERTICAL
             gravity = Gravity.CENTER
-            val label = TextView(context).apply {
-                text = name
-                setTextColor(theme.secondaryText)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            }
             value.apply {
                 setTextColor(theme.primaryText)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+                gravity = Gravity.CENTER
             }
-            addView(label, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
-            addView(value, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
-                marginStart = dp(8)
-            })
+            addView(value, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+            // Подпись метрики — под значением (как во всех виджетах).
+            addView(TextView(context).apply {
+                text = name
+                setTextColor(theme.secondaryText)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                gravity = Gravity.CENTER
+            }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         }
 
     private fun render() {
@@ -115,11 +117,6 @@ class ClimateWidgetView(
         true -> context.getString(R.string.cl_on)
         else -> context.getString(R.string.cl_off)
     }
-
-    private fun dp(value: Int): Int =
-        TypedValue.applyDimension(
-            TypedValue.COMPLEX_UNIT_DIP, value.toFloat(), resources.displayMetrics
-        ).toInt()
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()

@@ -268,7 +268,7 @@ class RetroSpeedometerView(context: Context) : View(context) {
 
     /** Малый указатель: подписи по дуге над осью [cx, LEDGE_Y], стрелка 0..1. */
     private fun drawSmallGauge(
-        c: Canvas, cx: Float, labels: List<String>, title: String?, redAtEnd: Boolean, pos: Float,
+        c: Canvas, cx: Float, labels: List<String>, redAtEnd: Boolean, pos: Float,
     ) {
         val py = LEDGE_Y - 6f
         val r = 92f
@@ -288,10 +288,6 @@ class RetroSpeedometerView(context: Context) : View(context) {
             val a = Math.toRadians(-GAUGE_SWEEP + 2 * GAUGE_SWEEP * i / (labels.size - 1).coerceAtLeast(1))
             c.drawText(text, cx + r * sin(a).toFloat(), py - r * cos(a).toFloat(), label)
         }
-        title?.let {
-            label.textSize = 22f
-            c.drawText(it, cx, py - r - 6f, label)
-        }
         val dotA = Math.toRadians(if (redAtEnd) GAUGE_SWEEP * 1.25 else -GAUGE_SWEEP * 1.25)
         c.drawCircle(cx + r * 0.72f * sin(dotA).toFloat(), py - r * 0.72f * cos(dotA).toFloat(), 6f, dot)
 
@@ -305,7 +301,7 @@ class RetroSpeedometerView(context: Context) : View(context) {
 
     /** Топливо: стрелка уровня + подпись литров под шкалой (как градусы у «ВОДА»). */
     private fun drawFuel(c: Canvas) {
-        drawSmallGauge(c, 108f, listOf("0", "1/2", "4/4"), null, redAtEnd = false, pos = fuelPos)
+        drawSmallGauge(c, 108f, listOf("0", "1/2", "4/4"), redAtEnd = false, pos = fuelPos)
         fuelL?.let { l ->
             label.textSize = 24f
             // Резерв — подпись краснеет вместе с меткой в начале шкалы.
@@ -314,9 +310,9 @@ class RetroSpeedometerView(context: Context) : View(context) {
         }
     }
 
-    /** «ВОДА»: стрелка ОЖ приборки + подпись градусов под шкалой. */
+    /** «ВОДА»: стрелка ОЖ приборки + градусы под шкалой, подпись под ними. */
     private fun drawWater(c: Canvas) {
-        drawSmallGauge(c, VW - 108f, emptyList(), "ВОДА", redAtEnd = true, pos = waterPos)
+        drawSmallGauge(c, VW - 108f, emptyList(), redAtEnd = true, pos = waterPos)
         waterC?.let { t ->
             val text = (if (waterEstimated) "≈" else "") + "%d°".format(t.roundToInt())
             label.textSize = 24f
@@ -324,6 +320,10 @@ class RetroSpeedometerView(context: Context) : View(context) {
             label.color = if (t >= 110f) red else dimCream
             c.drawText(text, VW - 108f, LEDGE_Y + 30f, label)
         }
+        // Подпись метрики — под значением (как во всех виджетах).
+        label.textSize = 20f
+        label.color = dimCream
+        c.drawText("ВОДА", VW - 108f, LEDGE_Y + 58f, label)
     }
 
     private fun drawOdometer(c: Canvas) {

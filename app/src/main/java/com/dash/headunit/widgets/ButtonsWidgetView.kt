@@ -109,7 +109,7 @@ class ButtonsWidgetView(
         renderStates(emptyMap())
     }
 
-    /** Ряд: имя + статус состояния + две кнопки (открыть/закрыть или ▼/▲). */
+    /** Ряд: состояние + подпись под ним + две кнопки (открыть/закрыть или ▼/▲). */
     private fun windowRow(label: String, open: Known, close: Known, stateIds: List<Int>): View {
         val isWindow = stateIds.size == 1 && stateIds[0] in 100..103
         val row = LinearLayout(context).apply {
@@ -119,14 +119,15 @@ class ButtonsWidgetView(
         }
         val col = LinearLayout(context).apply { orientation = VERTICAL }
         col.addView(TextView(context).apply {
-            text = label
             setTextColor(theme.primaryText)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 26f)
+            stateViews[stateIds.joinToString(",")] = this
         })
+        // Подпись метрики — под значением (как во всех виджетах).
         col.addView(TextView(context).apply {
+            text = label
             setTextColor(theme.secondaryText)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
-            stateViews[stateIds.joinToString(",")] = this
         })
         row.addView(col, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
 

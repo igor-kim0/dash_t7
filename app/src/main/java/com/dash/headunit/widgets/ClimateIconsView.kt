@@ -88,13 +88,14 @@ class ClimateIconsView(context: Context) : View(context) {
         plate(c, 24f, TOP_Y, 204f, TOP_Y + TOP_H)
         plate(c, 220f, TOP_Y, 380f, TOP_Y + TOP_H)
         plate(c, 396f, TOP_Y, 576f, TOP_Y + TOP_H)
-        c.drawText("ВОДИТЕЛЬ", 114f, TOP_Y + 26f, caption)
-        c.drawText("ПАССАЖИР", 486f, TOP_Y + 26f, caption)
         text.textSize = 56f
         icons.lamp(on && s?.tempDriverC != null, RetroClimateIcons.LAMP_WHITE)
-        c.drawText(RetroClimateIcons.setpointDeg(s?.tempDriverC), 114f, TOP_Y + 86f, text)
+        c.drawText(RetroClimateIcons.setpointDeg(s?.tempDriverC), 114f, TOP_Y + 72f, text)
         icons.lamp(on && s?.tempPassC != null, RetroClimateIcons.LAMP_WHITE)
-        c.drawText(RetroClimateIcons.setpointDeg(s?.tempPassC), 486f, TOP_Y + 86f, text)
+        c.drawText(RetroClimateIcons.setpointDeg(s?.tempPassC), 486f, TOP_Y + 72f, text)
+        // Подпись метрики — под значением (как во всех виджетах).
+        c.drawText("ВОДИТЕЛЬ", 114f, TOP_Y + 100f, caption)
+        c.drawText("ПАССАЖИР", 486f, TOP_Y + 100f, caption)
 
         val fan = s?.fanSpeed?.takeIf { on && it > 0 }
         icons.lamp(fan != null, RetroClimateIcons.LAMP_WHITE)
