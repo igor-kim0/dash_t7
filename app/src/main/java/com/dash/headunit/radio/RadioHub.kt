@@ -111,6 +111,176 @@ object RadioHub {
     /** Сделать радио текущим источником звука, открыв штатный экран. */
     fun open(context: Context) = startSource(context, state.band, foreground = true)
 
+    /**
+     * Отдать звук другому источнику SVMedia ([source]: `bt_music`, `usb0`…):
+     * штатный менеджер источников иначе держит радио, и play чужого плеера
+     * (BT-сессии) звука не даёт. Радио, если играет, сначала ставим на паузу.
+     */
+    fun handOver(context: Context, source: String) {
+        val ctx = context.applicationContext
+        worker.post {
+            if (service != null && state.playing == true) sendNow(CMD_PAUSE)
+            startSource(ctx, source)
+        }
+    }
+
+    /** Поставить радио на паузу, если оно играет (звук забирает другой плеер). */
+    fun pauseIfPlaying() {
+        worker.post { if (service != null && state.playing == true) sendNow(CMD_PAUSE) }
+    }
+
+    /** Текущая частота числом: МГц для FM, кГц для AM. */
+    fun currentFrequency(): Double? = Json.parseFrequency(state.frequency)
+
+    // ---------- перебор диапазона ----------
+
+    /**
+     * Перебор диапазона: команда «вперёд» переходит на следующую станцию из
+     * списка, который тюнер собрал сам (AST у SVMedia), — так же, как стрелки
+     * в штатном радио. Каждый шаг — отдельная настройка, поэтому ждём, пока
+     * служба сообщит новую частоту.
+     *
+     * Наружу SVMedia список не отдаёт (docs/research/radio-aidl.md), поэтому
+     * виджет собирает его сам — тем же перебором.
+     *
+     * [onStep] — найденная станция; [done] — обход закончен (true: круг
+     * пройден) или список станций пуст (false).
+     */
+    fun scanStations(onStep: (RadioStations.Station) -> Unit, done: (Boolean) -> Unit) {
+        startWalk { gen ->
+            walk(
+                gen = gen,
+                forward = true,
+                target = null,
+                onStep = { s -> main.post { onStep(s) } },
+                done = { ok -> main.post { done(ok) } }
+            )
+        }
+    }
+
+    /**
+     * Настроиться на частоту: перебором списка тюнера (вперёд или назад — к
+     * ближайшей по частоте). Станции нет в списке тюнера — [done] вернёт false.
+     */
+    fun tuneTo(band: String, freq: Double, done: (Boolean) -> Unit) {
+        startWalk { gen ->
+            if (state.band != band) {
+                app?.let { startSource(it, band) }
+                Thread.sleep(BAND_SWITCH_MS)
+            }
+            val current = currentFrequency()
+            // Уже на нужной станции — перебор не нужен.
+            if (current != null && RadioStations.sameFreq(band, current, freq)) {
+                main.post { done(true) }
+                return@startWalk
+            }
+            val forward = current == null || freq >= current
+            walk(
+                gen = gen,
+                forward = forward,
+                target = freq,
+                onStep = {},
+                done = { ok -> main.post { done(ok) } }
+            )
+        }
+    }
+
+    /** Остановить перебор диапазона. */
+    fun cancelWalk() {
+        walkGen++
+    }
+
+    /** Перебор идёт прямо сейчас. */
+    val walking: Boolean
+        get() = walkThread?.isAlive == true
+
+    /**
+     * Номер текущего перебора: новый перебор отменяет прежний (шаг за шагом
+     * их не смешать — команды тюнеру идут в общий канал).
+     */
+    @Volatile
+    private var walkGen = 0
+
+    private var walkThread: Thread? = null
+
+    private fun startWalk(block: (Int) -> Unit) {
+        val gen = ++walkGen
+        walkThread = Thread({
+            try {
+                block(gen)
+            } catch (e: Exception) {
+                Log.w(TAG, "перебор диапазона", e)
+            }
+        }, "RadioWalk").apply { start() }
+    }
+
+    /**
+     * Шаг перебора: команда «вперёд»/«назад» и ожидание новой частоты.
+     * Частота не изменилась — станций в списке тюнера нет.
+     *
+     * Список тюнера кольцевой: когда он пройден целиком, мы снова попадаем
+     * на первую станцию — на этом обход и заканчивается. Для настройки на
+     * частоту это же означает, что такой станции в списке нет.
+     */
+    private fun walk(
+        gen: Int,
+        forward: Boolean,
+        target: Double?,
+        onStep: (RadioStations.Station) -> Unit,
+        done: (Boolean) -> Unit
+    ) {
+        var steps = 0
+        // Первая станция, на которую попали, — начало кольца.
+        var first: Double? = null
+        while (steps < MAX_STEPS) {
+            if (walkGen != gen) break
+            val before = currentFrequency()
+            sendNow(if (forward) CMD_NEXT else CMD_PRE)
+            if (!waitChange(before)) break
+            val now = currentFrequency() ?: break
+            steps++
+            onStep(RadioStations.Station(state.band, now, rds = state.station))
+            if (target != null && RadioStations.sameFreq(state.band, now, target)) {
+                done(true)
+                return
+            }
+            if (first == null) {
+                first = now
+            } else if (RadioStations.sameFreq(state.band, now, first!!)) {
+                // Кольц пройден: нужной станции в списке нет.
+                done(target == null)
+                return
+            }
+        }
+        done(false)
+    }
+
+    /**
+     * Ждать новой частоты: тюнер настраивается не мгновенно, а счётчик
+     * может сначала показать промежуточную частоту — ждём, пока значение
+     * устоится.
+     */
+    private fun waitChange(before: Double?): Boolean {
+        val deadline = System.currentTimeMillis() + STEP_TIMEOUT_MS
+        var last: Double? = null
+        var stable = 0
+        while (System.currentTimeMillis() < deadline) {
+            Thread.sleep(STEP_POLL_MS)
+            val f = currentFrequency() ?: continue
+            if (last != null && sameFreq(f, last)) {
+                stable++
+                if (stable >= 2 && (before == null || !sameFreq(f, before))) return true
+            } else {
+                stable = 0
+                last = f
+            }
+        }
+        return false
+    }
+
+    private fun sameFreq(a: Double, b: Double): Boolean =
+        RadioStations.sameFreq(state.band, a, b)
+
     /** Последние события службы — для экрана отладки. */
     fun logLines(): List<String> = synchronized(log) { log.toList() }
 
@@ -353,6 +523,15 @@ object RadioHub {
             val m = Regex("""^\s*([\d.,]+)\s*(\D*)\s*$""").find(f) ?: return f.trim() to ""
             return m.groupValues[1] to m.groupValues[2]
         }
+
+        /**
+         * Частота числом: «101.5MHz» → 101.5, «999 kHz» → 999.0.
+         */
+        fun parseFrequency(f: String?): Double? {
+            if (f.isNullOrBlank()) return null
+            val m = Regex("""\d+[.,]?\d*""").find(f) ?: return null
+            return m.groupValues[0].replace(',', '.').toDoubleOrNull()
+        }
     }
 
     const val FM = "fm"
@@ -362,11 +541,24 @@ object RadioHub {
     const val TYPE_PLAY_STATUS = "play_status"
     const val TYPE_COLLECT_STATUS = "collect_status"
 
+    /** Источник SVMedia «музыка по Bluetooth» (для [handOver]). */
+    const val SOURCE_BT_MUSIC = "bt_music"
+
     private const val CMD_PLAY_OR_PAUSE = "play_or_pause"
+    private const val CMD_PAUSE = "pause"
     private const val CMD_NEXT = "next"
     private const val CMD_PRE = "pre"
     private const val CMD_COLLECT = "change_collect"
     private const val UNKNOWN_STATION = "Unknown Station"
+
+    /** Шагов перебора за один проход (список станций тюнера короче). */
+    private const val MAX_STEPS = 64
+    /** Сколько ждём новую частоту после команды (тюнер настраивается не мгновенно). */
+    private const val STEP_TIMEOUT_MS = 4000L
+    /** Как часто смотрим частоту во время ожидания. */
+    private const val STEP_POLL_MS = 200L
+    /** Пауза после смены диапазона — служба переключает источник. */
+    private const val BAND_SWITCH_MS = 2500L
 
     private const val PACKAGE = "com.desaysv.mediaapp"
     private const val RADIO_SERVICE = "com.desaysv.moduleradio.service.RadioAidlService"

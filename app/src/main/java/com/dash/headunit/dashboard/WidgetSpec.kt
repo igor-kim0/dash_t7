@@ -44,7 +44,10 @@ enum class WidgetType(val id: String) {
     BUTTONS("buttons"),
 
     /** Заставка: только настройки — гасит экран после простоя без касаний. */
-    SCREENSAVER("screensaver");
+    SCREENSAVER("screensaver"),
+
+    /** Яркость: подсветка экрана ГУ через Desay (HuBrightness), ползунок 1..10. */
+    BRIGHTNESS("brightness");
 
     /** Наименьшая ширина в ячейках сетки: «Заставка» — одна иконка-кнопка, ей можно уже. */
     val minW: Int

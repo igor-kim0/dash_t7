@@ -14,8 +14,7 @@ import java.util.concurrent.Executors
  *  - уже запущен на ГУ — `am display move-stack <стек> <дисплей>`;
  *  - не запущен — `am start --display <дисплей>` (Android 9 всё равно
  *    открывает его на главном экране — тогда тоже move-stack);
- *  - стек ужимается до центральной полосы ([band], ширина как у нашей
- *    карточки), иначе края карты и кнопки уйдут под шкалы.
+ *  - стек растягивается на весь дисплей приборки ([band]).
  * Обратно — `am display move-stack <стек> 0`.
  *
  * Android 9 (ГУ): RESUMED одна activity на все дисплеи — после переноса
@@ -43,10 +42,10 @@ object NaviOnCluster {
         private set
 
     private val worker = Executors.newSingleThreadExecutor()
-    private val main = Handler(Looper.getMainLooper())
+    private val main by lazy { Handler(Looper.getMainLooper()) }
 
     /**
-     * Перенести навигатор [pkg] на дисплей [displayId] и ужать до [band].
+     * Перенести навигатор [pkg] на дисплей [displayId] с границами [band].
      * [done] — в UI-потоке, аргумент — навигатор на приборке.
      */
     fun moveToCluster(context: Context, pkg: String, displayId: Int, band: Rect, done: (Boolean) -> Unit) {
@@ -61,6 +60,48 @@ object NaviOnCluster {
             onCluster = ok
             main.post { done(ok) }
         }
+    }
+
+    /**
+     * «Пинок» навигатору [pkg] на дисплее [displayId]: дождаться, пока его окно
+     * там нарисовано (процесс готов), и поднять его задачу — он станет RESUMED.
+     * Yandex Navi включает слежение за GPS в onResume: после холодного старта
+     * или сна ГУ карта на приборке иначе стоит (пользователь 2026-11-12).
+     * На главном экране ничего не видно: навигатор на другом дисплее.
+     * Вернуть дашборд наверх — забота вызывающего (через пару секунд).
+     * [done] — в UI-потоке, аргумент — навигатор поднят.
+     */
+    fun kick(context: Context, pkg: String, displayId: Int, done: (Boolean) -> Unit) {
+        val app = context.applicationContext
+        worker.execute {
+            val ok = try {
+                kickNow(app, pkg, displayId)
+            } catch (e: Exception) {
+                lastStatus = "пинок: ${e.javaClass.simpleName}: ${e.message}"
+                false
+            }
+            main.post { done(ok) }
+        }
+    }
+
+    private fun kickNow(app: Context, pkg: String, displayId: Int): Boolean {
+        val s = findStack(app, pkg)
+        if (s == null || s.display != displayId) {
+            lastStatus = "пинок: навигатор не на дисплее $displayId"
+            return false
+        }
+        val cmp = app.packageManager.getLaunchIntentForPackage(pkg)?.component ?: return false
+        // Пинок до готовности процесса пропадает впустую (am_failed_to_pause).
+        val drawn = waitDrawn(app, pkg, displayId)
+        // Задача уже есть — am start только поднимает её на её дисплее.
+        run(app, "am start --display $displayId -n ${cmp.flattenToShortString()} >/dev/null")
+        // Подстраховка: если прошивка утащила его на главный экран — вернуть.
+        val now = findStack(app, pkg)
+        if (now != null && now.display != displayId) {
+            run(app, "am display move-stack ${now.id} $displayId")
+        }
+        lastStatus = "навигатор на приборке поднят для onResume" + if (drawn) "" else " (не дождались отрисовки)"
+        return true
     }
 
     /** Вернуть навигатор [pkg] с приборки на главный экран. [done] — в UI-потоке. */
@@ -96,7 +137,12 @@ object NaviOnCluster {
             when {
                 s != null && s.display == displayId -> {
                     if (s.bounds != band) run(app, "am stack resize ${s.id} ${band.left} ${band.top} ${band.right} ${band.bottom}")
-                    lastStatus = "навигатор на приборке (стек ${s.id}, дисплей $displayId)"
+                    // Наше чёрное окно на приборке снимается только после этого:
+                    // без него дисплей 1 зеркалит главный экран, пока навигатор
+                    // не нарисовался на новом месте (пользователь 2026-11-12).
+                    val drawn = waitDrawn(app, pkg, displayId)
+                    lastStatus = "навигатор на приборке (стек ${s.id}, дисплей $displayId" +
+                        if (drawn) ")" else ", не дождались отрисовки)"
                     return true
                 }
                 // Новая задача появляется в списке не сразу; переносим один раз.
@@ -128,6 +174,48 @@ object NaviOnCluster {
         }
         lastStatus = if (ok) "навигатор вернулся на главный экран" else "навигатор остался на дисплее ${now?.display}"
         return ok
+    }
+
+    /**
+     * Ждать, пока окно [pkg] на дисплее [displayId] нарисуется
+     * (`mDrawState=HAS_DRAWN`), не дольше [DRAWN_TIMEOUT_MS]. Первая проверка —
+     * через [DRAWN_FIRST_MS]: сразу после переноса в dumpsys ещё старое состояние.
+     */
+    private fun waitDrawn(app: Context, pkg: String, displayId: Int): Boolean {
+        val deadline = System.currentTimeMillis() + DRAWN_TIMEOUT_MS
+        Thread.sleep(DRAWN_FIRST_MS)
+        while (true) {
+            val out = AdbShell.exec(app, "dumpsys window windows | grep -E 'Window #|mDisplayId=|mDrawState'")
+            if (out != null && isDrawnOn(out, pkg, displayId)) {
+                // Кадр ещё должен дойти по HDMI до приборки.
+                Thread.sleep(DRAWN_SETTLE_MS)
+                return true
+            }
+            if (System.currentTimeMillis() >= deadline) return false
+            Thread.sleep(DRAWN_POLL_MS)
+        }
+    }
+
+    /**
+     * Разбор `dumpsys window windows` (Android 9): у окна пакета [pkg]
+     * (`Window #N Window{… pkg/…}`) строка `mDisplayId=<id> …` и
+     * `mDrawState=HAS_DRAWN`.
+     */
+    internal fun isDrawnOn(dump: String, pkg: String, displayId: Int): Boolean {
+        var inPkg = false
+        var display = -1
+        for (line in dump.lineSequence()) {
+            val t = line.trimStart()
+            if (t.startsWith("Window #")) {
+                inPkg = t.contains(" $pkg/")
+                display = -1
+            } else if (inPkg && t.startsWith("mDisplayId=")) {
+                display = t.removePrefix("mDisplayId=").takeWhile { it.isDigit() }.toIntOrNull() ?: -1
+            } else if (inPkg && display == displayId && t.contains("mDrawState=HAS_DRAWN")) {
+                return true
+            }
+        }
+        return false
     }
 
     private fun mainScreen(app: Context): Rect {
@@ -175,6 +263,10 @@ object NaviOnCluster {
     private const val TAG = "NaviOnCluster"
     private const val STACK_ATTEMPTS = 8
     private const val STACK_RETRY_MS = 400L
+    private const val DRAWN_FIRST_MS = 500L
+    private const val DRAWN_POLL_MS = 300L
+    private const val DRAWN_SETTLE_MS = 200L
+    private const val DRAWN_TIMEOUT_MS = 8_000L
     private val STACK_RE =
         Regex("""^Stack id=(\d+) bounds=\[(\d+),(\d+)]\[(\d+),(\d+)] displayId=(\d+)""")
 }

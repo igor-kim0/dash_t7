@@ -148,6 +148,22 @@ class ObdProfileTest {
         assertEquals("VIN", p.info.first().title)
     }
 
+    /** Поисковый профиль отката зажигания: эталон 010E/F40E и кандидаты DID. */
+    @Test
+    fun ignitionRetardSearchProfile_parses() {
+        val p = ObdProfile.parse(File("src/main/assets/profiles/Ignition retard search.json").readText())
+        assertEquals("Ignition retard search", p.name)
+        assertTrue(p.warnings.toString(), p.warnings.isEmpty())
+        assertEquals(21, p.params.size)
+        assertTrue(p.params.all { it.header == "7E0" })
+
+        assertEquals(1.5, p.params.first { it.command == "010E" }.decode("410E83")!!, 1e-9)
+        assertEquals(1.5, p.params.first { it.command == "22F40E" }.decode("62F40E83")!!, 1e-9)
+        assertEquals(74.0, p.params.first { it.command == "22010E" }.decode("62010E4A")!!, 1e-9)
+        assertEquals(-1.5, p.params.first { it.command == "221221" }.decode("62122104")!!, 1e-9)
+        assertEquals(0.5, p.params.first { it.command == "221225" }.decode("62122501F4")!!, 1e-9)
+    }
+
     /** Профиль «Test»: 010E, поцилиндровый откат 22 101A / 22 01A4 и 01A4. */
     @Test
     fun testProfile_parses() {

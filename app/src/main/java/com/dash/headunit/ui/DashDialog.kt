@@ -48,6 +48,8 @@ class DashDialog private constructor() {
         private var widthDp: Int = WIDTH_DP
         private var message: CharSequence? = null
         private var view: View? = null
+        /** Шапка над прокручиваемым списком (поле поиска). */
+        private var header: View? = null
         private var items: Array<out CharSequence>? = null
         private var itemsListener: ((DialogInterface, Int) -> Unit)? = null
         private var choiceMode = CHOICE_NONE
@@ -71,6 +73,12 @@ class DashDialog private constructor() {
         fun setMessage(res: Int) = apply { message = context.getString(res) }
         fun setMessage(text: CharSequence?) = apply { message = text }
         fun setView(v: View) = apply { view = v }
+
+        /**
+         * Шапка над прокручиваемым содержимым — остаётся на месте, пока
+         * список прокручивают (поле поиска).
+         */
+        fun setHeaderView(v: View) = apply { header = v }
 
         /** Простой список: выбор пункта сразу закрывает диалог. */
         fun setItems(list: Array<out CharSequence>, listener: ((DialogInterface, Int) -> Unit)?) = apply {
@@ -216,6 +224,14 @@ class DashDialog private constructor() {
                 (it.parent as? ViewGroup)?.removeView(it)
                 styleTree(it)
                 body.addView(it)
+            }
+            // Шапка (поле поиска) — над прокручиваемым списком.
+            header?.let {
+                (it.parent as? ViewGroup)?.removeView(it)
+                styleTree(it)
+                card.addView(it, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ))
             }
             val scroll = MaxHeightScrollView(context, maxHeight()).apply {
                 isVerticalScrollBarEnabled = true

@@ -125,7 +125,11 @@ object ClusterOverlay {
         }
     }
 
-    /** Дисплей приборки и видимая в «Картах» полоса на нём (для [NaviOnCluster]); null — дисплея нет. */
+    /**
+     * Дисплей приборки и границы навигатора на нём (для [NaviOnCluster]) —
+     * весь дисплей, без ужимания до полосы карточки (решение пользователя
+     * 2026-11-11); null — дисплея нет.
+     */
     fun clusterTarget(context: Context): Pair<Int, Rect>? {
         val ctx = context.applicationContext
         val display = clusterDisplay(ctx) ?: return null
@@ -133,9 +137,7 @@ object ClusterOverlay {
             @Suppress("DEPRECATION")
             display.getRealSize(it)
         }
-        val cw = AppSettings.clusterWidth(ctx).coerceAtMost(size.x)
-        val left = (size.x - cw) / 2
-        return display.displayId to Rect(left, 0, left + cw, size.y)
+        return display.displayId to Rect(0, 0, size.x, size.y)
     }
 
     /** Настройку включили: окно на приборку и панель «Карты» — даже без маршрута. */

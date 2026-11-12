@@ -82,6 +82,8 @@ import com.dash.headunit.widgets.RetroSpeedometerView
 import com.dash.headunit.widgets.SpeedWidgetView
 import com.dash.headunit.widgets.VazClusterView
 import com.dash.headunit.widgets.ScreensaverWidgetView
+import com.dash.headunit.widgets.BrightnessWidgetView
+import com.dash.headunit.car.HuBrightness
 import com.dash.headunit.screensaver.Screensaver
 
 /**
@@ -220,7 +222,8 @@ class MainActivity : AppCompatActivity() {
         touchHoleInstalled = NaviUnderlay.installTouchHole(
             window.decorView,
             hole = { touchHole },
-            swallowHole = { screensaver.isShowing }
+            swallowHole = { screensaver.isShowing },
+            keep = { sideBarRect() }
         )
         // Навигатор мог остаться в границах блока после падения.
         NaviUnderlay.resetOnStart(this)
@@ -231,13 +234,38 @@ class MainActivity : AppCompatActivity() {
         buildWidgets(store.load())
         updateStatusIcons()
         ensureLocationPermission()
+        // Пуск двигателя — «пинок» навигатору на приборке (режим «Яндекс»).
+        CarHub.init(this)
+        CarHub.ensurePolling()
+        CarHub.addListener(engineListener)
+    }
+
+    override fun onDestroy() {
+        CarHub.removeListener(engineListener)
+        super.onDestroy()
+    }
+
+    /** Колонка кнопок в координатах окна — её касания не отдаём ([NaviUnderlay.openEdge]). */
+    private fun sideBarRect(): Rect? {
+        val side = findViewById<View>(R.id.side_bar) ?: return null
+        if (side.width == 0) return null
+        val loc = IntArray(2).also { side.getLocationInWindow(it) }
+        return Rect(loc[0], loc[1], loc[0] + side.width, loc[1] + side.height)
     }
 
     override fun onResume() {
         super.onResume()
         updateStatusIcons()
         refreshNavi()
+        // Заставку могли не убрать (процесс убит при показанной) — вернуть подсветку ГУ.
+        HuBrightness.undim(this)
         screensaver.resume()
+        // Вернулись на дашборд (сон ГУ, другое приложение) — навигатор на
+        // приборке мог остаться без onResume.
+        if (stoppedAway) {
+            stoppedAway = false
+            kickYandexIfOnCluster("возврат на дашборд")
+        }
     }
 
     override fun onPause() {
@@ -255,6 +283,7 @@ class MainActivity : AppCompatActivity() {
         super.onStop()
         // Сами только что подняли навигатор под себя — это не уход с экрана.
         if (System.currentTimeMillis() - underlayLaunchedAt < UNDERLAY_GRACE_MS) return
+        stoppedAway = true
         // Дашборд закрыт другим приложением (или навигатором на весь экран):
         // вернуть экран целиком, навигатор под нами больше не гарантирован.
         underlayPkg = null
@@ -540,11 +569,18 @@ class MainActivity : AppCompatActivity() {
         AppSettings.setClusterYandex(this, mode == CLUSTER_YANDEX)
         if (wasYandex && mode != CLUSTER_YANDEX) {
             ClusterOverlay.setYandex(false)
+            // Пока навигатор едет обратно, блок его не запускает: иначе
+            // launchUnder и move-stack/resize идут двумя adb-потоками
+            // вперемешку и итог зависит от скорости ГУ.
+            yandexReturning = true
             NaviOnCluster.moveBack(this, YANDEX_NAVI) { ok ->
+                yandexReturning = false
                 if (!ok) Toast.makeText(this, NaviOnCluster.lastStatus, Toast.LENGTH_LONG).show()
                 if (isDestroyed) return@moveBack
                 // Навигатор вернулся на ГУ поверх дашборда — дашборд наверх,
-                // блок «Навигатор» снова заберёт его к себе.
+                // блок «Навигатор» снова заберёт его к себе (запуском под себя:
+                // после переезда у задачи новый стек во весь экран).
+                underlayPkg = null
                 bringDashboardToFront()
                 refreshNavi()
             }
@@ -557,6 +593,9 @@ class MainActivity : AppCompatActivity() {
 
     // Перенос навигатора на приборку идёт.
     private var yandexMoving = false
+
+    // Навигатор возвращается с приборки на главный экран.
+    private var yandexReturning = false
 
     /**
      * Режим «Яндекс на приборке»: перенести навигатор на дисплей приборки,
@@ -582,8 +621,9 @@ class MainActivity : AppCompatActivity() {
                 ClusterOverlay.setYandex(true)
                 // Блок «Навигатор» больше не держит его под собой.
                 underlayPkg = null
-                // Android 9: навигатор на приборке забрал фокус — вернуть дашборд.
-                window.decorView.postDelayed({ bringDashboardToFront() }, YANDEX_FOCUS_BACK_MS)
+                // Дать навигатору честный onResume (иначе карта стоит), потом
+                // вернуть дашборд — Android 9: фокус у навигатора на приборке.
+                kickYandexOnCluster(target.first)
             } else {
                 Toast.makeText(
                     this, getString(R.string.cluster_mode_yandex_failed, NaviOnCluster.lastStatus),
@@ -592,6 +632,60 @@ class MainActivity : AppCompatActivity() {
                 setClusterMode(CLUSTER_OURS)
             }
             refreshNavi()
+        }
+    }
+
+    // Идёт «пинок» навигатору на приборке.
+    private var yandexKicking = false
+
+    /**
+     * Поднять навигатор на дисплее приборки [displayId] (он становится
+     * RESUMED и включает слежение за GPS), через [YANDEX_FOCUS_BACK_MS] —
+     * дашборд обратно. Нужен после переноса, пуска двигателя и возврата
+     * на дашборд: в PAUSED Yandex рисует, но после холодного старта/сна
+     * карта без onResume не двигается.
+     */
+    private fun kickYandexOnCluster(displayId: Int) {
+        if (yandexKicking || isDestroyed) return
+        yandexKicking = true
+        // Наш onPause/onStop на это время — не уход с экрана.
+        underlayLaunchedAt = System.currentTimeMillis()
+        NaviOnCluster.kick(this, YANDEX_NAVI, displayId) { ok ->
+            if (isDestroyed) {
+                yandexKicking = false
+                return@kick
+            }
+            underlayLaunchedAt = System.currentTimeMillis()
+            window.decorView.postDelayed({
+                yandexKicking = false
+                bringDashboardToFront()
+            }, if (ok) YANDEX_FOCUS_BACK_MS else 0L)
+        }
+    }
+
+    /** Режим «Яндекс на приборке» и навигатор уже там — пнуть его. */
+    private fun kickYandexIfOnCluster(reason: String) {
+        if (clusterMode() != CLUSTER_YANDEX || !NaviOnCluster.onCluster || yandexMoving || yandexReturning) return
+        val display = ClusterOverlay.clusterTarget(this)?.first ?: return
+        android.util.Log.i("MainActivity", "пинок навигатору на приборке: $reason")
+        kickYandexOnCluster(display)
+    }
+
+    // Дашборд уходил с экрана (onStop не от наших же переключений).
+    private var stoppedAway = false
+
+    // Двигатель: последний тик CarHub с работающим двигателем (elapsedRealtime).
+    private var lastEngineOnAt = 0L
+
+    private val engineListener: () -> Unit = {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (com.dash.headunit.car.TripTracker.engineOn(com.dash.headunit.car.CarHub.data)) {
+            // Пуск после стоянки: ГУ спала (процесс заморожен) — навигатор
+            // на приборке остался PAUSED без слежения.
+            if (lastEngineOnAt > 0L && now - lastEngineOnAt > ENGINE_RESTART_GAP_MS) {
+                kickYandexIfOnCluster("пуск двигателя")
+            }
+            lastEngineOnAt = now
         }
     }
 
@@ -710,7 +804,7 @@ class MainActivity : AppCompatActivity() {
         // Режим «Яндекс на приборке», а перенос ещё не делали (старт приложения).
         if (yandexMode && !NaviOnCluster.onCluster && NaviUnderlay.shellReady == true) moveYandexToCluster()
         // Навигатор блока сейчас на приборке — в блоке только надпись.
-        val naviAway = yandexMode && pkg == YANDEX_NAVI
+        val naviAway = (yandexMode || yandexReturning) && pkg == YANDEX_NAVI
         val message: String? = when {
             view == null -> ""
             pkg.isEmpty() -> getString(R.string.app_none)
@@ -907,6 +1001,7 @@ class MainActivity : AppCompatActivity() {
                     settingsStore.setOption(spec.widgetId, Screensaver.OPT_ENABLED, if (on) "1" else "0")
                     applyScreensaverConfig(readSpecs())
                 }
+                WidgetType.BRIGHTNESS -> BrightnessWidgetView(this, wTheme)
             }
             val frame = WidgetFrame(
                 context = this,
@@ -1049,6 +1144,7 @@ class MainActivity : AppCompatActivity() {
         PickerItem(WidgetType.HEAT, R.string.widget_heat, R.drawable.ic_seat_heat),
         PickerItem(WidgetType.ELM, R.string.widget_elm, R.drawable.ic_obd),
         PickerItem(WidgetType.SCREENSAVER, R.string.widget_screensaver, R.drawable.ic_screensaver, colored = true),
+        PickerItem(WidgetType.BRIGHTNESS, R.string.widget_brightness, R.drawable.ic_brightness),
     )
 
     /**
@@ -1197,6 +1293,7 @@ class MainActivity : AppCompatActivity() {
             WidgetType.BUTTONS -> 56 to 40
             WidgetType.CLOCK -> 40 to 24
             WidgetType.SCREENSAVER -> 40 to 14
+            WidgetType.BRIGHTNESS -> 48 to 18
         }
         // Каскадом от левого верхнего угла, кламп — в границы сетки.
         val spec = WidgetSpec(
@@ -1358,7 +1455,7 @@ class MainActivity : AppCompatActivity() {
         val cur = Screensaver.config(settingsStore, widgetId)
         val timeouts = Screensaver.TIMEOUTS
         var timeout = cur.timeoutSec.takeIf { it in timeouts } ?: Screensaver.DEFAULT_TIMEOUT
-        var brightness = cur.brightness
+        var level = cur.level
         val backgrounds = Screensaver.BACKGROUNDS
         var background = cur.background
         var rotate = cur.rotate
@@ -1376,8 +1473,9 @@ class MainActivity : AppCompatActivity() {
             .slider(
                 R.drawable.ic_brightness, getString(R.string.screensaver_brightness_t),
                 getString(R.string.screensaver_brightness_s),
-                brightness, 0..100, BRIGHTNESS_STEP, { "$it %" }
-            ) { brightness = it }
+                level, HuBrightness.MIN_LEVEL..HuBrightness.MAX_LEVEL, 1,
+                { "$it / ${HuBrightness.MAX_LEVEL}" }
+            ) { level = it }
             .segmented(
                 R.drawable.ic_image, getString(R.string.screensaver_background_t), null,
                 listOf(
@@ -1403,7 +1501,7 @@ class MainActivity : AppCompatActivity() {
 
         showWidgetSettings(WidgetType.SCREENSAVER, list, 1400, iconRes = R.drawable.ic_image) {
             settingsStore.setOption(widgetId, Screensaver.OPT_TIMEOUT, timeout.toString())
-            settingsStore.setOption(widgetId, Screensaver.OPT_BRIGHTNESS, brightness.toString())
+            settingsStore.setOption(widgetId, Screensaver.OPT_LEVEL, level.toString())
             settingsStore.setOption(widgetId, Screensaver.OPT_BACKGROUND, background)
             settingsStore.setOption(widgetId, Screensaver.OPT_ROTATE, if (rotate) "1" else "0")
             settingsStore.setOption(widgetId, Screensaver.OPT_ROTATE_SEC, rotateSec.toString())
@@ -2034,6 +2132,8 @@ class MainActivity : AppCompatActivity() {
         private const val CLUSTER_YANDEX = 1
         private const val CLUSTER_OURS = 2
         private const val YANDEX_FOCUS_BACK_MS = 2000L
+        /** Двигатель не работал дольше — считаем новым пуском (стоянка/сон ГУ). */
+        private const val ENGINE_RESTART_GAP_MS = 60_000L
 
         private const val REQ_LOCATION = 1001
         private const val REQ_ELM_JSON = 1002
@@ -2041,7 +2141,6 @@ class MainActivity : AppCompatActivity() {
         private const val REQ_SPECTRUM_AUDIO = 1004
 
         /** Шаг ползунка яркости заставки, %. */
-        private const val BRIGHTNESS_STEP = 5
 
         /** Строки-роутеры в начале настроек OBD: адаптер и профиль. */
 

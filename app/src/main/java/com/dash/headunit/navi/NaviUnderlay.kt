@@ -398,7 +398,10 @@ object NaviUnderlay {
         hole: () -> Region?,
         /** true — касания выреза тоже наши (заставка), но окно навигатора
          *  должно оставаться видимым службе спец. возможностей. */
-        swallowHole: () -> Boolean = { false }
+        swallowHole: () -> Boolean = { false },
+        /** Область окна, которую нельзя отрезать при открытии края выреза
+         *  ([openEdge]) — колонка кнопок дашборда. */
+        keep: () -> Rect? = { null }
     ): Boolean {
         holeView = WeakReference(view)
         return try {
@@ -410,7 +413,7 @@ object NaviUnderlay {
             ) { self, method, args ->
                 when (method.name) {
                     "onComputeInternalInsets" -> {
-                        fillInsets(args!![0], view, hole(), swallowHole())
+                        fillInsets(args!![0], view, hole(), swallowHole(), keep())
                         null
                     }
                     "equals" -> self === args?.get(0)
@@ -430,7 +433,7 @@ object NaviUnderlay {
         }
     }
 
-    private fun fillInsets(info: Any, view: View, hole: Region?, swallow: Boolean) {
+    private fun fillInsets(info: Any, view: View, hole: Region?, swallow: Boolean, keep: Rect?) {
         val cls = info.javaClass
         val region = cls.getField("touchableRegion").get(info) as Region
         region.set(0, 0, view.width, view.height)
@@ -442,7 +445,7 @@ object NaviUnderlay {
             // peek-тестом на ГУ 2026-10-23). Отрезаем зону касаний по крайней
             // строке/столбцу выреза — с той стороны, где теряется меньше
             // площади дашборда (на ГУ вырез с y=20, выше — полоса климата).
-            region.op(openEdge(hole.bounds, view.width, view.height), Region.Op.INTERSECT)
+            region.op(openEdge(hole.bounds, view.width, view.height, keep), Region.Op.INTERSECT)
             if (SystemClock.uptimeMillis() < peekUntil) {
                 // Проверка (cmd peek): зона касаний кончается над нижней
                 // строкой выреза — её описанный прямоугольник больше не
@@ -459,14 +462,23 @@ object NaviUnderlay {
      * Прямоугольник, которым ограничить зону касаний, чтобы её описанный
      * прямоугольник не накрывал вырез [hole] целиком: открыта одна крайняя
      * строка или столбец выреза, с самой дешёвой стороны.
+     *
+     * Сторону, которая отрезает больше половины [keep] (колонку кнопок),
+     * не берём: раньше при блоке навигатора у бара могла выбраться сторона
+     * бара — и весь бар переставал нажиматься. Полоска сверху/снизу бар
+     * задевает лишь краем — это допустимо.
      */
-    internal fun openEdge(hole: Rect, w: Int, h: Int): Rect {
+    internal fun openEdge(hole: Rect, w: Int, h: Int, keep: Rect? = null): Rect {
         val top = Rect(0, hole.top + 1, w, h)
         val bottom = Rect(0, 0, w, hole.bottom - 1)
         val left = Rect(hole.left + 1, 0, w, h)
         val right = Rect(0, 0, hole.right - 1, h)
         val area = { r: Rect -> r.width().toLong() * r.height() }
-        return listOf(top, bottom, left, right).maxByOrNull(area)!!
+        val all = listOf(top, bottom, left, right)
+        val keepsBar = { r: Rect ->
+            keep == null || keep.isEmpty || Rect(r).let { it.intersect(keep) && area(it) * 2 >= area(keep) }
+        }
+        return all.filter(keepsBar).ifEmpty { all }.maxByOrNull(area)!!
     }
 
     @Volatile

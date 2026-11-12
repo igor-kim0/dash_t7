@@ -10,19 +10,22 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
+import com.dash.headunit.car.HuBrightness
 import com.dash.headunit.dashboard.WidgetSettingsStore
 
 /**
  * Заставка дашборда (виджет «Заставка» — только настройки).
  *
  * Нет касаний экрана [Config.timeoutSec] — поверх всего окна кладётся фон
- * заставки ([BACKGROUNDS]: тёмный с часами, камин, северное сияние), яркость окна снижается до [Config.brightness] %. Любое касание
+ * заставки ([BACKGROUNDS]: тёмный с часами, камин, северное сияние), подсветка ГУ снижается до уровня [Config.level] (1..10). Любое касание
  * убирает заставку (само касание до виджетов не доходит), возвращает
  * яркость, и таймер начинается заново. С [Config.rotate] фоны сменяют друг
  * друга по кругу каждые [Config.rotateSec] секунд.
  *
- * Яркость — атрибут окна (screenBrightness): без разрешений, действует, пока
- * окно дашборда на экране, и снимается системой, если приложение упадёт.
+ * Яркость — подсветка ГУ через Desay ([HuBrightness.dim]/[HuBrightness.undim],
+ * как штатный ползунок; исходные значения — в prefs до возврата, MainActivity
+ * возвращает их на onResume, если процесс падал). Нет Desay (эмулятор) —
+ * атрибут окна screenBrightness.
  * Таймер идёт только между [resume] и [pause].
  */
 class Screensaver(
@@ -33,7 +36,8 @@ class Screensaver(
 
     data class Config(
         val timeoutSec: Int,
-        val brightness: Int,
+        /** Подсветка под заставкой, уровень 1..10 (как штатный ползунок ГУ). */
+        val level: Int,
         val background: String,
         /** Менять фоны по кругу, пока заставка на экране. */
         val rotate: Boolean = false,
@@ -73,6 +77,7 @@ class Screensaver(
     // Индекс текущего фона в [BACKGROUNDS] — растёт при смене по кругу.
     private var bgIndex = 0
     private var savedBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+    private var windowDimmed = false
 
     fun resume() {
         running = true
@@ -161,10 +166,17 @@ class Screensaver(
         view.animate().alpha(1f).setDuration(FADE_MS).start()
         overlay = container
         scheduleRotate(c)
-        val lp = activity.window.attributes
-        savedBrightness = lp.screenBrightness
-        lp.screenBrightness = (c.brightness / 100f).coerceIn(MIN_BRIGHTNESS, 1f)
-        activity.window.attributes = lp
+        savedBrightness = activity.window.attributes.screenBrightness
+        windowDimmed = false
+        HuBrightness.dim(activity, c.level) { ok ->
+            // Нет пути через Desay — гасим хотя бы окно (эмулятор, другие ГУ).
+            if (!ok && isShowing) {
+                val lp = activity.window.attributes
+                lp.screenBrightness = (c.level.toFloat() / HuBrightness.MAX_LEVEL).coerceIn(MIN_BRIGHTNESS, 1f)
+                activity.window.attributes = lp
+                windowDimmed = true
+            }
+        }
         onShowingChanged(true)
     }
 
@@ -178,9 +190,13 @@ class Screensaver(
             (it.parent as? ViewGroup)?.removeView(it)
         }
         overlay = null
-        val lp = activity.window.attributes
-        lp.screenBrightness = savedBrightness
-        activity.window.attributes = lp
+        HuBrightness.undim(activity)
+        if (windowDimmed) {
+            windowDimmed = false
+            val lp = activity.window.attributes
+            lp.screenBrightness = savedBrightness
+            activity.window.attributes = lp
+        }
         onShowingChanged(false)
         lastTouch = SystemClock.uptimeMillis()
         schedule()
@@ -214,7 +230,10 @@ class Screensaver(
 
     companion object {
         const val OPT_TIMEOUT = "ss_timeout_s"
+        /** Старая настройка (яркость окна, %) — только для переноса в [OPT_LEVEL]. */
         const val OPT_BRIGHTNESS = "ss_brightness"
+        /** Уровень подсветки ГУ под заставкой, 1..10. */
+        const val OPT_LEVEL = "ss_level"
         const val OPT_BACKGROUND = "ss_background"
         const val OPT_ROTATE = "ss_rotate"
         const val OPT_ROTATE_SEC = "ss_rotate_s"
@@ -223,7 +242,7 @@ class Screensaver(
         /** Варианты задержки, с. */
         val TIMEOUTS = listOf(30, 60, 120, 180, 300, 600, 900, 1800)
         const val DEFAULT_TIMEOUT = 60
-        const val DEFAULT_BRIGHTNESS = 20
+        const val DEFAULT_LEVEL = 2
 
         /** Через сколько секунд менять фон при смене по кругу. */
         val ROTATE_INTERVALS = listOf(30, 60, 180, 300, 600)
@@ -249,8 +268,10 @@ class Screensaver(
         fun config(store: WidgetSettingsStore, widgetId: String): Config = Config(
             timeoutSec = store.getOption(widgetId, OPT_TIMEOUT, DEFAULT_TIMEOUT.toString())
                 .toIntOrNull()?.takeIf { it > 0 } ?: DEFAULT_TIMEOUT,
-            brightness = (store.getOption(widgetId, OPT_BRIGHTNESS, DEFAULT_BRIGHTNESS.toString())
-                .toIntOrNull() ?: DEFAULT_BRIGHTNESS).coerceIn(0, 100),
+            level = levelOf(
+                store.getOption(widgetId, OPT_LEVEL, ""),
+                store.getOption(widgetId, OPT_BRIGHTNESS, "")
+            ),
             background = store.getOption(widgetId, OPT_BACKGROUND, BG_DARK)
                 .takeIf { it in BACKGROUNDS } ?: BG_DARK,
             rotate = store.getOption(widgetId, OPT_ROTATE, "0") != "0",
@@ -258,6 +279,16 @@ class Screensaver(
                 .toIntOrNull()?.takeIf { it > 0 } ?: DEFAULT_ROTATE_SEC,
             enabled = store.getOption(widgetId, OPT_ENABLED, "1") != "0"
         )
+
+        /**
+         * Уровень 1..10 из [OPT_LEVEL]; нет его — перенос старых процентов
+         * яркости окна ([OPT_BRIGHTNESS]): 20 % → 2.
+         */
+        fun levelOf(level: String, oldPercent: String): Int {
+            level.toIntOrNull()?.let { return HuBrightness.clamp(it) }
+            val pct = oldPercent.toIntOrNull() ?: return DEFAULT_LEVEL
+            return HuBrightness.clamp(Math.round(pct / 10f))
+        }
 
         /** «30 с», «1 мин», «15 мин». */
         fun timeoutLabel(sec: Int): String =

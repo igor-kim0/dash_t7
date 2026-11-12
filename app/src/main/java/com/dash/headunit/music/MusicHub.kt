@@ -274,8 +274,13 @@ object MusicHub {
 
     // ---------- транспорт ----------
 
-    private fun control(keyCode: Int, action: (MediaController.TransportControls) -> Unit) {
+    private fun control(
+        keyCode: Int,
+        delayMs: Long = 0,
+        action: (MediaController.TransportControls) -> Unit
+    ) {
         scope.launch {
+            if (delayMs > 0) delay(delayMs)
             withContext(Dispatchers.IO) {
                 try {
                     val c = controller ?: readSessions()?.let { controller } ?: btController
@@ -312,7 +317,32 @@ object MusicHub {
             else -> KeyEvent.KEYCODE_MEDIA_PLAY
         }
         val playing = d?.playing == true
-        control(key) { if (playing) it.pause() else it.play() }
+        // Источник переключается не мгновенно — play чуть позже.
+        val wait = if (!playing && takeAudioSource()) SOURCE_SWITCH_MS else 0L
+        control(key, wait) { if (playing) it.pause() else it.play() }
+    }
+
+    /**
+     * Перед play: штатный менеджер источников ГУ (SVMedia) после радио
+     * держит источником его, и play BT-сессии звука не даёт — ни из
+     * виджета, ни с телефона. Для BT (или когда сессии в руках нет —
+     * медиа-клавиша тоже уйдёт в BT) просим SVMedia переключиться на
+     * `bt_music`; для других плееров только ставим радио на паузу —
+     * они сами берут аудиофокус.
+     */
+    private fun takeAudioSource(): Boolean {
+        val ctx = appContext ?: return false
+        val pkg = try {
+            (controller ?: btController)?.packageName
+        } catch (e: Exception) {
+            null
+        }
+        if (pkg == null || pkg == BT_PACKAGE) {
+            com.dash.headunit.radio.RadioHub.handOver(ctx, com.dash.headunit.radio.RadioHub.SOURCE_BT_MUSIC)
+            return true
+        }
+        com.dash.headunit.radio.RadioHub.pauseIfPlaying()
+        return false
     }
 
     /**
@@ -479,6 +509,8 @@ object MusicHub {
 
     private const val POLL_MS = 2000L
     private const val BT_RETRY_MS = 10_000L
+    private const val SOURCE_SWITCH_MS = 500L
+    private const val BT_PACKAGE = "com.android.bluetooth"
     private val BT_BROWSER = ComponentName(
         "com.android.bluetooth",
         "com.android.bluetooth.a2dpsink.mbs.A2dpMediaBrowserService"
