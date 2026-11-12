@@ -137,7 +137,10 @@ class ObdProfileTest {
         assertEquals("6", p.elmProtocol)
         assertEquals("7E0", p.defaultHeader)
         assertTrue(p.warnings.toString(), p.warnings.isEmpty())
-        assertEquals(56, p.params.size)
+        assertEquals(64, p.params.size)
+        // Счётчик пропусков цил. 4 из нашего скана 05.11 (клон шлёт заголовок 7E8).
+        assertEquals(3378.0, p.params.first { it.shortName == "Misfire C4" }.decode("7E8056201830D32")!!, 0.01)
+        assertEquals(10200.0, p.params.first { it.shortName == "Misfire rpm min" }.decode("620184FF")!!, 0.01)
         // Ответы — из лога Car Scanner (samples/chery_tiggo_from_log.json).
         val gear = p.params.first { it.shortName == "Gear" }
         assertEquals("703", gear.header)
@@ -184,7 +187,7 @@ class ObdProfileTest {
         val p = ObdProfile.parse(File("src/main/assets/profiles/test tiggo 7l.json").readText())
         assertEquals("test tiggo 7l", p.name)
         assertTrue(p.warnings.toString(), p.warnings.isEmpty())
-        assertEquals(37, p.params.size)
+        assertEquals(33, p.params.size)
 
         val eot = p.params.first { it.command == "221013" }
         assertEquals("7E0", eot.header)

@@ -47,7 +47,10 @@ enum class WidgetType(val id: String) {
     SCREENSAVER("screensaver"),
 
     /** Яркость: подсветка экрана ГУ через Desay (HuBrightness), ползунок 1..10. */
-    BRIGHTNESS("brightness");
+    BRIGHTNESS("brightness"),
+
+    /** Зажигание: пропуски по цилиндрам (прирост), P030x, откат, Mode 06 — по ELM. */
+    IGNITION("ignition");
 
     /** Наименьшая ширина в ячейках сетки: «Заставка» — одна иконка-кнопка, ей можно уже. */
     val minW: Int

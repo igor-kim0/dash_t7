@@ -414,6 +414,104 @@
         "note": "в логе 108"
       }
     ],
+    "misfire": [
+      {
+        "name": "Пропуски зажигания, цилиндр 1",
+        "short_name": "Misfire C1",
+        "command": "22018A",
+        "header": "7E0",
+        "formula": "(A*256)+B",
+        "unit": "шт",
+        "min": 0,
+        "max": 65535,
+        "precision": 0,
+        "note": "накопительный счётчик ЭБУ; DID сверен по 3 логам (Car Scanner 02.2026, скан 05.11, CSV 10.11 — только растёт), номер цилиндра — по совпадению величин"
+      },
+      {
+        "name": "Пропуски зажигания, цилиндр 2",
+        "short_name": "Misfire C2",
+        "command": "220181",
+        "header": "7E0",
+        "formula": "(A*256)+B",
+        "unit": "шт",
+        "min": 0,
+        "max": 65535,
+        "precision": 0,
+        "note": "накопительный счётчик ЭБУ; DID сверен по 3 логам (Car Scanner 02.2026, скан 05.11, CSV 10.11 — только растёт), номер цилиндра — по совпадению величин"
+      },
+      {
+        "name": "Пропуски зажигания, цилиндр 3",
+        "short_name": "Misfire C3",
+        "command": "220182",
+        "header": "7E0",
+        "formula": "(A*256)+B",
+        "unit": "шт",
+        "min": 0,
+        "max": 65535,
+        "precision": 0,
+        "note": "накопительный счётчик ЭБУ; DID сверен по 3 логам (Car Scanner 02.2026, скан 05.11, CSV 10.11 — только растёт), номер цилиндра — по совпадению величин"
+      },
+      {
+        "name": "Пропуски зажигания, цилиндр 4",
+        "short_name": "Misfire C4",
+        "command": "220183",
+        "header": "7E0",
+        "formula": "(A*256)+B",
+        "unit": "шт",
+        "min": 0,
+        "max": 65535,
+        "precision": 0,
+        "note": "накопительный счётчик ЭБУ; DID сверен по 3 логам (Car Scanner 02.2026, скан 05.11, CSV 10.11 — только растёт), номер цилиндра — по совпадению величин"
+      },
+      {
+        "name": "Зона пропусков: мин. обороты",
+        "short_name": "Misfire rpm min",
+        "command": "220184",
+        "header": "7E0",
+        "formula": "A*40",
+        "unit": "об/мин",
+        "min": 0,
+        "max": 10200,
+        "precision": 0,
+        "note": "зона пропусков; совпало с Car Scanner «Area of misfire» (FF/00/FE/00 = пропусков не было)"
+      },
+      {
+        "name": "Зона пропусков: макс. обороты",
+        "short_name": "Misfire rpm max",
+        "command": "220185",
+        "header": "7E0",
+        "formula": "A*40",
+        "unit": "об/мин",
+        "min": 0,
+        "max": 10200,
+        "precision": 0,
+        "note": "зона пропусков; совпало с Car Scanner «Area of misfire» (FF/00/FE/00 = пропусков не было)"
+      },
+      {
+        "name": "Зона пропусков: мин. нагрузка",
+        "short_name": "Misfire load min",
+        "command": "220186",
+        "header": "7E0",
+        "formula": "A/2.55",
+        "unit": "%",
+        "min": 0,
+        "max": 100,
+        "precision": 0,
+        "note": "зона пропусков; совпало с Car Scanner «Area of misfire» (FF/00/FE/00 = пропусков не было)"
+      },
+      {
+        "name": "Зона пропусков: макс. нагрузка",
+        "short_name": "Misfire load max",
+        "command": "220187",
+        "header": "7E0",
+        "formula": "A/2.55",
+        "unit": "%",
+        "min": 0,
+        "max": 100,
+        "precision": 0,
+        "note": "зона пропусков; совпало с Car Scanner «Area of misfire» (FF/00/FE/00 = пропусков не было)"
+      }
+    ],
     "transmission": [
       {
         "name": "Текущая передача (DCT)",

@@ -58,54 +58,6 @@
         "note": "не сверено: DID из таблицы logs/ddd.csv, на машине не проверен"
       },
       {
-        "name": "Пропуски зажигания Цилиндр 1",
-        "short_name": "Misfire C1",
-        "command": "221101",
-        "header": "7E0",
-        "formula": "(A*256)+B",
-        "unit": "counts",
-        "min": 0,
-        "max": 65535,
-        "precision": 0,
-        "note": "не сверено: DID из таблицы logs/ddd.csv, на машине не проверен"
-      },
-      {
-        "name": "Пропуски зажигания Цилиндр 2",
-        "short_name": "Misfire C2",
-        "command": "221102",
-        "header": "7E0",
-        "formula": "(A*256)+B",
-        "unit": "counts",
-        "min": 0,
-        "max": 65535,
-        "precision": 0,
-        "note": "не сверено: DID из таблицы logs/ddd.csv, на машине не проверен"
-      },
-      {
-        "name": "Пропуски зажигания Цилиндр 3",
-        "short_name": "Misfire C3",
-        "command": "221103",
-        "header": "7E0",
-        "formula": "(A*256)+B",
-        "unit": "counts",
-        "min": 0,
-        "max": 65535,
-        "precision": 0,
-        "note": "не сверено: DID из таблицы logs/ddd.csv, на машине не проверен"
-      },
-      {
-        "name": "Пропуски зажигания Цилиндр 4",
-        "short_name": "Misfire C4",
-        "command": "221104",
-        "header": "7E0",
-        "formula": "(A*256)+B",
-        "unit": "counts",
-        "min": 0,
-        "max": 65535,
-        "precision": 0,
-        "note": "не сверено: DID из таблицы logs/ddd.csv, на машине не проверен"
-      },
-      {
         "name": "Степень деградации моторного масла",
         "short_name": "Oil Degrad",
         "command": "22150A",

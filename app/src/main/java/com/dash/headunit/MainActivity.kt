@@ -57,6 +57,7 @@ import com.dash.headunit.theme.RetroLook
 import com.dash.headunit.theme.ThemeCard
 import com.dash.headunit.theme.ThemeStore
 import com.dash.headunit.theme.WidgetBackground
+import com.dash.headunit.widgets.IgnitionWidgetView
 import com.dash.headunit.widgets.CarWidgetView
 import com.dash.headunit.widgets.ClockWidgetView
 import com.dash.headunit.widgets.ComboWidgetView
@@ -1002,6 +1003,7 @@ class MainActivity : AppCompatActivity() {
                     applyScreensaverConfig(readSpecs())
                 }
                 WidgetType.BRIGHTNESS -> BrightnessWidgetView(this, wTheme)
+                WidgetType.IGNITION -> IgnitionWidgetView(this, wTheme)
             }
             val frame = WidgetFrame(
                 context = this,
@@ -1145,6 +1147,7 @@ class MainActivity : AppCompatActivity() {
         PickerItem(WidgetType.ELM, R.string.widget_elm, R.drawable.ic_obd),
         PickerItem(WidgetType.SCREENSAVER, R.string.widget_screensaver, R.drawable.ic_screensaver, colored = true),
         PickerItem(WidgetType.BRIGHTNESS, R.string.widget_brightness, R.drawable.ic_brightness),
+        PickerItem(WidgetType.IGNITION, R.string.widget_ignition, R.drawable.ic_ignition),
     )
 
     /**
@@ -1291,6 +1294,7 @@ class MainActivity : AppCompatActivity() {
             WidgetType.CLOCK -> 40 to 24
             WidgetType.SCREENSAVER -> 40 to 14
             WidgetType.BRIGHTNESS -> 48 to 18
+            WidgetType.IGNITION -> 56 to 40
         }
         // Каскадом от левого верхнего угла, кламп — в границы сетки.
         val spec = WidgetSpec(

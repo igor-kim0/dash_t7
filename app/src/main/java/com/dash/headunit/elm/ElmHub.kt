@@ -126,6 +126,12 @@ object ElmHub {
         val parse: (String) -> Double?,
         /** Второй ключ того же значения в [readings] (0105 профиля → «coolant»). */
         val alias: String? = null,
+        /** >0 — спрашивать не чаще раза в столько мс (вместо [slow]); промахи не прореживают. */
+        val intervalMs: Long = 0L,
+        /** Только на CAN 11 бит (адрес ЭБУ двигателя 7E0 известен). */
+        val can11Only: Boolean = false,
+        /** Спрашивать ли сейчас (виджет на экране, ЭБУ поддерживает…). */
+        val enabled: () -> Boolean = { true },
     )
 
     private fun builtin(id: String, cmd: String, staleMs: Long, slow: Boolean, parse: (String) -> Float?) =
@@ -144,6 +150,30 @@ object ElmHub {
         builtin("map", "010B", LIVE_STALE_MS, true, ObdParser::mapPressure),
         builtin("fuel_level", "012F", COOLANT_STALE_MS, true, ObdParser::fuelLevel),
     )
+
+    /**
+     * Зажигание ([IgnitionMonitor]): счётчики пропусков, зона пропусков,
+     * ошибки, Mode 06 — редко и при любом профиле, чтобы журнал прироста
+     * копился без открытого виджета; откат по детонации — каждый круг,
+     * пока виджет «Зажигание» на экране. Ключи в [readings] — «ign:команда».
+     */
+    private val IGNITION_POLLS: List<Poll> = run {
+        fun ign(cmd: String, intervalMs: Long, staleMs: Long, enabled: () -> Boolean = { true }) =
+            Poll("ign:$cmd", cmd, ECM_HEADER, null, staleMs, slow = false,
+                parse = { IgnitionMonitor.accept(cmd, it) },
+                intervalMs = intervalMs, can11Only = true, enabled = enabled)
+        IgnitionMonitor.COUNTER_CMDS.map { ign(it, IGN_COUNTERS_MS, IGN_STALE_MS) } +
+            IgnitionMonitor.AREA_CMDS.map { ign(it, IGN_COUNTERS_MS, IGN_STALE_MS) } +
+            IgnitionMonitor.RETARD_CMDS.map { ign(it, 0L, LIVE_STALE_MS) { IgnitionMonitor.liveWanted } } +
+            listOf(
+                ign(IgnitionMonitor.PENDING_CMD, IGN_DTC_MS, IGN_STALE_MS),
+                ign(IgnitionMonitor.STORED_CMD, IGN_DTC_MS, IGN_STALE_MS),
+                ign(IgnitionMonitor.MODE06_SUPPORT_CMD, 0L, IGN_STALE_MS) { IgnitionMonitor.mode06ProbeWanted() },
+            ) +
+            IgnitionMonitor.MODE06_CMDS.map { cmd ->
+                ign(cmd, IGN_DTC_MS, IGN_STALE_MS) { IgnitionMonitor.mode06Wanted(cmd) }
+            }
+    }
 
     /** Ключ величины профиля в [readings]. */
     fun profileKey(p: ObdProfile.Param) = "p:" + p.key
@@ -167,7 +197,7 @@ object ElmHub {
             if (it.id == COOLANT_ID && profile.params.any { p -> p.header != null })
                 Poll(it.id, it.cmd, BROADCAST_HEADER, null, it.staleMs, it.slow, it.parse) else it
         }
-        return polls + extra
+        return polls + extra + IGNITION_POLLS
     }
 
     private class Value(val v: Double, val at: Long, val staleMs: Long)
@@ -249,6 +279,7 @@ object ElmHub {
     @Synchronized
     fun start(context: Context) {
         if (appCtx == null) appCtx = context.applicationContext
+        IgnitionMonitor.init(context)
         load()
         if (profileId == null) {
             ProfileStore.selectedId(context)?.let { id ->
@@ -361,7 +392,10 @@ object ElmHub {
                     command(input, output, "ATH0")
                     val gen = profileGen
                     val prof = profile
-                    val polls = prof?.let(::profilePolls) ?: BUILTIN
+                    val polls = prof?.let(::profilePolls) ?: (BUILTIN + IGNITION_POLLS)
+                    IgnitionMonitor.onSession()
+                    /** Когда величина с [Poll.intervalMs] спрашивалась в последний раз. */
+                    val askedAt = HashMap<String, Long>()
                     var protocol = findProtocol(input, output, prof?.elmProtocol) ?: return answers > 0
                     lastStatus = if (protocol.isNotEmpty()) "ELM: протокол $protocol, читаю данные…"
                     else noBusStatus()
@@ -441,9 +475,16 @@ object ElmHub {
                         for (poll in polls) {
                             if (gen != profileGen || ElmScanner.hasPending) break
                             if (poll.slow && round % SLOW_EVERY != 0L) continue
+                            if (poll.can11Only && !can11) continue
+                            if (!poll.enabled()) continue
                             if (!supportedByEcu(poll.cmd)) continue
                             val miss = misses[poll.id] ?: 0
-                            if (miss >= MISS_LIMIT && round % RETRY_UNSUPPORTED != 0L) continue
+                            if (poll.intervalMs > 0) {
+                                val t = SystemClock.uptimeMillis()
+                                val last = askedAt[poll.id]
+                                if (last != null && t - last < poll.intervalMs) continue
+                                askedAt[poll.id] = t
+                            } else if (miss >= MISS_LIMIT && round % RETRY_UNSUPPORTED != 0L) continue
                             val h = headerOf(poll)
                             val replyKey = "$h|${poll.rxHeader}|${poll.cmd}"
                             val reply = replies[replyKey] ?: run {
@@ -486,6 +527,7 @@ object ElmHub {
                             header = null
                             rxHeader = null
                             misses.clear()
+                            IgnitionMonitor.onSession()
                             lastDataAt = SystemClock.uptimeMillis()
                             protoBanner = if (protocol.isEmpty()) noBusStatus() else null
                             continue
@@ -732,6 +774,12 @@ object ElmHub {
     private const val INFO_TIMEOUT_MS = 3_000L
     /** Обороты/нагрузка/напряжение — только свежие. */
     private const val LIVE_STALE_MS = 10_000L
+    /** Счётчики и зона пропусков — раз в столько мс. */
+    private const val IGN_COUNTERS_MS = 30_000L
+    /** Ошибки 03/07 и Mode 06 — раз в столько мс. */
+    private const val IGN_DTC_MS = 60_000L
+    /** Редкие величины зажигания живут в [readings] столько. */
+    private const val IGN_STALE_MS = 5 * 60_000L
     /** Пауза между кругами опроса. */
     private const val POLL_MS = 500L
     /** ОЖ и напряжение — раз в столько кругов. */
