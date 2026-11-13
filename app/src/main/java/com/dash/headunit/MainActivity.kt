@@ -64,6 +64,7 @@ import com.dash.headunit.widgets.ComboWidgetView
 import com.dash.headunit.widgets.ForecastStripView
 import com.dash.headunit.widgets.MusicWidgetView
 import com.dash.headunit.widgets.RadioWidgetView
+import com.dash.headunit.widgets.ModernRadioView
 import com.dash.headunit.widgets.SpectrumView
 import com.dash.headunit.music.SpectrumHub
 import com.dash.headunit.widgets.YandexMusicWidgetView
@@ -1003,8 +1004,11 @@ class MainActivity : AppCompatActivity() {
                 WidgetType.MUSIC -> MusicWidgetView(this, wTheme, spec.widgetId, settingsStore)
                 WidgetType.YANDEX_MUSIC -> YandexMusicWidgetView(this, wTheme, spec.widgetId, settingsStore)
                 WidgetType.RADIO ->
-                    if (RetroLook.isOn(settingsStore, spec.widgetId)) RetroRadioView(this)
-                    else RadioWidgetView(this, wTheme)
+                    when (settingsStore.getOption(spec.widgetId, RetroLook.OPT_LOOK, RetroLook.LOOK_MODERN)) {
+                        RetroLook.LOOK_RETRO -> RetroRadioView(this)
+                        RetroLook.LOOK_CLASSIC -> RadioWidgetView(this, wTheme)
+                        else -> ModernRadioView(this, wTheme)
+                    }
                 WidgetType.WIFI -> WifiWidgetView(this, wTheme)
                 WidgetType.APP -> AppWidgetView(this, spec.widgetId, wTheme, settingsStore).apply {
                     onTapIdle = { if (!editMode) connectShell() }
@@ -1408,7 +1412,19 @@ class MainActivity : AppCompatActivity() {
     /** Настройки виджета без своих опций — только вид и фон плитки. */
     private fun showLookSettings(widgetId: String, type: WidgetType) {
         val list = SettingsList(this, theme)
-        val saveTile = list.tileSection(widgetId)
+        // У «Радио» три вида, по умолчанию — «Современный».
+        val saveTile = if (type == WidgetType.RADIO) {
+            list.tileSection(
+                widgetId,
+                looks = listOf(
+                    RetroLook.LOOK_MODERN to getString(R.string.look_modern),
+                    RetroLook.LOOK_CLASSIC to getString(R.string.look_classic),
+                    RetroLook.LOOK_RETRO to getString(R.string.look_retro)
+                )
+            )
+        } else {
+            list.tileSection(widgetId)
+        }
         showWidgetSettings(type, list, 760) { saveTile() }
     }
 
@@ -1420,19 +1436,24 @@ class MainActivity : AppCompatActivity() {
     private fun SettingsList.tileSection(
         widgetId: String,
         withLook: Boolean = true,
+        looks: List<Pair<String, String>> = listOf(
+            RetroLook.LOOK_CLASSIC to getString(R.string.look_classic),
+            RetroLook.LOOK_RETRO to getString(R.string.look_retro)
+        ),
         extra: SettingsList.() -> Unit = {}
     ): () -> Unit {
         section(getString(R.string.tile_section))
         extra()
-        val looks = listOf(RetroLook.LOOK_CLASSIC, RetroLook.LOOK_RETRO)
-        var look = settingsStore.getOption(widgetId, RetroLook.OPT_LOOK, RetroLook.LOOK_CLASSIC)
-            .takeIf { it in looks } ?: RetroLook.LOOK_CLASSIC
+        // Первый вид в списке — вид по умолчанию.
+        val ids = looks.map { it.first }
+        var look = settingsStore.getOption(widgetId, RetroLook.OPT_LOOK, ids.first())
+            .takeIf { it in ids } ?: ids.first()
         if (withLook) {
             segmented(
                 R.drawable.ic_palette, getString(R.string.look_title), null,
-                listOf(getString(R.string.look_classic), getString(R.string.look_retro)),
-                looks.indexOf(look)
-            ) { look = looks[it] }
+                looks.map { it.second },
+                ids.indexOf(look)
+            ) { look = ids[it] }
         }
         var bg = WidgetBackground.get(settingsStore, widgetId)
             .takeIf { it in WidgetBackground.ALL } ?: WidgetBackground.ALL.first()

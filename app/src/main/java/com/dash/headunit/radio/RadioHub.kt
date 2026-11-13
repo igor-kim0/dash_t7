@@ -147,7 +147,7 @@ object RadioHub {
      * пройден) или список станций пуст (false).
      */
     fun scanStations(onStep: (RadioStations.Station) -> Unit, done: (Boolean) -> Unit) {
-        startWalk { gen ->
+        startWalk(null) { gen ->
             walk(
                 gen = gen,
                 forward = true,
@@ -163,7 +163,7 @@ object RadioHub {
      * ближайшей по частоте). Станции нет в списке тюнера — [done] вернёт false.
      */
     fun tuneTo(band: String, freq: Double, done: (Boolean) -> Unit) {
-        startWalk { gen ->
+        startWalk(RadioStations.Station(band, freq)) { gen ->
             if (state.band != band) {
                 app?.let { startSource(it, band) }
                 Thread.sleep(BAND_SWITCH_MS)
@@ -188,11 +188,25 @@ object RadioHub {
     /** Остановить перебор диапазона. */
     fun cancelWalk() {
         walkGen++
+        walkingNow = false
+        walkTarget = null
+        walkChanged()
     }
 
     /** Перебор идёт прямо сейчас. */
     val walking: Boolean
-        get() = walkThread?.isAlive == true
+        get() = walkingNow
+
+    /**
+     * Куда настраиваемся ([tuneTo]); null — настройки нет (или идёт
+     * сканирование всего диапазона). Виджет показывает «Переключаю на…».
+     */
+    @Volatile
+    var walkTarget: RadioStations.Station? = null
+        private set
+
+    @Volatile
+    private var walkingNow = false
 
     /**
      * Номер текущего перебора: новый перебор отменяет прежний (шаг за шагом
@@ -203,15 +217,31 @@ object RadioHub {
 
     private var walkThread: Thread? = null
 
-    private fun startWalk(block: (Int) -> Unit) {
+    private fun startWalk(target: RadioStations.Station?, block: (Int) -> Unit) {
         val gen = ++walkGen
+        walkTarget = target
+        walkingNow = true
+        walkChanged()
         walkThread = Thread({
             try {
                 block(gen)
             } catch (e: Exception) {
                 Log.w(TAG, "перебор диапазона", e)
+            } finally {
+                // Перебор сменили новым — флаги уже его.
+                if (walkGen == gen) {
+                    walkingNow = false
+                    walkTarget = null
+                    walkChanged()
+                }
             }
         }, "RadioWalk").apply { start() }
+    }
+
+    /** Перебор начался или кончился: виджетам и учёту прослушивания. */
+    private fun walkChanged() {
+        app?.let { RadioStats.onState(it, state, walkingNow) }
+        notifyListeners()
     }
 
     /**
@@ -452,6 +482,7 @@ object RadioHub {
         note("<- $source/$type $json")
         if (next != state) {
             state = next
+            app?.let { RadioStats.onState(it, next, walkingNow) }
             notifyListeners()
         }
     }

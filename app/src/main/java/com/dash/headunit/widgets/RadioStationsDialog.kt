@@ -332,7 +332,9 @@ object RadioStationsDialog {
             val favs = RadioStations.favorites(RadioStations.load(context))
             if (favs.size >= RadioStations.MAX_FAVORITES) {
                 Toast.makeText(
-                    context, R.string.radio_favorites_full, Toast.LENGTH_SHORT
+                    context,
+                    context.getString(R.string.radio_favorites_full, RadioStations.MAX_FAVORITES),
+                    Toast.LENGTH_SHORT
                 ).show()
                 return
             }
@@ -341,8 +343,10 @@ object RadioStationsDialog {
                 RadioStations.rename(context, station.band, station.freq, name)
                 if (!RadioStations.setFavorite(context, station.band, station.freq, true)) {
                     Toast.makeText(
-                        context, R.string.radio_favorites_full, Toast.LENGTH_SHORT
-                    ).show()
+                    context,
+                    context.getString(R.string.radio_favorites_full, RadioStations.MAX_FAVORITES),
+                    Toast.LENGTH_SHORT
+                ).show()
                 }
                 refresh()
             }

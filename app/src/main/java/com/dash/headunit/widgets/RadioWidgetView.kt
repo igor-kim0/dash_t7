@@ -40,6 +40,7 @@ class RadioWidgetView(
     private val unitView = TextView(context)
     private val stationView = TextView(context)
     private val favRow = LinearLayout(context)
+    private val favScroll = android.widget.HorizontalScrollView(context)
     private val btnBand = TextView(context)
     private val btnSearch = ImageButton(context)
     private val btnFav = ImageButton(context)
@@ -90,7 +91,6 @@ class RadioWidgetView(
         favRow.apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            visibility = View.GONE
         }
         val freqRow = LinearLayout(context).apply {
             orientation = HORIZONTAL
@@ -103,7 +103,11 @@ class RadioWidgetView(
         texts.addView(bandView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         texts.addView(freqRow, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         texts.addView(stationView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
-        texts.addView(favRow, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        // Избранных до 12 — ряд прокручивается.
+        favScroll.isHorizontalScrollBarEnabled = false
+        favScroll.visibility = View.GONE
+        favScroll.addView(favRow)
+        texts.addView(favScroll, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         addView(texts, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
 
         // Правая часть: поиск станции, FM/AM + избранное, под ними транспорт.
@@ -222,10 +226,10 @@ class RadioWidgetView(
         favSignature = signature
         favRow.removeAllViews()
         if (favs.isEmpty()) {
-            favRow.visibility = View.GONE
+            favScroll.visibility = View.GONE
             return
         }
-        favRow.visibility = View.VISIBLE
+        favScroll.visibility = View.VISIBLE
         favs.forEach { favRow.addView(favoriteButton(it)) }
     }
 
@@ -271,7 +275,11 @@ class RadioWidgetView(
             return
         }
         if (RadioStations.favorites(stations).size >= RadioStations.MAX_FAVORITES) {
-            Toast.makeText(context, R.string.radio_favorites_full, Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                    context,
+                    context.getString(R.string.radio_favorites_full, RadioStations.MAX_FAVORITES),
+                    Toast.LENGTH_SHORT
+                ).show()
             return
         }
         // Своё название спросим сразу — так избранное и делается.
@@ -279,7 +287,11 @@ class RadioWidgetView(
             RadioStations.upsert(context, s.band, freq, s.station)
             RadioStations.rename(context, s.band, freq, name)
             if (!RadioStations.setFavorite(context, s.band, freq, true)) {
-                Toast.makeText(context, R.string.radio_favorites_full, Toast.LENGTH_SHORT).show()
+                Toast.makeText(
+                    context,
+                    context.getString(R.string.radio_favorites_full, RadioStations.MAX_FAVORITES),
+                    Toast.LENGTH_SHORT
+                ).show()
             }
             render()
         }

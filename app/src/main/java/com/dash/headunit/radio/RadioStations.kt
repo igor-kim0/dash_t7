@@ -20,7 +20,26 @@ import kotlin.math.round
 object RadioStations {
 
     /** Столько избранных станций виджет держит. */
-    const val MAX_FAVORITES = 6
+    const val MAX_FAVORITES = 12
+
+    /**
+     * Цвета значков станций. Без своего цвета станция берёт цвет по
+     * частоте ([colorOf]) — он не меняется при переименовании.
+     */
+    val PALETTE = intArrayOf(
+        0xFF4DA3FF.toInt(), // синий
+        0xFF26C6DA.toInt(), // бирюзовый
+        0xFF66BB6A.toInt(), // зелёный
+        0xFFC0CA33.toInt(), // салатовый
+        0xFFFFB300.toInt(), // янтарный
+        0xFFFF7043.toInt(), // оранжевый
+        0xFFEF5350.toInt(), // красный
+        0xFFEC407A.toInt(), // розовый
+        0xFFAB47BC.toInt(), // фиолетовый
+        0xFF7E57C2.toInt(), // сиреневый
+        0xFF8D6E63.toInt(), // коричневый
+        0xFF78909C.toInt()  // серый
+    )
 
     /**
      * Станция.
@@ -30,13 +49,17 @@ object RadioStations {
      * @param name своё название — задаёт пользователь
      * @param rds название, которое сообщил тюнер (RDS)
      * @param favorite в избранном
+     * @param color свой цвет значка (null — по частоте, см. [colorOf])
+     * @param favOrder место в избранном (меньше — левее)
      */
     data class Station(
         val band: String,
         val freq: Double,
         val name: String? = null,
         val rds: String? = null,
-        val favorite: Boolean = false
+        val favorite: Boolean = false,
+        val color: Int? = null,
+        val favOrder: Int = 0
     ) {
         /** Название для показа: своё → RDS → частота. */
         val title: String
@@ -139,9 +162,70 @@ object RadioStations {
         val key = keyOf(band, freq)
         val i = out.indexOfFirst { keyOf(it.band, it.freq) == key }
         if (i < 0) return null
-        if (favorite && !out[i].favorite && favorites(out).size >= MAX_FAVORITES) return null
-        out[i] = out[i].copy(favorite = favorite)
+        if (out[i].favorite == favorite) return out
+        if (favorite && favorites(out).size >= MAX_FAVORITES) return null
+        // Новое избранное — в конец ряда.
+        val order = if (favorite) (favorites(out).maxOfOrNull { it.favOrder } ?: 0) + 1 else 0
+        out[i] = out[i].copy(favorite = favorite, favOrder = order)
         return out
+    }
+
+    /** Сдвинуть станцию в ряду избранного на [delta] мест (−1 — влево). */
+    fun moveFavorite(context: Context, band: String, freq: Double, delta: Int) {
+        save(context, movedIn(load(context), band, freq, delta))
+    }
+
+    /**
+     * Чистая часть [moveFavorite]. Места избранного сначала нумеруются
+     * заново (у старых записей их нет), потом станция меняется местами
+     * с соседом.
+     */
+    fun movedIn(list: List<Station>, band: String, freq: Double, delta: Int): List<Station> {
+        val favs = favorites(list).toMutableList()
+        val key = keyOf(band, freq)
+        val from = favs.indexOfFirst { keyOf(it.band, it.freq) == key }
+        if (from < 0) return list
+        val to = (from + delta).coerceIn(0, favs.lastIndex)
+        if (to != from) favs.add(to, favs.removeAt(from))
+        val order = favs.mapIndexed { i, s -> keyOf(s.band, s.freq) to i + 1 }.toMap()
+        return list.map { s ->
+            order[keyOf(s.band, s.freq)]?.let { s.copy(favOrder = it) } ?: s
+        }
+    }
+
+    /** Свой цвет значка станции (null — по частоте). Станции нет — добавим. */
+    fun setColor(context: Context, band: String, freq: Double, color: Int?) {
+        val list = upsertIn(load(context), band, freq)
+        save(context, coloredIn(list, band, freq, color))
+    }
+
+    /** Чистая часть [setColor]. */
+    fun coloredIn(list: List<Station>, band: String, freq: Double, color: Int?): List<Station> {
+        val key = keyOf(band, freq)
+        return list.map { if (keyOf(it.band, it.freq) == key) it.copy(color = color) else it }
+    }
+
+    /** Цвет значка: свой или по частоте из [PALETTE]. */
+    fun colorOf(band: String, freq: Double, own: Int? = null): Int {
+        if (own != null) return own
+        val h = keyOf(band, freq).hashCode()
+        return PALETTE[((h % PALETTE.size) + PALETTE.size) % PALETTE.size]
+    }
+
+    fun colorOf(station: Station): Int = colorOf(station.band, station.freq, station.color)
+
+    /**
+     * Буквы для значка станции: «Дорожное радио» → «ДР», «Маяк» → «М»,
+     * «Europa Plus» → «EP». Без названия — пусто (значок покажет частоту).
+     * «Радио» в начале пропускается, если после него что-то есть:
+     * «Радио Рекорд» → «Р».
+     */
+    fun initials(title: String?): String {
+        val words = (title ?: "").split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotEmpty() }
+        if (words.isEmpty() || words.all { w -> w.all { it.isDigit() } }) return ""
+        val skip = setOf("радио", "radio")
+        val meaningful = if (words.size > 1 && words[0].lowercase() in skip) words.drop(1) else words
+        return meaningful.take(2).joinToString("") { it.take(1).uppercase() }
     }
 
     /** Своё название станции (пустое имя — убрать). */
@@ -176,8 +260,9 @@ object RadioStations {
         return stations.firstOrNull { keyOf(it.band, it.freq) == key }
     }
 
-    /** Избранные станции — в порядке добавления. */
-    fun favorites(stations: List<Station>): List<Station> = stations.filter { it.favorite }
+    /** Избранные станции — в порядке ряда ([Station.favOrder], затем порядок в списке). */
+    fun favorites(stations: List<Station>): List<Station> =
+        stations.filter { it.favorite }.sortedBy { it.favOrder }
 
     /**
      * Поиск по названию и частоте. Пустой запрос — все станции.
@@ -240,7 +325,9 @@ object RadioStations {
                     freq = normalize(band, freq),
                     name = o.optString("n").takeIf { it.isNotBlank() },
                     rds = o.optString("r").takeIf { it.isNotBlank() },
-                    favorite = o.optBoolean("v")
+                    favorite = o.optBoolean("v"),
+                    color = if (o.has("c")) o.optInt("c") else null,
+                    favOrder = o.optInt("o", 0)
                 )
             }
         } catch (e: Exception) {
@@ -258,6 +345,10 @@ object RadioStations {
                     .put("n", s.name ?: "")
                     .put("r", s.rds ?: "")
                     .put("v", s.favorite)
+                    .apply {
+                        s.color?.let { put("c", it) }
+                        if (s.favorite && s.favOrder > 0) put("o", s.favOrder)
+                    }
             )
         }
         return arr.toString()

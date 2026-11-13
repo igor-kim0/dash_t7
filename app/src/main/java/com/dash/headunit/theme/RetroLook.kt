@@ -27,6 +27,8 @@ object RetroLook {
     const val OPT_LOOK = "look"
     const val LOOK_CLASSIC = "classic"
     const val LOOK_RETRO = "retro"
+    /** Только у «Радио»: [com.dash.headunit.widgets.ModernRadioView]; у него вид по умолчанию. */
+    const val LOOK_MODERN = "modern"
 
     fun isOn(store: WidgetSettingsStore, widgetId: String): Boolean =
         store.getOption(widgetId, OPT_LOOK, LOOK_CLASSIC) == LOOK_RETRO
