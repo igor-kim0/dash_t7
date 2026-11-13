@@ -90,6 +90,34 @@ object TripTracker {
      */
     private var blindSince: Long = 0L
 
+    // Состояние между тиками держим в памяти (источник правды), а в prefs —
+    // только копию для перезапуска процесса: раньше каждые 5 с (24/7, в
+    // главном потоке) были 4–6 записей с полной перезаписью XML вместе с
+    // журналом. Теперь — только при переходах (см. [FlushKey]): пуск,
+    // глушение, «ослепли»/данные вернулись, смена базы (решение 2026-11-13),
+    // плюс [persist] при засыпании ГУ / уходе дашборда с экрана. Если
+    // процесс убьют на ходу без этих событий, теряется текущая поездка.
+    private var memTrip: Period? = null
+    private var memClock: EngineClock? = null
+    private var memLastOnTs = -1L
+    private var memLastOdo = -1
+    private var memLastFuel = -1f
+    private var memLoaded = false
+    private var flushedKey: FlushKey? = null
+    private var prunedAt = 0L
+    private var prunedKeep = 0
+
+    /** Изменилось что-то из этого — пишем состояние в prefs (иначе не пишем вовсе). */
+    private data class FlushKey(
+        val prevEngineOn: Boolean?,
+        val blindSince: Long,
+        val lastEngine: Boolean,
+        val hasData: Boolean,
+        val odoStartKm: Int?,
+        val fuelPctStart: Float?,
+        val startTs: Long,
+    )
+
     /**
      * Двигатель работает. Любой надёжный сигнал «заглушен» сильнее любого
      * «работает»: обороты Desay (4,62/4) ниже холостых ИЛИ честный флаг
@@ -150,7 +178,9 @@ object TripTracker {
     }
 
     /** Накопленные моточасы (всего и разбивка). */
+    @Synchronized
     fun engineHours(context: Context): EngineHours {
+        memClock?.let { return EngineHours(it.movingMillis.coerceAtLeast(0L), it.idleMillis.coerceAtLeast(0L)) }
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         return EngineHours(
             movingMillis = prefs.getLong(KEY_EH_MOVING, 0L).coerceAtLeast(0L),
@@ -171,6 +201,8 @@ object TripTracker {
             .putLong(KEY_EH_LAST_TS, 0L)
             .putBoolean(KEY_EH_LAST_ON, false)
             .apply()
+        // Следующий тик перечитает сброшенное из prefs.
+        memClock = null
     }
 
     /**
@@ -203,14 +235,18 @@ object TripTracker {
         keepDays: Int = 0
     ): TripView {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        migrate(prefs)
-        if (keepDays > 0) {
-            // Смена настройки / новый день: старые записи уходят сразу,
-            // ещё до любых переходов поездок.
-            prunePrefs(prefs, keepDays, now)
+        if (!memLoaded) {
+            migrate(prefs)
+            memLastOnTs = prefs.getLong("last_on_ts", 0L)
+            memLastOdo = prefs.getInt("last_odo", -1)
+            memLastFuel = prefs.getFloat("last_fuel", -1f)
+            memLoaded = true
         }
-        val t = load(prefs, PREFIX)
-        val engineClock = loadEngineClock(prefs)
+        // Смена настройки / новый день: старые записи уходят ещё до любых
+        // переходов поездок (журнал разбираем не чаще [PRUNE_MS]).
+        pruneIfDue(prefs, keepDays, now, force = false)
+        val t = memTrip ?: load(prefs, PREFIX).also { memTrip = it }
+        val engineClock = memClock ?: loadEngineClock(prefs).also { memClock = it }
 
         val on = engineOn(data)
         accumulateEngineHours(engineClock, data, on, now)
@@ -238,7 +274,7 @@ object TripTracker {
         // наступают — утром первый же снимок «работает» продолжил бы
         // вчерашнюю поездку. Разрыв с последнего живого снимка работающего
         // двигателя дольше [GAP_MS] = поездка закончилась тогда.
-        val lastOnTs = prefs.getLong("last_on_ts", 0L)
+        val lastOnTs = memLastOnTs
         if (prevEngineOn == true && data != null &&
             isGap(lastOnTs, now)
         ) {
@@ -250,7 +286,6 @@ object TripTracker {
         val v = withCluster(compute(t, data, tankLiters, on, now), cluster)
         if (on && cluster != null) {
             lastClusterOn = cluster
-            saveCluster(prefs, cluster)
         }
 
         var blindOpen = false
@@ -302,30 +337,71 @@ object TripTracker {
             prevEngineOn = on
         }
 
-        save(prefs, PREFIX, t)
-        saveBlind(prefs, blindSince)
-        val edit = prefs.edit()
-            .putBoolean("last_engine", blindOpen || on)
-            .putBoolean("has_data", data != null)
-        if (data != null && on) edit.putLong("last_on_ts", now)
+        if (data != null && on) memLastOnTs = now
         if (data != null) {
             // last_odo/last_fuel — база слепой финализации; при ослеплении
             // не портим их пустыми значениями.
-            edit.putInt("last_odo", data.odoKm ?: -1)
-            edit.putFloat("last_fuel", data.fuelPct ?: -1f)
+            memLastOdo = data.odoKm ?: -1
+            memLastFuel = data.fuelPct ?: -1f
         }
-        edit.putLong(KEY_EH_MOVING, engineClock.movingMillis)
+        val key = FlushKey(
+            prevEngineOn, blindSince, blindOpen || on, data != null,
+            t.odoStartKm, t.fuelPctStart, t.startTs
+        )
+        lastEngineFlag = blindOpen || on
+        lastHasData = data != null
+        lastOn = on
+        if (key != flushedKey) {
+            writeState(prefs, t, engineClock)
+            flushedKey = key
+        }
+        return v
+    }
+
+    // Флаги последнего тика — для [persist] вне тика.
+    private var lastEngineFlag = false
+    private var lastHasData = false
+    private var lastOn = false
+
+    /**
+     * Сохранить текущее состояние сейчас: ГУ засыпает (экран гаснет) или
+     * дашборд уходит с экрана. Сон с зажиганием бывает раньше, чем мы
+     * увидим «заглушили», а замороженный процесс могут и убить — без этой
+     * записи поездка с утра закрылась бы по данным на момент пуска.
+     * Ничего не пишет, если с прошлой записи ничего не менялось.
+     */
+    @Synchronized
+    fun persist(context: Context) {
+        val t = memTrip ?: return
+        val clock = memClock ?: return
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (prefs.getLong("${PREFIX}_drive", -1L) == t.driveMillis &&
+            prefs.getLong(KEY_EH_MOVING, -1L) == clock.movingMillis &&
+            prefs.getLong(KEY_EH_IDLE, -1L) == clock.idleMillis &&
+            prefs.getInt("last_odo", -2) == memLastOdo
+        ) return
+        writeState(prefs, t, clock)
+    }
+
+    /** Одна запись: состояние, «слепой» момент, снимок приборки, моточасы. */
+    private fun writeState(prefs: android.content.SharedPreferences, t: Period, engineClock: EngineClock) {
+        val edit = prefs.edit()
+        putPeriod(edit, PREFIX, t)
+        edit.putLong("blind_ts", blindSince)
+            .putBoolean("last_engine", lastEngineFlag)
+            .putBoolean("has_data", lastHasData)
+            .putLong("last_on_ts", memLastOnTs)
+            .putInt("last_odo", memLastOdo)
+            .putFloat("last_fuel", memLastFuel)
+            .putLong(KEY_EH_MOVING, engineClock.movingMillis)
             .putLong(KEY_EH_IDLE, engineClock.idleMillis)
             .putLong(KEY_EH_LAST_TS, engineClock.lastTs)
             .putBoolean(KEY_EH_LAST_ON, engineClock.lastOn)
             .putInt(KEY_EH_LAST_ODO, engineClock.lastOdoKm ?: -1)
+        // lastClusterOn, а не cluster: на тике пуска его уже сбросили
+        // (снимок приборки от прошлой поездки сохранять нельзя).
+        lastClusterOn?.takeIf { lastOn }?.let { edit.putString(KEY_CLUSTER, encodeCluster(it)) }
         edit.apply()
-        return v
-    }
-
-    /** Запомнить момент ослепновения/выхода из него (переносит рестарт процесса). */
-    private fun saveBlind(prefs: android.content.SharedPreferences, ts: Long) {
-        prefs.edit().putLong("blind_ts", ts).apply()
     }
 
     /** Живой переход «заглушили» (со снимком): цифры из текущего расчёта/приборки. */
@@ -354,11 +430,11 @@ object TripTracker {
         tankLiters: Int,
         end: Long
     ) {
-        val lastOdo = prefs.getInt("last_odo", -1)
+        val lastOdo = memLastOdo
         val dist = if (lastOdo >= 0 && t.odoStartKm != null) {
             (lastOdo - t.odoStartKm!!).toFloat().takeIf { it >= 0 }
         } else null
-        val lastFuel = prefs.getFloat("last_fuel", -1f)
+        val lastFuel = memLastFuel
         val cons = if (dist != null && dist >= MIN_DIST_KM &&
             t.fuelPctStart != null && lastFuel >= 0
         ) {
@@ -387,12 +463,8 @@ object TripTracker {
         lastOnTs > 0L && now - lastOnTs >= GAP_MS
 
     /** Снимок приборки «км;расход;скорость» — переживает рестарт процесса. */
-    private fun saveCluster(prefs: android.content.SharedPreferences, c: ClusterTrip) {
-        prefs.edit().putString(
-            KEY_CLUSTER,
-            "${c.tripKm ?: ""};${c.avgFuelL100 ?: ""};${c.avgSpeedKmh ?: ""}"
-        ).apply()
-    }
+    private fun encodeCluster(c: ClusterTrip): String =
+        "${c.tripKm ?: ""};${c.avgFuelL100 ?: ""};${c.avgSpeedKmh ?: ""}"
 
     private fun loadCluster(prefs: android.content.SharedPreferences): ClusterTrip? {
         val p = (prefs.getString(KEY_CLUSTER, null) ?: return null).split(';')
@@ -456,13 +528,33 @@ object TripTracker {
      * журнал хранится целиком). Вызывается из цикла опроса и сразу после
      * смены настройки.
      */
+    @Synchronized
     fun applyJournalKeep(
         context: Context,
         keepDays: Int,
-        now: Long = System.currentTimeMillis()
+        now: Long = System.currentTimeMillis(),
+        force: Boolean = true
     ) {
         if (keepDays <= 0) return
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        pruneIfDue(prefs, keepDays, now, force)
+    }
+
+    /**
+     * Обрезка журнала: при смене срока / [force] — сразу, иначе не чаще
+     * [PRUNE_MS] (срок в днях, раз в час хватает; раньше журнал разбирался
+     * дважды каждые 5 с).
+     */
+    private fun pruneIfDue(
+        prefs: android.content.SharedPreferences,
+        keepDays: Int,
+        now: Long,
+        force: Boolean
+    ) {
+        if (keepDays <= 0) return
+        if (!force && keepDays == prunedKeep && now - prunedAt in 0 until PRUNE_MS) return
+        prunedKeep = keepDays
+        prunedAt = now
         prunePrefs(prefs, keepDays, now)
     }
 
@@ -655,14 +747,19 @@ object TripTracker {
         prefix: String,
         p: Period
     ) {
-        prefs.edit()
-            .putInt("${prefix}_odo", p.odoStartKm ?: -1)
+        putPeriod(prefs.edit(), prefix, p).apply()
+    }
+
+    private fun putPeriod(
+        edit: android.content.SharedPreferences.Editor,
+        prefix: String,
+        p: Period
+    ): android.content.SharedPreferences.Editor =
+        edit.putInt("${prefix}_odo", p.odoStartKm ?: -1)
             .putFloat("${prefix}_fuel", p.fuelPctStart ?: -1f)
             .putLong("${prefix}_drive", p.driveMillis)
             .putLong("${prefix}_ts", p.lastTs)
             .putLong("${prefix}_start", p.startTs)
-            .apply()
-    }
 
     private const val PREFS = "trip_prefs"
     /** Префикс единственного (автоматического) счётчика. */
@@ -687,6 +784,8 @@ object TripTracker {
      */
     private const val GAP_MS = 120_000L
     private const val KEY_CLUSTER = "last_cluster"
+    /** Не чаще этого журнал обрезается по сроку из цикла опроса. */
+    private const val PRUNE_MS = 3_600_000L
     /** Моточасы: накопитель и его последний тик (переживают перезапуск). */
     private const val KEY_EH_MOVING = "eh_moving"
     private const val KEY_EH_IDLE = "eh_idle"

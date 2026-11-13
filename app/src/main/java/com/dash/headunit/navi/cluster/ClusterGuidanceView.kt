@@ -51,6 +51,7 @@ class ClusterGuidanceView(context: Context) : View(context) {
 
     var guidance: Guidance? = null
         set(value) {
+            if (field == value) return
             field = value
             invalidate()
         }
@@ -63,6 +64,16 @@ class ClusterGuidanceView(context: Context) : View(context) {
         }
 
     /** Калибровочная рамка; без маршрута — с образцом [ClusterOverlay.SAMPLE]. */
+    /**
+     * Только чёрный фон, без плашки: занавес на время переезда Яндекса
+     * на приборку ([ClusterOverlay.coverForYandex]).
+     */
+    var blank = false
+        set(value) {
+            field = value
+            invalidate()
+        }
+
     var calibration = false
         set(value) {
             field = value
@@ -145,6 +156,7 @@ class ClusterGuidanceView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         canvas.drawColor(Color.BLACK)
+        if (blank && !calibration) return
         if (calibration) drawCalibration(canvas)
         val g = guidance ?: ClusterOverlay.SAMPLE.takeIf { calibration } ?: Guidance()
         val h = height.toFloat()

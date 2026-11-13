@@ -5,7 +5,6 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
-import java.util.Date
 import kotlin.random.Random
 
 /**
@@ -48,9 +47,8 @@ class DarkClockView(context: Context) : SaverView(context, 20) {
             p > HOLD_S - FADE_S -> (HOLD_S - p) / FADE_S
             else -> 1f
         }.coerceIn(0f, 1f)
-        val now = Date()
-        val time = TIME.format(now)
-        val date = formatDate(now)
+        val time = timeText()
+        val date = dateText()
         val alpha = (a * MAX_ALPHA).toInt()
         timePaint.alpha = alpha
         datePaint.alpha = alpha
@@ -68,8 +66,20 @@ class DarkClockView(context: Context) : SaverView(context, 20) {
     /** Ширина блока — по самой широкой строке, чтобы он не вылезал за экран. */
     private fun blockWidth(): Float = maxOf(
         timePaint.measureText("88:88"),
-        datePaint.measureText(formatDate(Date()))
+        datePaint.measureText(dateText())
     )
+
+    /**
+     * Картинка меняется только на затухании/появлении и раз в минуту: между
+     * ними кадр раз в секунду (смена минуты), а не 20 в секунду.
+     */
+    override fun frameDelayMs(t: Float): Long {
+        if (!placed) return super.frameDelayMs(t)
+        val p = t - phaseStart
+        val fadeOutAt = HOLD_S - FADE_S
+        if (p < FADE_S || p >= fadeOutAt) return super.frameDelayMs(t)
+        return ((fadeOutAt - p) * 1000f).toLong().coerceIn(super.frameDelayMs(t), 1000L)
+    }
 
     private fun place(t: Float) {
         val blockH = timePaint.descent() - timePaint.ascent() +

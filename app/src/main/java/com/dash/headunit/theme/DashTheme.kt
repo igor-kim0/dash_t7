@@ -52,6 +52,22 @@ data class DashTheme(
         )
 
         /**
+         * Тёмно-красная, по образцу фиолетовой: тёплый тёмный фон, карточки
+         * чуть светлее, акцент — приглушённый терракотовый.
+         */
+        val RED = DashTheme(
+            id = "red",
+            name = "Тёмно-красная",
+            background = 0xFF1C1616.toInt(),
+            cardBackground = 0xFF282120.toInt(),
+            cardBorder = 0xFF403534.toInt(),
+            primaryText = 0xFFF1EAE6.toInt(),
+            secondaryText = 0xFFA99993.toInt(),
+            accent = 0xFFD08C80.toInt(),
+            success = 0xFF8CBB96.toInt()
+        )
+
+        /**
          * Тёмно-синяя, в стиле штатной приборки: почти чёрные края, синее
          * свечение по центру, голубой акцент; виджеты без карточек.
          */
@@ -89,7 +105,7 @@ data class DashTheme(
         )
 
         /** Все доступные темы. */
-        val ALL: List<DashTheme> = listOf(DARK, VIOLET, NAVY, CARBON)
+        val ALL: List<DashTheme> = listOf(DARK, VIOLET, RED, NAVY, CARBON)
     }
 }
 

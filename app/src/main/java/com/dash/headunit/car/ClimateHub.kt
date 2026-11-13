@@ -143,8 +143,13 @@ object ClimateHub {
         listener()
     }
 
+    /** Последний слушатель ушёл (виджеты климата сняты) — опрос шины больше не нужен. */
     fun removeListener(listener: () -> Unit) {
         listeners.remove(listener)
+        if (listeners.isEmpty()) {
+            pollJob?.cancel()
+            pollJob = null
+        }
     }
 
     private fun notifyListeners() {
@@ -155,7 +160,9 @@ object ClimateHub {
         if (pollJob == null) {
             pollJob = scope.launch {
                 while (true) {
-                    refresh()
+                    // Дашборд не виден — виджетам опрос не нужен.
+                    com.dash.headunit.ui.DashVisibility.awaitVisible()
+                    refreshNow() // ждём конца чтения — не копим их при сбое шины
                     delay(POLL_MS)
                 }
             }
@@ -163,12 +170,17 @@ object ClimateHub {
     }
 
     fun refresh() {
+        scope.launch { refreshNow() }
+    }
+
+    private suspend fun refreshNow() {
         val desay = desay ?: return
-        scope.launch {
+        run {
             val snapshot = withContext(Dispatchers.IO) {
                 runCatching { read(desay) }.getOrNull()
             }
-            if (snapshot != null) {
+            // Без изменений не будим виджеты (ретро-климат рисуется на CPU).
+            if (snapshot != null && snapshot != data) {
                 data = snapshot
                 notifyListeners()
             }

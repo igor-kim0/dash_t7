@@ -7,6 +7,8 @@ import android.bluetooth.BluetoothSocket
 import android.content.Context
 import android.os.SystemClock
 import android.util.Log
+import com.dash.headunit.car.ClusterRecorder
+import com.dash.headunit.ui.DashVisibility
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
@@ -472,9 +474,17 @@ object ElmHub {
                         }
                         /** Ответы этого круга: одна команда (0134, 0101) — один запрос. */
                         val replies = HashMap<String, String>()
+                        // Дашборд не виден (навигатор на весь экран, заставка) —
+                        // живые величины для виджета не нужны: только ОЖ
+                        // (калибровка стрелки), напряжение и редкие опросы
+                        // «Зажигания» (интервальные), и круг реже.
+                        val hidden = !DashVisibility.visible && !ClusterRecorder.running
                         for (poll in polls) {
                             if (gen != profileGen || ElmScanner.hasPending) break
-                            if (poll.slow && round % SLOW_EVERY != 0L) continue
+                            if (hidden && poll.intervalMs == 0L && poll.id != VOLT_ID &&
+                                poll.id != COOLANT_ID && poll.alias == null
+                            ) continue
+                            if (poll.slow && !hidden && round % SLOW_EVERY != 0L) continue
                             if (poll.can11Only && !can11) continue
                             if (!poll.enabled()) continue
                             if (!supportedByEcu(poll.cmd)) continue
@@ -541,7 +551,7 @@ object ElmHub {
                         } else if (answers > 0) "ELM: данные идут (протокол ${protocol.ifEmpty { "?" }})"
                         else "ELM: ЭБУ не отвечает (зажигание?)"
                         round++
-                        sleep(POLL_MS)
+                        sleep(if (hidden) HIDDEN_POLL_MS else POLL_MS)
                     }
                 }
             } finally {
@@ -625,7 +635,7 @@ object ElmHub {
 
     private fun shortReply(reply: String): String =
         reply.replace('\r', ' ').replace('\n', ' ').replace(ObdParser.PROMPT, ' ')
-            .replace(Regex("\\s+"), " ").trim().take(40)
+            .replace(SPACES, " ").trim().take(40)
 
     /** Открыть сокет: сначала удачный в прошлый раз способ, затем остальные. */
     @Suppress("MissingPermission")
@@ -782,6 +792,10 @@ object ElmHub {
     private const val IGN_STALE_MS = 5 * 60_000L
     /** Пауза между кругами опроса. */
     private const val POLL_MS = 500L
+    /** Для [shortReply] — каждая команда, не компилировать заново. */
+    private val SPACES = Regex("\\s+")
+    /** Пауза круга, пока дашборд не виден ([DashVisibility]). */
+    private const val HIDDEN_POLL_MS = 3_000L
     /** ОЖ и напряжение — раз в столько кругов. */
     private const val SLOW_EVERY = 5L
     /** Столько промахов подряд — величину считаем неподдерживаемой. */

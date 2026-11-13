@@ -37,6 +37,7 @@ object WifiConnectionDialog {
     /** Показать диалог управления подключениями. */
     fun show(context: Context) {
         WifiHub.init(context)
+        WifiHub.setDialogOpen(true)
         WifiHub.ensurePolling()
         val theme = ThemeStore(ThemeStore.PREFS, context).current()
         val list = LinearLayout(context).apply {
@@ -53,7 +54,10 @@ object WifiConnectionDialog {
             .setView(list)
             .setPositiveButton(R.string.dialog_ok, null)
             .showFullScreen()
-        dialog.setOnDismissListener { WifiHub.removeListener(listener) }
+        dialog.setOnDismissListener {
+            WifiHub.removeListener(listener)
+            WifiHub.setDialogOpen(false)
+        }
     }
 
     // ---------- список ----------

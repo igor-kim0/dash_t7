@@ -20,7 +20,7 @@ import kotlinx.coroutines.launch
  * Скрытый debug-экран (открывается из dev-сборки с главного экрана).
  * На нём калибровочная рамка на приборке ([ClusterOverlay.toggleCalibration]),
  * проба штатного радио
- * ([RadioHub]: команды + лог службы, он же в files/radio_log.txt), проба
+ * ([RadioHub]: команды + лог службы), проба
  * яркости экрана ГУ ([BrightnessProbe], лог в files/brightness_log.txt); остальные
  * пробы и сканеры убраны — их классы в `diag/` и история в git.
  */

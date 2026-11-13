@@ -448,8 +448,8 @@ object RadioHub {
     }
 
     private fun apply(source: String?, type: String?, json: String?) {
-        note("<- $source/$type $json")
         val next = Json.merge(state, source, type, json)
+        note("<- $source/$type $json")
         if (next != state) {
             state = next
             notifyListeners()
@@ -460,22 +460,13 @@ object RadioHub {
         main.post { listeners.toList().forEach { it() } }
     }
 
+    /** Строка в лог debug-экрана (память + logcat; на диск не пишем — решение 2026-11-13). */
     private fun note(s: String) {
         Log.i(TAG, s)
         val line = "${STAMP.format(java.util.Date())} $s"
         synchronized(log) {
             log.addLast(line)
             while (log.size > LOG_MAX) log.removeFirst()
-        }
-        // Лог на диск — снять данные с ГУ (files/radio_log.txt).
-        app?.let { ctx ->
-            try {
-                val f = File(ctx.filesDir, "radio_log.txt")
-                if (f.length() > LOG_FILE_MAX) f.delete()
-                f.appendText(line + "\n")
-            } catch (e: Exception) {
-                // диск недоступен — только logcat
-            }
         }
     }
 
@@ -572,7 +563,6 @@ object RadioHub {
     private const val TX_ON_INFO = IBinder.FIRST_CALL_TRANSACTION
     private const val TX_ON_PIC = IBinder.FIRST_CALL_TRANSACTION + 1
     private const val LOG_MAX = 80
-    private const val LOG_FILE_MAX = 512 * 1024L
     private val STAMP = java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US)
     private const val TAG = "RadioHub"
 }

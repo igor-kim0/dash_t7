@@ -3,12 +3,6 @@ package com.dash.headunit.diag
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import com.dash.headunit.navi.cluster.GuidanceHub
-import com.dash.headunit.navi.cluster.NaviAccessibilityService
-import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /**
  * Снимок дерева окна Яндекс Навигатора (через нашу службу спец. возможностей)
@@ -31,17 +25,7 @@ class NaviTreeReceiver : BroadcastReceiver() {
         val ids = intent.getStringExtra("ids")?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty()
         // Чтение окна — синхронные вызовы в процесс навигатора, не в главном потоке.
         Thread {
-            val a11y = NaviAccessibilityService.instance
-            val text = buildString {
-                append("-- источники\n").append(GuidanceHub.sourcesInfo()).append('\n')
-                append("-- окна\n").append(a11y?.describeWindows() ?: "служба спец. возможностей не подключена").append('\n')
-                if (ids.isNotEmpty()) append("-- по id\n").append(a11y?.probeIds(ids) ?: "-").append('\n')
-                append("-- дерево\n").append(a11y?.dumpTree(full = true) ?: "-").append('\n')
-            }
-            val dir = File(context.getExternalFilesDir(null), "navi_tree").apply { mkdirs() }
-            val name = SimpleDateFormat("HHmmss", Locale.US).format(Date()) + "_" + tag + ".txt"
-            val f = File(dir, name).apply { writeText(text) }
-            pending.resultData = f.absolutePath
+            pending.resultData = NaviSnapshot.write(context, tag, ids).absolutePath
             pending.finish()
         }.start()
     }

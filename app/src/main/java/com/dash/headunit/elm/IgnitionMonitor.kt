@@ -26,8 +26,9 @@ import java.util.Locale
  *   цикл. Отвечает ли наш ЭБУ — неизвестно: 06A0 спрашиваем раз за сессию.
  *
  * Сам счётчик о неисправности не говорит — важен прирост. Снимки
- * счётчиков с пробегом пишутся в журнал [FILE] (`ts;odoKm;ecuMin;c1..c4`),
- * по нему считаются прирост на 1000 км и перекос между цилиндрами.
+ * счётчиков с пробегом копятся в журнале в памяти (`ts;odoKm;ecuMin;c1..c4`,
+ * на флеш не пишется), по нему считаются прирост на 1000 км и перекос
+ * между цилиндрами.
  *
  * Опрашивает [ElmHub] (при любом профиле, только CAN 11 бит); сюда
  * приходят сырые ответы. Расчёты — чистые функции (тестируются).
@@ -91,6 +92,13 @@ object IgnitionMonitor {
     /** Минуты с ответами ЭБУ (≈ моточасы) — накопительно, в prefs. */
     private var ecuMinutes = 0.0
     private var lastAnswerAt = 0L
+    /**
+     * Журнал снимков — только в памяти (решение пользователя 2026-11-13:
+     * без записи на флеш). Переживает сон ГУ (процесс заморожен), но не
+     * его перезапуск. Старый файл [FILE] и минуты из prefs, если остались
+     * от прежних версий, читаются один раз при старте и больше не пишутся.
+     */
+    private val rows = ArrayList<Row>()
 
     private val lock = Any()
 
@@ -99,6 +107,11 @@ object IgnitionMonitor {
             if (appCtx != null) return
             appCtx = context.applicationContext
             ecuMinutes = prefs(context).getFloat(KEY_ECU_MIN, 0f).toDouble()
+            try {
+                file(context).takeIf { it.exists() }?.readText()?.let { rows.addAll(decodeRows(it)) }
+            } catch (e: Exception) {
+                Log.w(TAG, "старый журнал пропусков", e)
+            }
         }
     }
 
@@ -199,39 +212,24 @@ object IgnitionMonitor {
         lastCountersAt = now
         val base = tripBase
         if (newTrip || base == null || c.indices.any { c[it] < base[it] }) tripBase = c.copyOf()
-        val ctx = appCtx ?: return
-        prefs(ctx).edit().putFloat(KEY_ECU_MIN, ecuMinutes.toFloat()).apply()
-        try {
-            val f = file(ctx)
-            val last = readLastRow(f)
+        synchronized(rows) {
+            val last = rows.lastOrNull()
             val changed = last == null || !last.counters.contentEquals(c)
             if (!newTrip && !changed) return
             if (!newTrip && last != null && now - last.ts < ROW_MIN_MS) return
-            val row = Row(now, CarHub.data?.odoKm, ecuMinutes, c)
-            f.parentFile?.mkdirs()
-            f.appendText(encodeRow(row) + "\n")
-            if (f.length() > MAX_FILE_BYTES) {
-                val keep = decodeRows(f.readText()).filter { now - it.ts < KEEP_MS }
-                f.writeText(keep.joinToString("") { encodeRow(it) + "\n" })
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "журнал пропусков", e)
+            rows.add(Row(now, CarHub.data?.odoKm, ecuMinutes, c))
+            // Старше [KEEP_MS] и сверх [MAX_ROWS] — долой.
+            rows.removeAll { now - it.ts >= KEEP_MS }
+            while (rows.size > MAX_ROWS) rows.removeAt(0)
         }
     }
 
-    private fun readLastRow(f: File): Row? {
-        if (!f.exists()) return null
-        return f.useLines { lines -> lines.lastOrNull { it.isNotBlank() } }?.let(::decodeRow)
-    }
+    /** Файл журнала прежних версий (только чтение при старте). */
+    private fun file(context: Context): File = File(context.getExternalFilesDir(null) ?: context.filesDir, FILE)
 
-    fun file(context: Context): File = File(context.getExternalFilesDir(null) ?: context.filesDir, FILE)
-
-    /** Журнал снимков, старые сначала. */
-    fun journal(context: Context): List<Row> = try {
-        file(context).takeIf { it.exists() }?.readText()?.let(::decodeRows).orEmpty()
-    } catch (e: Exception) {
-        emptyList()
-    }
+    /** Журнал снимков (из памяти), старые сначала. */
+    @Suppress("UNUSED_PARAMETER")
+    fun journal(context: Context): List<Row> = synchronized(rows) { rows.toList() }
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -427,10 +425,11 @@ object IgnitionMonitor {
     private const val TRIP_GAP_MS = 10 * 60_000L
     /** Строки журнала не чаще. */
     private const val ROW_MIN_MS = 10 * 60_000L
+    /** Строк журнала в памяти (снимок — не чаще раза в 10 мин: это недели езды). */
+    private const val MAX_ROWS = 5000
     /** Пауза между ответами ЭБУ дольше — зажигание было выключено, время не считаем. */
     private const val ECU_GAP_MS = 5 * 60_000L
     private const val KEEP_MS = 365L * 24 * 3600_000L
-    private const val MAX_FILE_BYTES = 512 * 1024L
 
     const val MIN_KM = 50
     const val MIN_ECU_MIN = 60.0

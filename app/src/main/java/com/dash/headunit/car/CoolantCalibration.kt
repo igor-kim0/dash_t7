@@ -29,7 +29,10 @@ object CoolantCalibration {
         val app = context.applicationContext
         appContext = app
         val stored = prefs(app).getString(KEY_TABLE, null)
-        synchronized(table) { table.load(stored) }
+        synchronized(table) {
+            table.load(stored)
+            savedText = stored
+        }
     }
 
     /** Пара «стрелка приборки ([needle] 0..1) → °C сканера»; null — пропуск. */
@@ -42,7 +45,7 @@ object CoolantCalibration {
             if (now - savedAt < SAVE_MS) return
             dirty = false
             savedAt = now
-            table.save()
+            table.save().takeIf { it != savedText }?.also { savedText = it } ?: return
         }
         appContext?.let { prefs(it).edit().putString(KEY_TABLE, text).apply() }
     }
@@ -53,7 +56,10 @@ object CoolantCalibration {
 
     /** Забыть выученное. */
     fun reset() {
-        synchronized(table) { table.load(null) }
+        synchronized(table) {
+            table.load(null)
+            savedText = null
+        }
         appContext?.let { prefs(it).edit().remove(KEY_TABLE).apply() }
         Log.i(TAG, "калибровка сброшена")
     }
@@ -68,7 +74,11 @@ object CoolantCalibration {
     private const val PREFS = "coolant_calibration"
     private const val KEY_TABLE = "table"
     /** Сохранять не чаще. */
-    private const val SAVE_MS = 60_000L
+    /** Таблица копится медленно — на флеш не чаще (было раз в минуту, пока есть ELM). */
+    private const val SAVE_MS = 5 * 60_000L
+
+    /** Последнее записанное — то же не переписываем. */
+    private var savedText: String? = null
 }
 
 /**

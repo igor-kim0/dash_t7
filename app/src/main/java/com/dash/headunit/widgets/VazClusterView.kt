@@ -119,9 +119,21 @@ class VazClusterView(context: Context) : View(context) {
     }
     private val rect = RectF()
 
+    // Градиенты в виртуальных координатах — от размера вида не зависят,
+    // создаём один раз, а не по ~12 на каждый кадр.
+    private val panelShader = LinearGradient(
+        0f, 0f, 0f, VH,
+        Color.rgb(0x26, 0x2A, 0x30), Color.rgb(0x0B, 0x0D, 0x10), Shader.TileMode.CLAMP
+    )
+    // По центру приборки (у каждой свой центр и радиус).
+    private val faceShaders = HashMap<Float, Shader>()
+    private val chromeOuter = HashMap<Float, Shader>()
+    private val chromeInner = HashMap<Float, Shader>()
+
     init {
-        // Тень стрелок рисуется только программно.
-        setLayerType(LAYER_TYPE_SOFTWARE, null)
+        // Программный слой не нужен: на Android 9 (API 28) тени
+        // (setShadowLayer) любых фигур рисуются аппаратно, а программный
+        // растеризовал весь прибор на CPU каждый кадр движения стрелок.
         onData()
         speedPos = speedFrac()
         fuelPos = fuelTarget ?: GAUGE_REST
@@ -166,7 +178,10 @@ class VazClusterView(context: Context) : View(context) {
     }
 
     private fun speedFrac(): Float = ((speedTarget ?: 0f) / MAX_SPEED).coerceIn(0f, 1.02f)
-    private fun rpmFrac(): Float = ((rpmTarget ?: 0) / MAX_RPM).coerceIn(0f, 1.02f)
+    // Обороты с шагом [RPM_STEP]: на холостых они гуляют на десятки, и
+    // стрелка без шага не останавливалась — 60 кадров/с, пока мотор работает.
+    private fun rpmFrac(): Float =
+        ((((rpmTarget ?: 0) + RPM_STEP / 2) / RPM_STEP * RPM_STEP) / MAX_RPM).coerceIn(0f, 1.02f)
 
     /** Стрелки догоняют цель с постоянной времени [NEEDLE_TAU_MS]; true — ещё движется. */
     private fun step(): Boolean {
@@ -217,10 +232,7 @@ class VazClusterView(context: Context) : View(context) {
 
     private fun drawPanel(c: Canvas) {
         rect.set(4f, 4f, VW - 4f, VH - 4f)
-        panel.shader = LinearGradient(
-            0f, 0f, 0f, VH,
-            Color.rgb(0x26, 0x2A, 0x30), Color.rgb(0x0B, 0x0D, 0x10), Shader.TileMode.CLAMP
-        )
+        panel.shader = panelShader
         c.drawRoundRect(rect, 30f, 30f, panel)
         panel.shader = null
     }
@@ -231,11 +243,13 @@ class VazClusterView(context: Context) : View(context) {
         c.drawCircle(cx, CY, SMALL_R + 2f, shadow)
         shadow.clearShadowLayer()
         chromeRing(c, cx, CY, SMALL_R)
-        face.shader = RadialGradient(
-            cx, CY, SMALL_R,
-            intArrayOf(Color.rgb(0x1C, 0x20, 0x25), dialColor),
-            floatArrayOf(0.55f, 1f), Shader.TileMode.CLAMP
-        )
+        face.shader = faceShaders.getOrPut(cx) {
+            RadialGradient(
+                cx, CY, SMALL_R,
+                intArrayOf(Color.rgb(0x1C, 0x20, 0x25), dialColor),
+                floatArrayOf(0.55f, 1f), Shader.TileMode.CLAMP
+            )
+        }
         c.drawCircle(cx, CY, SMALL_R - BEZEL, face)
         face.shader = null
     }
@@ -246,11 +260,13 @@ class VazClusterView(context: Context) : View(context) {
         c.drawCircle(cx, CY, BIG_R + 2f, shadow)
         shadow.clearShadowLayer()
         chromeRing(c, cx, CY, BIG_R)
-        face.shader = RadialGradient(
-            cx, CY, BIG_R,
-            intArrayOf(Color.rgb(0x1B, 0x1F, 0x24), dialColor),
-            floatArrayOf(0.6f, 1f), Shader.TileMode.CLAMP
-        )
+        face.shader = faceShaders.getOrPut(cx) {
+            RadialGradient(
+                cx, CY, BIG_R,
+                intArrayOf(Color.rgb(0x1B, 0x1F, 0x24), dialColor),
+                floatArrayOf(0.6f, 1f), Shader.TileMode.CLAMP
+            )
+        }
         c.drawCircle(cx, CY, BIG_R - BEZEL, face)
         face.shader = null
     }
@@ -258,16 +274,20 @@ class VazClusterView(context: Context) : View(context) {
     /** Три кольца ободка: свет-тень-свет (как хром на чёрном пластике). */
     private fun chromeRing(c: Canvas, cx: Float, cy: Float, r: Float) {
         chrome.strokeWidth = 7f
-        chrome.shader = LinearGradient(
-            cx, cy - r, cx, cy + r,
-            Color.rgb(0xD0, 0xD6, 0xDC), Color.rgb(0x40, 0x46, 0x4C), Shader.TileMode.CLAMP
-        )
+        chrome.shader = chromeOuter.getOrPut(cx) {
+            LinearGradient(
+                cx, cy - r, cx, cy + r,
+                Color.rgb(0xD0, 0xD6, 0xDC), Color.rgb(0x40, 0x46, 0x4C), Shader.TileMode.CLAMP
+            )
+        }
         c.drawCircle(cx, cy, r, chrome)
         chrome.strokeWidth = 2f
-        chrome.shader = LinearGradient(
-            cx, cy - r, cx, cy + r,
-            Color.rgb(0x90, 0x96, 0x9C), Color.rgb(0xE0, 0xE6, 0xEC), Shader.TileMode.CLAMP
-        )
+        chrome.shader = chromeInner.getOrPut(cx) {
+            LinearGradient(
+                cx, cy - r, cx, cy + r,
+                Color.rgb(0x90, 0x96, 0x9C), Color.rgb(0xE0, 0xE6, 0xEC), Shader.TileMode.CLAMP
+            )
+        }
         c.drawCircle(cx, cy, r - 5f, chrome)
         chrome.shader = null
     }
@@ -538,6 +558,7 @@ class VazClusterView(context: Context) : View(context) {
         const val MAX_SPEED = 180f
         /** Предел тахометра: 8000 об/мин → «80» при ×100. */
         const val MAX_RPM = 8000f
+        private const val RPM_STEP = 50
 
         /** Полуразмах большой шкалы от вертикали, градусы (сектор 240°). */
         const val BIG_SWEEP = 120.0

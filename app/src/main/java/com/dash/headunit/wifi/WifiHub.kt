@@ -58,6 +58,18 @@ object WifiHub {
     private var scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var pollJob: Job? = null
 
+    /**
+     * Открыт диалог подключений: только ему нужны сохранённые и видимые сети.
+     * Виджету хватает текущего подключения — без скана эфира каждые 3 с.
+     */
+    @Volatile
+    private var dialogs = 0
+
+    /** Диалог подключений открыт/закрыт (главный поток). */
+    fun setDialogOpen(open: Boolean) {
+        dialogs = (dialogs + if (open) 1 else -1).coerceAtLeast(0)
+    }
+
     private fun wifiOrNull(ctx: Context): WifiManager? =
         ctx.getSystemService(Context.WIFI_SERVICE) as? WifiManager
 
@@ -72,8 +84,13 @@ object WifiHub {
         listener()
     }
 
+    /** Последний слушатель ушёл (виджет снят) — опрос больше не нужен. */
     fun removeListener(listener: () -> Unit) {
         listeners.remove(listener)
+        if (listeners.isEmpty()) {
+            pollJob?.cancel()
+            pollJob = null
+        }
     }
 
     private fun notifyListeners() {
@@ -84,6 +101,8 @@ object WifiHub {
         if (pollJob == null) {
             pollJob = scope.launch {
                 while (true) {
+                    // Дашборд не виден — виджетам опрос не нужен.
+                    com.dash.headunit.ui.DashVisibility.awaitVisible()
                     refresh()
                     delay(POLL_MS)
                 }
@@ -97,7 +116,7 @@ object WifiHub {
         scope.launch(Dispatchers.IO) {
             val fresh = readState(ctx)
             withContext(Dispatchers.Main) {
-                if (fresh != null) {
+                if (fresh != null && fresh != state) {
                     state = fresh
                     notifyListeners()
                 }
@@ -209,7 +228,8 @@ object WifiHub {
                 Log.w(TAG, "connectionInfo", e)
             }
         }
-        val saved = kotlin.runCatching {
+        val full = dialogs > 0
+        val saved = if (!full) emptyList() else kotlin.runCatching {
             wifi.configuredNetworks
                 ?.sortedByDescending { it.status == WifiConfiguration.Status.CURRENT }
                 ?.map { cfg ->
@@ -221,7 +241,7 @@ object WifiHub {
                 } ?: emptyList()
         }.getOrDefault(emptyList())
         val hasLoc = hasLocation(ctx)
-        val visible = if (enabled && hasLoc) {
+        val visible = if (full && enabled && hasLoc) {
             // Ручной запуск скана — API 28 ограничивает частоту сам.
             kotlin.runCatching { wifi.startScan() }
             kotlin.runCatching {

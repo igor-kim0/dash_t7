@@ -70,6 +70,7 @@ import com.dash.headunit.widgets.YandexMusicWidgetView
 import com.dash.headunit.widgets.WifiWidgetView
 import com.dash.headunit.widgets.ReferenceWidgetView
 import com.dash.headunit.widgets.AppWidgetView
+import com.dash.headunit.widgets.AppsWidgetView
 import com.dash.headunit.widgets.ButtonsWidgetView
 import com.dash.headunit.widgets.NavApps
 import com.dash.headunit.widgets.TripWidgetView
@@ -164,6 +165,21 @@ class MainActivity : AppCompatActivity() {
             startActivity(android.content.Intent(this, com.dash.headunit.car.CarDebugActivity::class.java))
         }
         // Приборка по кругу: выкл → сам Яндекс Навигатор → наша карточка → выкл.
+        // Долгое нажатие — снимок ведения для диагностики приборки (навигатор
+        // остаётся в блоке): строка источников — во всплывашке, всё — в файл.
+        findViewById<View>(R.id.btn_cluster_navi).setOnLongClickListener {
+            val app = applicationContext
+            Thread {
+                val msg = try {
+                    val f = com.dash.headunit.diag.NaviSnapshot.write(app, "cluster")
+                    "${com.dash.headunit.navi.cluster.GuidanceHub.sourcesInfo()}\n${f.absolutePath}"
+                } catch (e: Exception) {
+                    "снимок: ${e.javaClass.simpleName}: ${e.message}"
+                }
+                runOnUiThread { Toast.makeText(app, msg, Toast.LENGTH_LONG).show() }
+            }.start()
+            true
+        }
         findViewById<View>(R.id.btn_cluster_navi).setOnClickListener {
             val next = when (clusterMode()) {
                 CLUSTER_OFF -> CLUSTER_YANDEX
@@ -212,7 +228,12 @@ class MainActivity : AppCompatActivity() {
             }
         }
         findViewById<View>(R.id.root).background = rootBackground
-        screensaver = Screensaver(this) {
+        screensaver = Screensaver(this) { showing ->
+            // Заставка непрозрачна: дашборд под ней не рисуем (иначе каждый
+            // её кадр перерисовывает и все виджеты, ретро-приборы — на CPU).
+            // INVISIBLE, не GONE — раскладка и вырез под навигатор остаются.
+            findViewById<View>(R.id.main_row)?.visibility = if (showing) View.INVISIBLE else View.VISIBLE
+            com.dash.headunit.ui.DashVisibility.setScreensaver(showing)
             // Под заставкой окно ловит касания целиком: разбудивший тап по
             // блоку навигатора не должен уйти в карту.
             window.decorView.requestLayout()
@@ -254,6 +275,11 @@ class MainActivity : AppCompatActivity() {
         return Rect(loc[0], loc[1], loc[0] + side.width, loc[1] + side.height)
     }
 
+    override fun onStart() {
+        super.onStart()
+        com.dash.headunit.ui.DashVisibility.setStarted(true)
+    }
+
     override fun onResume() {
         super.onResume()
         updateStatusIcons()
@@ -282,9 +308,14 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
+        // Сон ГУ / уход с дашборда — поездка и моточасы на флеш (иначе
+        // пишутся только на пуске и глушении).
+        com.dash.headunit.car.TripTracker.persist(this)
         // Сами только что подняли навигатор под себя — это не уход с экрана.
         if (System.currentTimeMillis() - underlayLaunchedAt < UNDERLAY_GRACE_MS) return
         stoppedAway = true
+        // Виджетов не видно — опросы, нужные только им, ждут ([DashVisibility]).
+        com.dash.headunit.ui.DashVisibility.setStarted(false)
         // Дашборд закрыт другим приложением (или навигатором на весь экран):
         // вернуть экран целиком, навигатор под нами больше не гарантирован.
         underlayPkg = null
@@ -612,6 +643,9 @@ class MainActivity : AppCompatActivity() {
             return
         }
         yandexMoving = true
+        // Пока навигатор едет и не поднят — на приборке чёрный занавес,
+        // а не наша плашка и не зеркало дашборда.
+        ClusterOverlay.coverForYandex()
         // Навигатор заберёт фокус — наш onStop в это время не уход с экрана.
         underlayLaunchedAt = System.currentTimeMillis()
         NaviOnCluster.moveToCluster(this, YANDEX_NAVI, target.first, target.second) { ok ->
@@ -619,12 +653,15 @@ class MainActivity : AppCompatActivity() {
             if (isDestroyed) return@moveToCluster
             if (clusterMode() != CLUSTER_YANDEX) return@moveToCluster
             if (ok) {
-                ClusterOverlay.setYandex(true)
                 // Блок «Навигатор» больше не держит его под собой.
                 underlayPkg = null
                 // Дать навигатору честный onResume (иначе карта стоит), потом
                 // вернуть дашборд — Android 9: фокус у навигатора на приборке.
-                kickYandexOnCluster(target.first)
+                // Занавес снимаем после пинка: am start может на миг уронить
+                // картинку навигатора на приборке.
+                kickYandexOnCluster(target.first) {
+                    if (clusterMode() == CLUSTER_YANDEX) ClusterOverlay.setYandex(true)
+                }
             } else {
                 Toast.makeText(
                     this, getString(R.string.cluster_mode_yandex_failed, NaviOnCluster.lastStatus),
@@ -639,6 +676,9 @@ class MainActivity : AppCompatActivity() {
     // Идёт «пинок» навигатору на приборке.
     private var yandexKicking = false
 
+    // Ждут конца текущего пинка (снять занавес на приборке).
+    private val kickWaiters = mutableListOf<() -> Unit>()
+
     /**
      * Поднять навигатор на дисплее приборки [displayId] (он становится
      * RESUMED и включает слежение за GPS), через [YANDEX_FOCUS_BACK_MS] —
@@ -646,12 +686,17 @@ class MainActivity : AppCompatActivity() {
      * на дашборд: в PAUSED Yandex рисует, но после холодного старта/сна
      * карта без onResume не двигается.
      */
-    private fun kickYandexOnCluster(displayId: Int) {
-        if (yandexKicking || isDestroyed) return
+    private fun kickYandexOnCluster(displayId: Int, onKicked: (() -> Unit)? = null) {
+        if (isDestroyed) return
+        onKicked?.let { kickWaiters += it }
+        if (yandexKicking) return
         yandexKicking = true
         // Наш onPause/onStop на это время — не уход с экрана.
         underlayLaunchedAt = System.currentTimeMillis()
         NaviOnCluster.kick(this, YANDEX_NAVI, displayId) { ok ->
+            val waiters = kickWaiters.toList()
+            kickWaiters.clear()
+            waiters.forEach { it() }
             if (isDestroyed) {
                 yandexKicking = false
                 return@kick
@@ -965,6 +1010,9 @@ class MainActivity : AppCompatActivity() {
                     onTapIdle = { if (!editMode) connectShell() }
                     onExpand = { openNaviFull() }
                 }
+                WidgetType.APPS -> AppsWidgetView(
+                    this, spec.widgetId, wTheme, settingsStore
+                ) { showAppsSettings(spec.widgetId) }
                 WidgetType.TRIP -> TripWidgetView(this, wTheme, spec.widgetId, settingsStore)
                 WidgetType.CLIMATE ->
                     if (settingsStore.getOption(spec.widgetId, OPT_CLIMATE_STYLE, CLIMATE_TEXT) == CLIMATE_ICONS) {
@@ -1022,6 +1070,9 @@ class MainActivity : AppCompatActivity() {
                     }
                     WidgetType.APP -> {
                         { showAppSettings(spec.widgetId) }
+                    }
+                    WidgetType.APPS -> {
+                        { showAppsSettings(spec.widgetId) }
                     }
                     WidgetType.CAR -> {
                         { showCarSettings(spec.widgetId) }
@@ -1136,6 +1187,7 @@ class MainActivity : AppCompatActivity() {
         PickerItem(WidgetType.RADIO, R.string.widget_radio, R.drawable.ic_radio),
         PickerItem(WidgetType.WIFI, R.string.widget_wifi, R.drawable.ic_wifi),
         PickerItem(WidgetType.APP, R.string.widget_app, R.drawable.ic_nav),
+        PickerItem(WidgetType.APPS, R.string.widget_apps, R.drawable.ic_apps),
         PickerItem(WidgetType.TRIP, R.string.widget_trip, R.drawable.ic_journal),
         PickerItem(WidgetType.SPEED, R.string.widget_speed, R.drawable.ic_gauge),
         PickerItem(WidgetType.OUTSIDE, R.string.widget_outside, R.drawable.ic_thermo),
@@ -1148,7 +1200,7 @@ class MainActivity : AppCompatActivity() {
         PickerItem(WidgetType.SCREENSAVER, R.string.widget_screensaver, R.drawable.ic_screensaver, colored = true),
         PickerItem(WidgetType.BRIGHTNESS, R.string.widget_brightness, R.drawable.ic_brightness),
         PickerItem(WidgetType.IGNITION, R.string.widget_ignition, R.drawable.ic_ignition),
-    )
+    ).filterNot { it.type in HIDDEN_PICKER_TYPES }
 
     /**
      * Диалог «+ Добавить блок»: сетка карточек с иконкой и подписью.
@@ -1223,7 +1275,9 @@ class MainActivity : AppCompatActivity() {
             setOnClickListener { onPick(item.type) }
             icon.apply {
                 setImageResource(item.iconRes)
-                scaleType = ImageView.ScaleType.CENTER_INSIDE
+                // FIT_CENTER, а не CENTER_INSIDE: вектор не увеличивается выше
+                // своего размера (28 dp), а бокс иконки — крупнее.
+                scaleType = ImageView.ScaleType.FIT_CENTER
                 if (!item.colored) setColorFilter(if (added) theme.accent else theme.primaryText)
             }
             label.apply {
@@ -1238,16 +1292,16 @@ class MainActivity : AppCompatActivity() {
                 maxLines = 1
                 setTextColor(theme.accent)
             }
-            addView(icon, LayoutParams(dp(30), dp(30)))
+            addView(icon, LayoutParams(dp(PICKER_ICON_DP), dp(PICKER_ICON_DP)))
             addView(
                 label,
                 LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
-                    .apply { topMargin = dp(8) }
+                    .apply { topMargin = dp(PICKER_LABEL_GAP_DP) }
             )
             addView(
                 note,
                 LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
-                    .apply { topMargin = dp(4) }
+                    .apply { topMargin = dp(PICKER_NOTE_GAP_DP) }
             )
             applyScale(1f)
         }
@@ -1257,12 +1311,17 @@ class MainActivity : AppCompatActivity() {
             if (scale == applied) return
             applied = scale
             val s = scale
-            setPadding(dp((8 * s).toInt()), dp((12 * s).toInt()), dp((8 * s).toInt()), dp((12 * s).toInt()))
-            icon.layoutParams = LayoutParams(dp((30 * s).toInt()), dp((30 * s).toInt()))
-            label.textSize = 14f * s
-            (label.layoutParams as LayoutParams).topMargin = dp((8 * s).toInt())
-            note.textSize = 12f * s
-            (note.layoutParams as LayoutParams).topMargin = dp((4 * s).toInt())
+            setPadding(
+                dp((PICKER_PAD_H_DP * s).toInt()), dp((PICKER_PAD_V_DP * s).toInt()),
+                dp((PICKER_PAD_H_DP * s).toInt()), dp((PICKER_PAD_V_DP * s).toInt())
+            )
+            icon.layoutParams = LayoutParams(
+                dp((PICKER_ICON_DP * s).toInt()), dp((PICKER_ICON_DP * s).toInt())
+            )
+            label.textSize = PICKER_LABEL_SP * s
+            (label.layoutParams as LayoutParams).topMargin = dp((PICKER_LABEL_GAP_DP * s).toInt())
+            note.textSize = PICKER_NOTE_SP * s
+            (note.layoutParams as LayoutParams).topMargin = dp((PICKER_NOTE_GAP_DP * s).toInt())
         }
     }
 
@@ -1281,6 +1340,7 @@ class MainActivity : AppCompatActivity() {
             WidgetType.YANDEX_MUSIC -> 92 to 30
             WidgetType.RADIO -> 92 to 24
             WidgetType.APP -> 92 to 40
+            WidgetType.APPS -> 28 to 22
             WidgetType.TRIP -> 92 to 24
             WidgetType.CLIMATE -> 92 to 40
             WidgetType.CLIMATE_CONTROL -> 92 to 24
@@ -2062,6 +2122,42 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Настройки виджета «Программы»: какие программы показывать и в каком
+     * порядке. Список — все запускаемые приложения ГУ; выбранные идут
+     * первыми (в выбранном порядке), остальные — по алфавиту. Переключатель
+     * в строке показывает/прячет программу, стрелки меняют порядок.
+     */
+    private fun showAppsSettings(widgetId: String) {
+        // Пары (pkg, label); себя исключаем — запускать самих себя незачем.
+        val all = launchableApps()
+            .filter { it.first != packageName }
+            .associate { it.first to it.second }
+        val chosen = AppsWidgetView.selected(settingsStore, widgetId).filter { it in all }
+        val order = (chosen + all.keys.filter { it !in chosen }).toMutableList()
+        val checked = chosen.toMutableSet()
+        val list = SettingsList(this, theme)
+            .section(getString(R.string.apps_section))
+            .reorder(order, checked, { all[it] ?: it }) { key, on ->
+                if (!on) return@reorder false
+                // Включённая программа — в конец выбранных, а не в общий
+                // список: так её сразу видно и можно переставить стрелками.
+                order.remove(key)
+                val at = order.indexOfFirst { it !in checked }
+                order.add(if (at < 0) order.size else at, key)
+                true
+            }
+            .column()
+        val saveTile = list.tileSection(widgetId)
+        showWidgetSettings(WidgetType.APPS, list, 1400) {
+            settingsStore.setOption(
+                widgetId, AppsWidgetView.OPT_APPS,
+                order.filter { it in checked }.joinToString(",")
+            )
+            saveTile()
+        }
+    }
+
     /** Все запускаемые приложения (label + package), по алфавиту. */
     private fun launchableApps(): List<Pair<String, String>> {
         return try {
@@ -2158,7 +2254,31 @@ class MainActivity : AppCompatActivity() {
 
         /** Сетка выбора виджета: колонок в ряду и ширина диалога под них. */
         private const val PICKER_COLUMNS = 7
-        private const val PICKER_WIDTH_DP = 1020
+        private const val PICKER_WIDTH_DP = 1140
+
+        /**
+         * Временно скрытые виджеты в диалоге «Добавить блок»: карточки не
+         * показываем. Уже стоящие на главной виджеты убираются крестиком
+         * прямо на дашборде.
+         */
+        private val HIDDEN_PICKER_TYPES = setOf(
+            WidgetType.REFERENCE, WidgetType.BRIGHTNESS, WidgetType.BUTTONS,
+            WidgetType.CLIMATE
+        )
+
+        /**
+         * Карточка выбора виджета в полном размере: иконка, кегль подписи и
+         * отметки, отступы. Сетка ужимает их под сторону ячейки
+         * ([PickerGrid.Cell]), поэтому полный размер считаем с запасом —
+         * он и должен влезать в квадрат.
+         */
+        private const val PICKER_ICON_DP = 56
+        private const val PICKER_LABEL_SP = 18f
+        private const val PICKER_NOTE_SP = 13f
+        private const val PICKER_PAD_H_DP = 8
+        private const val PICKER_PAD_V_DP = 6
+        private const val PICKER_LABEL_GAP_DP = 6
+        private const val PICKER_NOTE_GAP_DP = 2
 
         /** Виджеты со своим ретро-видом в настройках — общий [RetroLook] им не нужен. */
         private val OWN_RETRO = setOf(

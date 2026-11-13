@@ -29,16 +29,21 @@ import android.widget.TextView
  */
 object YandexNotificationParser {
 
-    /** Результат: ведение (null — уведомление не про маршрут) и дамп для диагностики. */
+    /** Результат: ведение (null — уведомление не про маршрут) и дамп для диагностики ("" без [parse] withDump). */
     class Result(val guidance: Guidance?, val dump: String)
 
-    fun parse(context: Context, sbn: StatusBarNotification): Result {
+    /**
+     * Не в главном потоке (раздувание чужих layout'ов, рендер стрелки) — но в
+     * потоке с Looper'ом: некоторым view он нужен в конструкторе.
+     * [withDump] — полный текстовый дамп дерева (только для диагностики).
+     */
+    fun parse(context: Context, sbn: StatusBarNotification, withDump: Boolean = false): Result {
         val n = sbn.notification
-        val dump = StringBuilder()
-        dump.append("key=").append(sbn.key).append(" id=").append(sbn.id)
-            .append(" ongoing=").append(sbn.isOngoing)
-            .append(" channel=").append(n.channelId).append('\n')
-        n.extras?.let { ex ->
+        val dump: StringBuilder? = if (withDump) StringBuilder() else null
+        dump?.append("key=")?.append(sbn.key)?.append(" id=")?.append(sbn.id)
+            ?.append(" ongoing=")?.append(sbn.isOngoing)
+            ?.append(" channel=")?.append(n.channelId)?.append('\n')
+        if (dump != null) n.extras?.let { ex ->
             for (k in ex.keySet()) {
                 val v = try { ex.get(k) } catch (e: Exception) { e.javaClass.simpleName }
                 if (v is CharSequence || v is Number || v is Boolean) {
@@ -56,9 +61,11 @@ object YandexNotificationParser {
         for ((name, rv) in views) {
             if (rv == null) continue
             val root = inflate(context, rv, dump, name) ?: continue
-            dumpTree(root, ids, dump, "  ")
+            if (dump != null) dumpTree(root, ids, dump, "  ")
             val g = fromTree(context, root, ids)
             if (g != null) result = result?.orElse(g) ?: g
+            // Всё нужное уже есть — остальные варианты вида не раздуваем.
+            if (dump == null && result != null && result.hasManeuver && result.remainingDistance != null) break
         }
         if (result == null) {
             // Без custom-вида: только заголовок/текст стандартного уведомления.
@@ -72,21 +79,21 @@ object YandexNotificationParser {
                 )
             }
         }
-        dump.append("  => ").append(result?.let(::describe) ?: "не ведение").append('\n')
-        return Result(result, dump.toString())
+        dump?.append("  => ")?.append(result?.let(::describe) ?: "не ведение")?.append('\n')
+        return Result(result, dump?.toString().orEmpty())
     }
 
-    private fun inflate(context: Context, rv: RemoteViews, dump: StringBuilder, name: String): View? =
+    private fun inflate(context: Context, rv: RemoteViews, dump: StringBuilder?, name: String): View? =
         try {
             rv.apply(context, FrameLayout(context))
         } catch (e: Throwable) {
             Log.w(TAG, "apply $name", e)
-            dump.append("  ").append(name).append(": apply ").append(e.javaClass.simpleName)
-                .append(": ").append(e.message).append('\n')
+            dump?.append("  ")?.append(name)?.append(": apply ")?.append(e.javaClass.simpleName)
+                ?.append(": ")?.append(e.message)?.append('\n')
             null
         }?.also {
-            dump.append("  [").append(name).append(" layout=")
-                .append(rv.layoutId.toString(16)).append("]\n")
+            dump?.append("  [")?.append(name)?.append(" layout=")
+                ?.append(rv.layoutId.toString(16))?.append("]\n")
         }
 
     private fun fromTree(context: Context, root: View, ids: IdLookup): Guidance? {
@@ -97,7 +104,7 @@ object YandexNotificationParser {
         val icon = listOf("nextManeuverView", "nextManeuverViewTinted")
             .mapNotNull { ids.find(root, it) as? ImageView }
             .firstOrNull { it.visibility == View.VISIBLE && it.drawable != null }
-        val iconBmp = icon?.let { render(it) }
+        val (iconBmp, iconManeuver) = icon?.let { iconOf(context, it) } ?: (null to null)
         var g = Guidance(
             maneuverIcon = iconBmp,
             distance = text("titleView"),
@@ -108,7 +115,7 @@ object YandexNotificationParser {
         )
         val title = text("notificationTitle")
         g = g.copy(maneuver = GuidanceText.classify(icon?.contentDescription?.toString())
-            ?: iconBmp?.let { ManeuverMatcher.fromIcon(context, it).maneuver }
+            ?: iconManeuver
             ?: GuidanceText.classify(title) ?: GuidanceText.classify(g.street))
         if (g.hasManeuver || g.remainingDistance != null) return g
 
@@ -130,6 +137,26 @@ object YandexNotificationParser {
             street = texts.firstOrNull { it != dist && !GuidanceText.isDistance(it) && !GuidanceText.isClock(it) },
             arrival = texts.firstOrNull { GuidanceText.isClock(it) },
         )
+    }
+
+    // Последняя стрелка: уведомление обновляется ~раз в секунду, а стрелка
+    // меняется только на манёвре. Ресурсные картинки делят ConstantState —
+    // по нему узнаём ту же и не рисуем/не сличаем её заново (и Guidance
+    // с тем же Bitmap равен прошлому — GuidanceHub не перерисовывает приборку).
+    private var lastIconState: android.graphics.drawable.Drawable.ConstantState? = null
+    private var lastIcon: Bitmap? = null
+    private var lastIconManeuver: Maneuver? = null
+
+    @Synchronized
+    private fun iconOf(context: Context, view: ImageView): Pair<Bitmap?, Maneuver?> {
+        val state = view.drawable?.constantState
+        if (state != null && state === lastIconState) return lastIcon to lastIconManeuver
+        val bmp = render(view)
+        val m = bmp?.let { ManeuverMatcher.fromIcon(context, it).maneuver }
+        lastIconState = state
+        lastIcon = bmp
+        lastIconManeuver = m
+        return bmp to m
     }
 
     /**

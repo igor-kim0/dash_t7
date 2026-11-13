@@ -100,7 +100,11 @@ object NaviOnCluster {
         if (now != null && now.display != displayId) {
             run(app, "am display move-stack ${now.id} $displayId")
         }
-        lastStatus = "навигатор на приборке поднят для onResume" + if (drawn) "" else " (не дождались отрисовки)"
+        // Занавес на приборке снимается после пинка — он должен застать
+        // уже нарисованный навигатор (после am start окно могло пересоздаться).
+        val after = waitDrawn(app, pkg, displayId)
+        lastStatus = "навигатор на приборке поднят для onResume" +
+            if (drawn && after) "" else " (не дождались отрисовки)"
         return true
     }
 
@@ -180,42 +184,52 @@ object NaviOnCluster {
      * Ждать, пока окно [pkg] на дисплее [displayId] нарисуется
      * (`mDrawState=HAS_DRAWN`), не дольше [DRAWN_TIMEOUT_MS]. Первая проверка —
      * через [DRAWN_FIRST_MS]: сразу после переноса в dumpsys ещё старое состояние.
+     * Нарисованным считаем одно и то же окно два опроса подряд: после переноса
+     * навигатор может пересоздать activity под новый размер дисплея, и
+     * HAS_DRAWN старого окна — ещё не картинка на приборке.
      */
     private fun waitDrawn(app: Context, pkg: String, displayId: Int): Boolean {
         val deadline = System.currentTimeMillis() + DRAWN_TIMEOUT_MS
         Thread.sleep(DRAWN_FIRST_MS)
+        var last: String? = null
         while (true) {
-            val out = AdbShell.exec(app, "dumpsys window windows | grep -E 'Window #|mDisplayId=|mDrawState'")
-            if (out != null && isDrawnOn(out, pkg, displayId)) {
+            // Только окна пакета — см. NaviUnderlay.whenDrawn.
+            val out = AdbShell.exec(app, "dumpsys window $pkg | grep -E 'Window #|mDisplayId=|mDrawState'")
+            val win = out?.let { drawnWindow(it, pkg, displayId) }
+            if (win != null && win == last) {
                 // Кадр ещё должен дойти по HDMI до приборки.
                 Thread.sleep(DRAWN_SETTLE_MS)
                 return true
             }
+            last = win
             if (System.currentTimeMillis() >= deadline) return false
             Thread.sleep(DRAWN_POLL_MS)
         }
     }
 
+    internal fun isDrawnOn(dump: String, pkg: String, displayId: Int): Boolean =
+        drawnWindow(dump, pkg, displayId) != null
+
     /**
-     * Разбор `dumpsys window windows` (Android 9): у окна пакета [pkg]
-     * (`Window #N Window{… pkg/…}`) строка `mDisplayId=<id> …` и
-     * `mDrawState=HAS_DRAWN`.
+     * Разбор `dumpsys window windows` (Android 9): окно пакета [pkg]
+     * (`Window #N Window{abc123 u0 pkg/…}`) со строкой `mDisplayId=<id> …`
+     * и `mDrawState=HAS_DRAWN`. Возвращает id окна (`abc123`) или null.
      */
-    internal fun isDrawnOn(dump: String, pkg: String, displayId: Int): Boolean {
-        var inPkg = false
+    internal fun drawnWindow(dump: String, pkg: String, displayId: Int): String? {
+        var win: String? = null
         var display = -1
         for (line in dump.lineSequence()) {
             val t = line.trimStart()
             if (t.startsWith("Window #")) {
-                inPkg = t.contains(" $pkg/")
+                win = if (t.contains(" $pkg/")) t.substringAfter("Window{", "").substringBefore(' ') else null
                 display = -1
-            } else if (inPkg && t.startsWith("mDisplayId=")) {
+            } else if (win != null && t.startsWith("mDisplayId=")) {
                 display = t.removePrefix("mDisplayId=").takeWhile { it.isDigit() }.toIntOrNull() ?: -1
-            } else if (inPkg && display == displayId && t.contains("mDrawState=HAS_DRAWN")) {
-                return true
+            } else if (win != null && display == displayId && t.contains("mDrawState=HAS_DRAWN")) {
+                return win
             }
         }
-        return false
+        return null
     }
 
     private fun mainScreen(app: Context): Rect {

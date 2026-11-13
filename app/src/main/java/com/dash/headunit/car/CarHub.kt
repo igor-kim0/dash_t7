@@ -38,6 +38,7 @@ object CarHub {
     private var lastFreshTs = 0L
 
     /** Последний вид поездки ([TripTracker.update] в цикле опроса). */
+    @Volatile
     var tripView: TripTracker.TripView? = null
         private set
 
@@ -61,6 +62,13 @@ object CarHub {
             vhal = VhalReader(app)
             CoolantCalibration.init(app)
             CoolantEtm.init(app)
+            // Экран гаснет (ГУ засыпает с зажиганием) — сохранить поездку и
+            // моточасы: сами по себе они пишутся только на пуске/глушении.
+            app.registerReceiver(object : android.content.BroadcastReceiver() {
+                override fun onReceive(c: Context?, i: android.content.Intent?) {
+                    TripTracker.persist(app)
+                }
+            }, android.content.IntentFilter(android.content.Intent.ACTION_SCREEN_OFF))
         }
     }
 
@@ -88,6 +96,8 @@ object CarHub {
         if (liveJob == null) {
             liveJob = scope.launch {
                 while (true) {
+                    // Дашборд не виден — виджетам опрос не нужен.
+                    com.dash.headunit.ui.DashVisibility.awaitVisible()
                     pollLive()
                     delay(LIVE_POLL_MS)
                 }
@@ -104,7 +114,9 @@ object CarHub {
     }
 
     /** Кадр приборки (поток чтения PPS) → скорость/обороты в главный поток. */
-    private val onClusterLive: () -> Unit = {
+    private val onClusterLive: () -> Unit = onClusterLive@{
+        // Спидометров нет или дашборд не виден — главный поток не будим.
+        if (liveListeners.isEmpty() || !com.dash.headunit.ui.DashVisibility.visible) return@onClusterLive
         synchronized(main) {
             if (!livePosted) {
                 livePosted = true
@@ -150,7 +162,17 @@ object CarHub {
         if (pollJob == null) {
             pollJob = scope.launch {
                 while (true) {
-                    refresh()
+                    // Ждём конца чтения: при сбое svcarinfo оно идёт десятки
+                    // секунд, и запуск без ожидания копил чтения в очереди IO.
+                    try {
+                        refreshNow()
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        // Раньше чтение шло отдельной корутиной и его падение
+                        // цикл не трогало — так и оставляем.
+                        android.util.Log.w(TAG, "refresh", e)
+                    }
                     pruneTripJournal()
                     delay(POLL_MS)
                 }
@@ -166,7 +188,8 @@ object CarHub {
     private fun pruneTripJournal() {
         val ctx = appContext ?: return
         runCatching {
-            TripTracker.applyJournalKeep(ctx, AppSettings.journalKeepDays(ctx))
+            // Не чаще раза в час (смену настройки применяет MainActivity сразу).
+            TripTracker.applyJournalKeep(ctx, AppSettings.journalKeepDays(ctx), force = false)
         }.onFailure {
             android.util.Log.w(TAG, "journal prune", it)
         }
@@ -183,9 +206,13 @@ object CarHub {
     }
 
     fun refresh() {
+        scope.launch { refreshNow() }
+    }
+
+    private suspend fun refreshNow() {
         val desay = desay ?: return
         val vhal = vhal ?: return
-        scope.launch {
+        run {
             val snapshot = withContext(Dispatchers.IO) {
                 readMerged(desay, vhal)
             }
@@ -196,7 +223,8 @@ object CarHub {
             // Уведомляем и при пустом снимке: тики борткомпьютера идут
             // даже когда шина спит / провайдеры молчат.
             notifyListeners()
-            tickTripTracker(snapshot)
+            // Счётчик поездок пишет prefs — не в главном потоке.
+            withContext(Dispatchers.IO) { tickTripTracker(snapshot) }
             tickShadeTick(snapshot)
         }
     }
@@ -257,9 +285,18 @@ object CarHub {
         val tank = tankLiters()
         var merged: CarData? = null
         // Порядок — от приоритетного: сначала Desay (родной для ГУ Chery).
+        val fromDesay = runCatching { desay.snapshot() }.getOrNull()
+        // VHAL — только запасной: ~10 вызовов на тик, а всё, что он даёт,
+        // обычно уже есть из Desay (или приборки, она приоритетнее обоих).
+        val needVhal = fromDesay == null ||
+            fromDesay.fuelPct == null || fromDesay.rangeKm == null || fromDesay.voltageV == null ||
+            fromDesay.odoKm == null ||
+            (fromDesay.engineTempC == null && ClusterPps.coolantC() == null) ||
+            (fromDesay.outsideTempC == null && ClusterPps.outsideTempC() == null) ||
+            (fromDesay.speedKmh == null && ClusterPps.speedKmh() == null)
         val parts = listOf(
-            runCatching { desay.snapshot() }.getOrNull(),
-            runCatching { vhal.snapshot() }.getOrNull()
+            fromDesay,
+            if (needVhal) runCatching { vhal.snapshot() }.getOrNull() else null
         )
         for (p in parts) {
             if (p == null) continue

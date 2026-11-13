@@ -65,12 +65,15 @@ object ClusterPps {
      */
     private val frameHistory = ArrayDeque<String>()
     private var lastCycleBytes = ""
-    private val cycleBytes = sortedMapOf<String, String>()
+    /** Байты объектов за цикл; строкой — только в [recordCycle] (раз в 10 с, а не на каждый кадр). */
+    private val cycleBytes = sortedMapOf<String, Any>()
 
     fun frameHistory(): List<String> = synchronized(frameHistory) { frameHistory.toList() }
 
     private fun recordCycle() {
-        val bytes = cycleBytes.entries.joinToString(" ") { "${it.key}=${it.value}" }
+        val bytes = cycleBytes.entries.joinToString(" ") { (k, v) ->
+            "$k=${if (v is IntArray) v.joinToString(",") else v}"
+        }
         cycleBytes.clear()
         if (bytes == lastCycleBytes) return
         lastCycleBytes = bytes
@@ -192,7 +195,8 @@ object ClusterPps {
             out.write(script.toByteArray(Charsets.US_ASCII))
             out.flush()
             lastStatus = "подключился к приборке ($label), жду данные"
-            val input = socket.getInputStream()
+            // Буфер: иначе каждый байт кадра — отдельный recv (тысячи в секунду).
+            val input = socket.getInputStream().buffered(4096)
             val partial = StringBuilder()
             var current: String? = null
             val started = SystemClock.uptimeMillis()
@@ -217,8 +221,10 @@ object ClusterPps {
                         val obj = current
                         val body = line.substring(DATA_PREFIX.length)
                         synchronized(lastRaw) { lastRaw[obj] = body }
-                        cycleBytes[obj] = ClusterParser.parseData(body)?.joinToString(",") ?: body
-                        synchronized(parser) { parser.onFrame(obj, body, now) }
+                        // Разбор один раз на кадр (было дважды, со split/map).
+                        val parsed = ClusterParser.parseData(body)
+                        cycleBytes[obj] = parsed ?: body
+                        if (parsed != null) synchronized(parser) { parser.onFrame(obj, parsed, now) }
                         frames++
                         lastData = now
                         if (obj == "a000" || obj == "a5a5") onLive?.invoke()
@@ -262,7 +268,9 @@ object ClusterPps {
      * квалификаторы и флаги изменения: «[n]@a000», «+@a000». Иначе null.
      */
     internal fun objectHeader(line: String): String? =
-        HEADER.matchEntire(line.trim())?.groupValues?.get(1)
+        // Без «@» заголовком строка не бывает — регулярку на каждой строке
+        // данных (~10 в секунду) не гоняем.
+        if (line.indexOf('@') < 0) null else HEADER.matchEntire(line.trim())?.groupValues?.get(1)
 
     private val HEADER = Regex("""^(?:\[[^\]]*\])?[+\-#*]?@([A-Za-z0-9_.]+)$""")
 
@@ -358,7 +366,11 @@ class ClusterParser {
 
     /** [body] — текст после «data:json:», внутри должен быть массив data:[…]. */
     fun onFrame(obj: String, body: String, now: Long) {
-        val bytes = parseData(body) ?: return
+        onFrame(obj, parseData(body) ?: return, now)
+    }
+
+    /** То же по уже разобранным байтам. */
+    fun onFrame(obj: String, bytes: IntArray, now: Long) {
         when (obj) {
             "a000" -> if (bytes.size >= 16) {
                 u16(bytes, 8).takeIf { it <= 1000 }?.let {
@@ -500,14 +512,43 @@ class ClusterParser {
             val open = body.indexOf('[', key)
             val close = body.indexOf(']', open)
             if (open < 0 || close < 0 || close < open) return null
-            return try {
-                body.substring(open + 1, close).split(',')
-                    .filter { it.isNotBlank() }
-                    .map { it.trim().toInt() and 0xFF }
-                    .toIntArray()
-            } catch (e: NumberFormatException) {
-                null
+            // Вручную, без substring/split/упаковки: кадры идут ~10 раз в секунду.
+            // Как раньше: пустые элементы пропускаются, нечисло — null.
+            var n = 0
+            for (i in open + 1 until close) if (body[i] == ',') n++
+            val out = IntArray(n + 1)
+            var count = 0
+            var i = open + 1
+            while (i <= close) {
+                // Элемент [i, end) до запятой или «]».
+                var end = i
+                while (end < close && body[end] != ',') end++
+                var a = i
+                var b = end
+                while (a < b && body[a].isWhitespace()) a++
+                while (b > a && body[b - 1].isWhitespace()) b--
+                if (a < b) {
+                    var neg = false
+                    if (body[a] == '-' || body[a] == '+') {
+                        neg = body[a] == '-'
+                        a++
+                        if (a == b) return null
+                    }
+                    var v = 0L
+                    while (a < b) {
+                        val c = body[a]
+                        if (c !in '0'..'9') return null
+                        v = v * 10 + (c - '0')
+                        if (v > Int.MAX_VALUE.toLong() + 1) return null
+                        a++
+                    }
+                    val iv = if (neg) -v else v
+                    if (iv > Int.MAX_VALUE || iv < Int.MIN_VALUE) return null
+                    out[count++] = iv.toInt() and 0xFF
+                }
+                i = end + 1
             }
+            return if (count == out.size) out else out.copyOf(count)
         }
     }
 }

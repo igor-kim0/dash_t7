@@ -65,8 +65,13 @@ object MusicHub {
         listener()
     }
 
+    /** Последний слушатель ушёл (виджет снят) — опрос больше не нужен. */
     fun removeListener(listener: () -> Unit) {
         listeners.remove(listener)
+        if (listeners.isEmpty()) {
+            pollJob?.cancel()
+            pollJob = null
+        }
     }
 
     private fun notifyListeners() {
@@ -80,6 +85,8 @@ object MusicHub {
             probeAccess()
             pollJob = scope.launch {
                 while (true) {
+                    // Дашборд не виден — виджетам опрос не нужен.
+                    com.dash.headunit.ui.DashVisibility.awaitVisible()
                     refresh()
                     delay(POLL_MS)
                 }
@@ -164,8 +171,10 @@ object MusicHub {
             if (snapshot != null || data?.playing != true) {
                 // Пустой снимок при играющем треке игнорируем (мимолётный лаг сессии).
                 if (snapshot != null) {
+                    // Обложка — новый Bitmap на каждый снимок: сравниваем без
+                    // неё (иначе виджеты перерисовывались каждые 2 с впустую).
+                    if (!sameTrackState(snapshot, data)) changed = true
                     data = snapshot
-                    changed = true
                 } else if (data != null) {
                     data = null
                     changed = true
@@ -176,6 +185,9 @@ object MusicHub {
             if (changed) notifyListeners()
         }
     }
+
+    private fun sameTrackState(a: MusicData, b: MusicData?): Boolean =
+        b != null && a.copy(art = null) == b.copy(art = null) && (a.art == null) == (b.art == null)
 
     private fun readSessions(): MusicData? {
         val ctx = appContext ?: return null

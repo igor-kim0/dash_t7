@@ -109,9 +109,20 @@ class RetroSpeedometerView(context: Context) : View(context) {
     private val climate = RetroClimateIcons(hood)
     private val rect = RectF()
 
+    // Градиенты в виртуальных координатах — создаём один раз, не на каждый кадр.
+    private val panelShader = LinearGradient(
+        0f, 0f, 0f, VH,
+        Color.rgb(0x1C, 0x23, 0x2A), Color.rgb(0x0A, 0x0D, 0x10), Shader.TileMode.CLAMP
+    )
+    private val bezelShader = LinearGradient(
+        0f, 0f, 0f, VH,
+        Color.rgb(0xA8, 0xB0, 0xB8), Color.rgb(0x3A, 0x40, 0x46), Shader.TileMode.CLAMP
+    )
+
     init {
-        // Тень стрелки рисуется только программно.
-        setLayerType(LAYER_TYPE_SOFTWARE, null)
+        // Программный слой не нужен: на Android 9 (API 28) тени
+        // (setShadowLayer) любых фигур рисуются аппаратно, а программный
+        // растеризовал весь прибор на CPU каждый кадр.
         onData()
         speedPos = speedFrac()
         fuelPos = fuelTarget ?: GAUGE_REST
@@ -157,8 +168,16 @@ class RetroSpeedometerView(context: Context) : View(context) {
         }
         odo = d.odoKm ?: ClusterPps.trip()?.odometerKm?.toInt()
         gear = gearIndex(d.gearRaw)
+        // Живой канал приходит ~10 раз/с и с оборотами, которых здесь нет:
+        // перерисовка только при смене показываемого.
+        val shown = listOf(speedTarget, fuelTarget, fuelL, waterTarget, waterC, waterEstimated, odo, gear)
+        if (shown == lastShown) return
+        lastShown = shown
         postInvalidateOnAnimation()
     }
+
+    /** Значения, нарисованные последними ([onData]). */
+    private var lastShown: List<Any?>? = null
 
     private fun speedFrac(): Float = ((speedTarget ?: 0f) / MAX_SPEED).coerceIn(0f, 1.03f)
 
@@ -204,17 +223,11 @@ class RetroSpeedometerView(context: Context) : View(context) {
 
     private fun drawPanel(c: Canvas) {
         rect.set(4f, 4f, VW - 4f, VH - 4f)
-        panel.shader = LinearGradient(
-            0f, 0f, 0f, VH,
-            Color.rgb(0x1C, 0x23, 0x2A), Color.rgb(0x0A, 0x0D, 0x10), Shader.TileMode.CLAMP
-        )
+        panel.shader = panelShader
         c.drawRoundRect(rect, 26f, 26f, panel)
         // Хромированный ободок: светлый сверху, тёмный снизу.
         bezel.strokeWidth = 5f
-        bezel.shader = LinearGradient(
-            0f, 0f, 0f, VH,
-            Color.rgb(0xA8, 0xB0, 0xB8), Color.rgb(0x3A, 0x40, 0x46), Shader.TileMode.CLAMP
-        )
+        bezel.shader = bezelShader
         c.drawRoundRect(rect, 26f, 26f, bezel)
         // Нижний козырёк, под которым одометр и ось стрелки.
         c.drawLine(40f, LEDGE_Y, VW - 40f, LEDGE_Y, ledge)

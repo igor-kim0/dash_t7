@@ -114,6 +114,10 @@
     <string name="widget_car">Автомобиль</string>
     <string name="widget_music">Музыка</string>
     <string name="widget_app">Навигатор</string>
+    <string name="widget_apps">Программы</string>
+    <string name="apps_section">Программы в виджете</string>
+    <string name="apps_empty">Программы не выбраны.\nНажмите, чтобы выбрать.</string>
+    <string name="apps_no_launch">«%1$s» не запускается</string>
     <string name="widget_trip">Бортовой компьютер</string>
     <string name="trip_avg_cons">Средний расход</string>
     <string name="trip_avg_cons_unit">л/100 км</string>

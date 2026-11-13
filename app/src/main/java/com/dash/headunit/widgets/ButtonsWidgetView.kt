@@ -162,24 +162,27 @@ class ButtonsWidgetView(
             return
         }
         log("пишу (${k.cell}) = ${k.value}…")
-        Thread {
+        IO.execute {
             val d = DesayCarReader(context.applicationContext)
             val ok = d.connect() && d.write(k.group, k.id, k.value)
             handler.post {
                 log(if (ok) "(${k.cell}) = ${k.value}: запись ушла" else "(${k.cell}) = ${k.value}: запись НЕ ушла")
             }
-        }.start()
+        }
     }
 
     /** Чтение состояний (группа 0) в фоне; нить-одиночка — пропускаем тик. */
     private fun poll() {
+        // Плитку не видно (заставка, другое приложение) — шину не читаем.
+        if (!com.dash.headunit.ui.DashVisibility.visible) return
         if (!polling.compareAndSet(false, true)) return
-        Thread {
+        // Один фоновый поток на все плитки, а не новый Thread каждую секунду.
+        IO.execute poll@{
             try {
                 val d = pollReader ?: DesayCarReader(context.applicationContext).also { pollReader = it }
                 if (!d.connect()) {
                     handler.post { renderStates(emptyMap()) }
-                    return@Thread
+                    return@poll
                 }
                 val ids = stateViews.keys
                     .flatMap { it.split(",").mapNotNull(String::toIntOrNull) }
@@ -189,7 +192,7 @@ class ButtonsWidgetView(
             } finally {
                 polling.set(false)
             }
-        }.start()
+        }
     }
 
     private fun renderStates(vals: Map<Int, IntArray?>) {
@@ -244,6 +247,9 @@ class ButtonsWidgetView(
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics).toInt()
 
     private companion object {
+        val IO: java.util.concurrent.ExecutorService =
+            java.util.concurrent.Executors.newSingleThreadExecutor { Thread(it, "ButtonsWidget").apply { isDaemon = true } }
+
         const val POLL_MS = 1000L
         const val MAX_SPEED_KMH = 3f
     }

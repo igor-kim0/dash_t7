@@ -24,7 +24,7 @@ abstract class SaverView(context: Context, private val fps: Int) : View(context)
         override fun run() {
             if (!running) return
             invalidate()
-            postDelayed(this, 1000L / fps)
+            postDelayed(this, frameDelayMs((SystemClock.uptimeMillis() - startMs) / 1000f))
         }
     }
 
@@ -55,6 +55,36 @@ abstract class SaverView(context: Context, private val fps: Int) : View(context)
 
     protected abstract fun draw(canvas: Canvas, t: Float, dt: Float)
 
+    /** Пауза до следующего кадра; статичный фон может просить реже [fps]. */
+    protected open fun frameDelayMs(t: Float): Long = 1000L / fps
+
+    // Строки часов меняются раз в минуту — не форматируем их каждый кадр.
+    private var clockMinute = -1L
+    private var clockTime = ""
+    private var clockDate = ""
+
+    /** Время «HH:mm» (кэш на минуту). */
+    protected fun timeText(): String {
+        refreshClock()
+        return clockTime
+    }
+
+    /** «Понедельник, 2 ноября» (кэш на минуту). */
+    protected fun dateText(): String {
+        refreshClock()
+        return clockDate
+    }
+
+    private fun refreshClock() {
+        val nowMs = System.currentTimeMillis()
+        val minute = nowMs / 60_000L
+        if (minute == clockMinute) return
+        clockMinute = minute
+        val now = Date(nowMs)
+        clockTime = TIME.format(now)
+        clockDate = formatDate(now)
+    }
+
     private val cornerTime = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = Typeface.create("sans-serif-thin", Typeface.NORMAL)
         textAlign = Paint.Align.RIGHT
@@ -70,12 +100,11 @@ abstract class SaverView(context: Context, private val fps: Int) : View(context)
         cornerDate.textSize = height * 0.04f
         cornerTime.color = color
         cornerDate.color = color
-        val now = Date()
         val right = width - 32 * density
         val dateBase = height - 24 * density - cornerDate.descent()
-        canvas.drawText(formatDate(now), right, dateBase, cornerDate)
+        canvas.drawText(dateText(), right, dateBase, cornerDate)
         val timeBase = dateBase + cornerDate.ascent() - cornerTime.descent()
-        canvas.drawText(TIME.format(now), right, timeBase, cornerTime)
+        canvas.drawText(timeText(), right, timeBase, cornerTime)
     }
 
     companion object {

@@ -27,8 +27,41 @@ class VhalReader(private val appContext: Context) {
     @Volatile
     private var manager: Any? = null
 
+    /** Car-сервиса не было: не пересоздаём подключение на каждом опросе. */
+    @Volatile
+    private var managerFailedAt = 0L
+
+    /** Методы менеджера по имени — getMethod не на каждое чтение. */
+    private val methods = java.util.concurrent.ConcurrentHashMap<String, java.lang.reflect.Method>()
+
+    /**
+     * Свойство (ключ — вид чтения и id) бросило исключение — его нет в
+     * конфиге ГУ (вендорские id): не спрашиваем до этого момента (uptime).
+     */
+    private val deadUntil = java.util.concurrent.ConcurrentHashMap<Long, Long>()
+
+    private fun method(mgr: Any, name: String): java.lang.reflect.Method =
+        methods.getOrPut(name) {
+            mgr.javaClass.getMethod(name, Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+        }
+
+    /** Чтение [kind] свойства с памятью о неответивших (на [DEAD_MS]). */
+    private inline fun <T> guarded(kind: Int, propId: Int, areaId: Int, read: () -> T?): T? {
+        val key = (kind.toLong() shl 60) or (areaId.toLong() and 0xFFFFFFF shl 32) or (propId.toLong() and 0xFFFFFFFFL)
+        val now = android.os.SystemClock.uptimeMillis()
+        deadUntil[key]?.let { if (now < it) return null else deadUntil.remove(key) }
+        return try {
+            read()
+        } catch (e: Exception) {
+            deadUntil[key] = now + DEAD_MS
+            null
+        }
+    }
+
     private fun ensureManager(): Any? {
         manager?.let { return it }
+        val now = android.os.SystemClock.uptimeMillis()
+        if (managerFailedAt != 0L && now - managerFailedAt < MANAGER_RETRY_MS) return null
         return try {
             val carClass = Class.forName("android.car.Car")
             val car = try {
@@ -62,49 +95,33 @@ class VhalReader(private val appContext: Context) {
             val mgr = carClass.getMethod("getCarManager", String::class.java)
                 .invoke(car, "property")
             manager = mgr
+            if (mgr == null) managerFailedAt = android.os.SystemClock.uptimeMillis()
             mgr
         } catch (e: Exception) {
             Log.w(TAG, "no car service", e)
+            managerFailedAt = android.os.SystemClock.uptimeMillis()
             null
         }
     }
 
     fun getIntProperty(propId: Int, areaId: Int = 0): Int? {
         val mgr = ensureManager() ?: return null
-        return try {
-            mgr.javaClass.getMethod(
-                "getIntProperty",
-                Int::class.javaPrimitiveType,
-                Int::class.javaPrimitiveType
-            ).invoke(mgr, propId, areaId) as? Int
-        } catch (e: Exception) {
-            null
+        return guarded(0, propId, areaId) {
+            method(mgr, "getIntProperty").invoke(mgr, propId, areaId) as? Int
         }
     }
 
     fun getFloatProperty(propId: Int, areaId: Int = 0): Float? {
         val mgr = ensureManager() ?: return null
-        return try {
-            mgr.javaClass.getMethod(
-                "getFloatProperty",
-                Int::class.javaPrimitiveType,
-                Int::class.javaPrimitiveType
-            ).invoke(mgr, propId, areaId) as? Float
-        } catch (e: Exception) {
-            null
+        return guarded(1, propId, areaId) {
+            method(mgr, "getFloatProperty").invoke(mgr, propId, areaId) as? Float
         }
     }
 
     fun getBooleanProperty(propId: Int, areaId: Int = 0): Boolean? {
         val mgr = ensureManager() ?: return null
-        return try {
-            mgr.javaClass.getMethod(
-                "getBooleanProperty",
-                Int::class.javaPrimitiveType,
-                Int::class.javaPrimitiveType
-            ).invoke(mgr, propId, areaId) as? Boolean
-        } catch (e: Exception) {
-            null
+        return guarded(2, propId, areaId) {
+            method(mgr, "getBooleanProperty").invoke(mgr, propId, areaId) as? Boolean
         }
     }
 
@@ -117,17 +134,11 @@ class VhalReader(private val appContext: Context) {
      */
     fun propertyValue(propId: Int, areaId: Int = 0): Any? {
         val mgr = ensureManager() ?: return null
-        return try {
-            val cpv = mgr.javaClass.getMethod(
-                "getProperty",
-                Int::class.javaPrimitiveType,
-                Int::class.javaPrimitiveType
-            ).invoke(mgr, propId, areaId) ?: return null
-            val status = cpv.javaClass.getMethod("getStatus").invoke(cpv) as? Int ?: return null
-            if (status != STATUS_AVAILABLE) return null
+        return guarded(3, propId, areaId) {
+            val cpv = method(mgr, "getProperty").invoke(mgr, propId, areaId) ?: return@guarded null
+            val status = cpv.javaClass.getMethod("getStatus").invoke(cpv) as? Int ?: return@guarded null
+            if (status != STATUS_AVAILABLE) return@guarded null
             cpv.javaClass.getMethod("getValue").invoke(cpv)
-        } catch (e: Exception) {
-            null
         }
     }
 
@@ -312,6 +323,10 @@ class VhalReader(private val appContext: Context) {
 
     companion object {
         private const val TAG = "VhalReader"
+        /** Неответившее свойство не спрашиваем столько (вендорских id нет в конфиге ГУ). */
+        private const val DEAD_MS = 10 * 60_000L
+        /** Car-сервис не подключился — пробуем снова не раньше. */
+        private const val MANAGER_RETRY_MS = 5 * 60_000L
         /**
          * CarPropertyValue.STATUS_AVAILABLE — значение с устройства. По AOSP
          * (P, Q и main): AVAILABLE = 0, UNAVAILABLE = 1, ERROR = 2, а не

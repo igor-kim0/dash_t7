@@ -153,7 +153,7 @@ class FireplaceView(context: Context) : SaverView(context, 30) {
 
     /** Шаг модели: среднее соседей снизу минус остывание из карты. */
     private fun step(t: Float) {
-        for (row in intArrayOf(gh - 1, gh - 2)) {
+        for (row in gh - 2..gh - 1) {
             val base = row * gw
             for (x in 0 until gw) {
                 val u = x / gw.toFloat()

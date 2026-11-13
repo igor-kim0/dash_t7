@@ -317,7 +317,10 @@ object NaviUnderlay {
             val deadline = System.currentTimeMillis() + DRAWN_TIMEOUT_MS
             var drawn = false
             while (!drawn && System.currentTimeMillis() < deadline) {
-                val out = AdbShell.exec(app, "dumpsys window windows | grep -E 'Window #|mDrawState'")
+                // Только окна пакета (фильтр WM, формат тот же «Window #…»;
+                // эмулятор API 28: 4 КБ вместо 27) — полный дамп всех окон
+                // держит глобальный замок WM, а опрос идёт каждые полсекунды.
+                val out = AdbShell.exec(app, "dumpsys window $pkg | grep -E 'Window #|mDrawState'")
                 drawn = out != null && isDrawn(out, pkg)
                 if (!drawn) Thread.sleep(DRAWN_POLL_MS)
             }

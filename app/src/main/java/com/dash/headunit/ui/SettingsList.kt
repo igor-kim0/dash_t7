@@ -280,12 +280,16 @@ class SettingsList(private val context: Context, private val theme: DashTheme) {
     /**
      * Состав и порядок: у каждой строки переключатель «показывать» и
      * кнопки ↑/↓. [order] и [checked] меняются на месте.
+     *
+     * [onToggle] — хук на переключатель (элемент [key], включён ли): может
+     * переставить элемент в [order]; вернёт true — список перестроить.
      */
     fun <K> reorder(
         order: MutableList<K>,
         checked: MutableSet<K>,
         label: (K) -> CharSequence,
-        icon: (K) -> Int = { 0 }
+        icon: (K) -> Int = { 0 },
+        onToggle: ((K, Boolean) -> Boolean)? = null
     ) = apply {
         val g = group ?: error("section() before rows")
         val start = g.childCount
@@ -313,7 +317,9 @@ class SettingsList(private val context: Context, private val theme: DashTheme) {
                 val r = row(icon(key), label(key), null, trailing, minHeight = 60, target = g)
                 r.setOnClickListener {
                     sw.setChecked(!sw.isOn, animate = true)
-                    if (sw.isOn) checked.add(key) else checked.remove(key)
+                    val on = sw.isOn
+                    if (on) checked.add(key) else checked.remove(key)
+                    if (onToggle?.invoke(key, on) == true) rebuild()
                 }
             }
         }

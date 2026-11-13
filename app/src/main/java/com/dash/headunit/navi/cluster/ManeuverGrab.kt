@@ -18,8 +18,8 @@ import java.util.concurrent.Executors
  *
  * Снимок дорогой (~0,5 с), поэтому только при смене манёвра: другие
  * границы/улица, выросшее расстояние (начался следующий манёвр) или раз в
- * [REFRESH_MS]. Вызывается из главного потока; результат — со следующего
- * опроса окна.
+ * [REFRESH_MS]; неузнанную — с растущим интервалом до [MAX_RETRY_MS].
+ * Вызывается из главного потока; результат — со следующего опроса окна.
  */
 object ManeuverGrab {
 
@@ -29,6 +29,8 @@ object ManeuverGrab {
     @Volatile private var grabbedAt = 0L
     @Volatile private var busy = false
     @Volatile private var failedAt = 0L
+    /** Сколько снимков подряд стрелку не узнали (для этого же манёвра). */
+    @Volatile private var misses = 0
 
     /** Последний разбор (в лог). */
     @Volatile var lastDump: String = "стрелку с экрана не снимали"
@@ -49,8 +51,15 @@ object ManeuverGrab {
         val prev = lastMeters
         lastMeters = meters
         val changed = k != key || (meters != null && prev != null && meters > prev + GROW_M)
-        if (changed) cached = null
-        val stale = now - grabbedAt > (if (cached == null) retryMs else REFRESH_MS)
+        if (changed) {
+            cached = null
+            misses = 0
+        }
+        // Не узнали — переснимаем всё реже (3 → 6 → 12 → 30 с): подряд
+        // неудачи обычно значат, что на месте стрелки карта. Каждый снимок —
+        // PNG всего экрана на флеш и занятый adb-канал.
+        val retry = (retryMs shl misses.coerceAtMost(4)).coerceAtMost(maxOf(retryMs, MAX_RETRY_MS))
+        val stale = now - grabbedAt > (if (cached == null) retry else REFRESH_MS)
         if ((changed || stale) && !busy && now - failedAt > CHANNEL_BACKOFF_MS) {
             key = k
             grabbedAt = now
@@ -108,7 +117,10 @@ object ManeuverGrab {
             val m = ManeuverMatcher.fromScreen(app, crop)
             crop.recycle()
             // Пока снимали, манёвр мог смениться — тогда результат не его.
-            if (key == k) cached = m.maneuver
+            if (key == k) {
+                cached = m.maneuver
+                misses = if (m.maneuver == null) misses + 1 else 0
+            }
             lastDump = "$r → ${m.maneuver} (${m.describe}), ${SystemClock.uptimeMillis() - t0} мс"
         } catch (e: Exception) {
             Log.w(TAG, "decode", e)
@@ -122,7 +134,9 @@ object ManeuverGrab {
     private const val MIN_PX = 12
     /** Расстояние выросло больше чем на столько — уже следующий манёвр. */
     private const val GROW_M = 50
-    private const val REFRESH_MS = 15_000L
+    /** Узнанную стрелку перепроверяем редко: смену манёвра ловит [maneuver] по улице/расстоянию. */
+    private const val REFRESH_MS = 60_000L
+    private const val MAX_RETRY_MS = 30_000L
     private const val RETRY_MS = 3_000L
     /** Пересъёмка «невидимой» стрелки (навигатор в блоке): карточки на экране может и не быть. */
     const val HIDDEN_RETRY_MS = 10_000L

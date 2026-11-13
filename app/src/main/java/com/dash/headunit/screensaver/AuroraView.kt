@@ -27,6 +27,7 @@ import kotlin.random.Random
 class AuroraView(context: Context) : SaverView(context, 20) {
 
     private var aw = 0
+    private var auroraFrame = 0
     private var ah = 0
     private var pixels = IntArray(0)
     private var bitmap: Bitmap? = null
@@ -75,6 +76,7 @@ class AuroraView(context: Context) : SaverView(context, 20) {
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         aw = GRID_W
         ah = (GRID_W * h / w.toFloat()).toInt().coerceIn(20, 120)
+        auroraFrame = 0 // новый битмап — сияние в него на первом же кадре
         pixels = IntArray(aw * ah)
         bitmap?.recycle()
         bitmap = Bitmap.createBitmap(aw, ah, Bitmap.Config.ARGB_8888)
@@ -136,8 +138,12 @@ class AuroraView(context: Context) : SaverView(context, 20) {
 
     override fun draw(canvas: Canvas, t: Float, dt: Float) {
         val bmp = bitmap ?: return
-        renderAurora(t)
-        bmp.setPixels(pixels, 0, aw, 0, 0, aw, ah)
+        // Сияние течёт медленно — пересчитываем его (десятки тысяч exp на
+        // CPU) через кадр, звёзды мерцают на полной частоте.
+        if (auroraFrame++ % 2 == 0) {
+            renderAurora(t)
+            bmp.setPixels(pixels, 0, aw, 0, 0, aw, ah)
+        }
         canvas.drawBitmap(bmp, null, dst, bitmapPaint)
 
         for (s in stars) {

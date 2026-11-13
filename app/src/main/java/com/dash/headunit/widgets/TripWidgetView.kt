@@ -100,8 +100,16 @@ class TripWidgetView(
             5 -> 32f
             else -> 28f
         }
-        content.removeAllViews()
-        for (key in items) {
+        // Вью метрик пересобираем только при смене набора (раньше — каждые
+        // 5 с на тик CarHub); иначе лишь меняем текст значений.
+        val rebuild = items != builtItems || valueSp != builtSp
+        if (rebuild) {
+            content.removeAllViews()
+            valueViews.clear()
+            builtItems = items
+            builtSp = valueSp
+        }
+        for ((index, key) in items.withIndex()) {
             val (title, value, unit) = when (key) {
                 ITEM_CONS -> Triple(
                     context.getString(R.string.trip_avg_cons),
@@ -135,12 +143,23 @@ class TripWidgetView(
                     context.getString(R.string.trip_journal_h)
                 )
             }
-            content.addView(
-                metric(title, value, unit, valueSp),
-                LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f)
-            )
+            if (rebuild) {
+                content.addView(
+                    metric(title, value, unit, valueSp),
+                    LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f)
+                )
+            } else {
+                val text = value ?: "—"
+                valueViews.getOrNull(index)?.let { if (it.text.toString() != text) it.text = text }
+            }
         }
     }
+
+    /** Набор метрик, под который построены вью ([render]). */
+    private var builtItems: List<String>? = null
+    private var builtSp = 0f
+    /** Тексты значений по порядку метрик. */
+    private val valueViews = mutableListOf<TextView>()
 
     /** Моточасы как на счётчике: часы с десятыми («12,4»). */
     private fun engineHoursText(millis: Long): String =
@@ -179,7 +198,7 @@ class TripWidgetView(
             text = value ?: "—"
             setTextColor(theme.primaryText)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, valueSp)
-        })
+        }.also { valueViews.add(it) })
         row.addView(TextView(context).apply {
             text = unit
             setTextColor(theme.secondaryText)

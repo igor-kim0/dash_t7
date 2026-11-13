@@ -23,13 +23,24 @@ import java.util.concurrent.TimeUnit
  * Root не нужен — обычное bindService. Все вызовы синхронные,
  * вызывать только с фонового потока.
  */
-class DesayCarReader(private val appContext: Context) {
+class DesayCarReader(context: Context) {
 
-    @Volatile
-    private var binder: IBinder? = null
+    private val appContext: Context = context.applicationContext
+
+    // Привязка к сервису — одна на процесс (в companion): экземпляров
+    // несколько (CarHub, ClimateHub, ClimateControl, HuBrightness, сторож
+    // HvacShade на каждую серию команд…), и раньше у каждого был свой
+    // bindService, а при мёртвом binder — новый без unbindService (утечка).
+    private val binder: IBinder? get() = sharedBinder
 
     fun isAvailable(): Boolean {
-        return try {
+        // Сервис не исчезает на ходу: «есть» запоминаем навсегда, «нет» —
+        // перепроверяем не чаще [AVAILABLE_RECHECK_MS] (каждый вызов —
+        // IPC в system_server, а звали на каждом опросе).
+        if (availableCache == true) return true
+        val now = android.os.SystemClock.uptimeMillis()
+        if (availableCache == false && now - availableAt < AVAILABLE_RECHECK_MS) return false
+        val ok = try {
             appContext.packageManager.getServiceInfo(
                 ComponentName(
                     "com.desaysv.svcarinfo",
@@ -41,45 +52,55 @@ class DesayCarReader(private val appContext: Context) {
         } catch (e: Exception) {
             false
         }
+        availableCache = ok
+        availableAt = now
+        return ok
     }
 
     /** Подключиться к сервису заранее; false — сервиса нет или bind не удался. */
     fun connect(): Boolean = ensureBound()
 
     private fun ensureBound(): Boolean {
-        val b = binder
-        if (b != null && b.isBinderAlive) return true
-        return try {
-            val latch = CountDownLatch(1)
-            var fresh: IBinder? = null
-            val conn = object : ServiceConnection {
-                override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-                    fresh = service
-                    latch.countDown()
-                }
+        sharedBinder?.let { if (it.isBinderAlive) return true }
+        synchronized(bindLock) {
+            // Пока ждали замок, другой поток мог уже привязаться.
+            sharedBinder?.let { if (it.isBinderAlive) return true }
+            return try {
+                // Старую привязку (сервис умер) отпускаем, а не копим.
+                connection?.let { old -> runCatching { appContext.unbindService(old) } }
+                connection = null
+                val latch = CountDownLatch(1)
+                val conn = object : ServiceConnection {
+                    override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+                        // И при переподключении системой (BIND_AUTO_CREATE).
+                        sharedBinder = service?.takeIf { it.isBinderAlive }
+                        latch.countDown()
+                    }
 
-                override fun onServiceDisconnected(name: ComponentName?) {
-                    binder = null
+                    override fun onServiceDisconnected(name: ComponentName?) {
+                        sharedBinder = null
+                    }
                 }
+                val ok = appContext.bindService(
+                    Intent().setClassName(
+                        "com.desaysv.svcarinfo",
+                        "com.desaysv.svcarinfo.CarInfoService"
+                    ),
+                    conn,
+                    Context.BIND_AUTO_CREATE
+                )
+                if (!ok) {
+                    Log.w(TAG, "bindService вернул false")
+                    runCatching { appContext.unbindService(conn) }
+                    return false
+                }
+                connection = conn
+                latch.await(4, TimeUnit.SECONDS)
+                sharedBinder?.isBinderAlive == true
+            } catch (e: Exception) {
+                Log.w(TAG, "bind", e)
+                false
             }
-            val ok = appContext.bindService(
-                Intent().setClassName(
-                    "com.desaysv.svcarinfo",
-                    "com.desaysv.svcarinfo.CarInfoService"
-                ),
-                conn,
-                Context.BIND_AUTO_CREATE
-            )
-            if (!ok) {
-                Log.w(TAG, "bindService вернул false")
-                return false
-            }
-            latch.await(4, TimeUnit.SECONDS)
-            binder = fresh?.takeIf { it.isBinderAlive }
-            binder != null
-        } catch (e: Exception) {
-            Log.w(TAG, "bind", e)
-            false
         }
     }
 
@@ -241,5 +262,16 @@ class DesayCarReader(private val appContext: Context) {
 
     companion object {
         private const val TAG = "DesayCar"
+        private const val AVAILABLE_RECHECK_MS = 60_000L
+
+        @Volatile
+        private var sharedBinder: IBinder? = null
+        private var connection: ServiceConnection? = null
+        private val bindLock = Any()
+
+        @Volatile
+        private var availableCache: Boolean? = null
+        @Volatile
+        private var availableAt = 0L
     }
 }

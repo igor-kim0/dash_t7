@@ -260,6 +260,7 @@ class MusicWidgetView(
         if (spectrum != null) SpectrumHub.setPlaying(spectrumKey, d?.playing == true)
         if (d == null) {
             artView.setImageDrawable(null)
+            shownArtKey = null
             artView.visibility = GONE
             sourceView.text = context.getString(R.string.music_bluetooth)
             val needAccess = MusicHub.needsAccess(context)
@@ -279,10 +280,17 @@ class MusicWidgetView(
         }
         accessBtn.visibility = GONE
         if (d.art != null) {
-            artView.setImageBitmap(d.art)
+            // Сессия отдаёт новый Bitmap на каждый опрос — тот же трек не
+            // перезаливаем в текстуру каждые 2 с.
+            val key = "${d.title}\u0000${d.artist}\u0000${d.album}\u0000${d.art.width}x${d.art.height}"
+            if (key != shownArtKey) {
+                artView.setImageBitmap(d.art)
+                shownArtKey = key
+            }
             artView.visibility = VISIBLE
         } else {
             artView.setImageDrawable(null)
+            shownArtKey = null
             artView.visibility = GONE
         }
         sourceView.text = friendlySource(d.sourceLabel)
@@ -302,6 +310,9 @@ class MusicWidgetView(
             timeTotalView.text = ""
         }
     }
+
+    /** Трек, чья обложка сейчас в [artView] (null — нет обложки). */
+    private var shownArtKey: String? = null
 
     private fun formatTime(ms: Long): String {
         if (ms < 0) return context.getString(R.string.music_time_unknown)

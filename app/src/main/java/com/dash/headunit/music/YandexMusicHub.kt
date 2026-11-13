@@ -129,8 +129,13 @@ object YandexMusicHub {
         listener()
     }
 
+    /** Последний слушатель ушёл (виджет снят) — опрос больше не нужен. */
     fun removeListener(listener: () -> Unit) {
         listeners.remove(listener)
+        if (listeners.isEmpty()) {
+            pollJob?.cancel()
+            pollJob = null
+        }
     }
 
     private fun notifyListeners() {
@@ -143,6 +148,8 @@ object YandexMusicHub {
             pollJob = scope.launch {
                 var tick = 0
                 while (true) {
+                    // Дашборд не виден — виджетам опрос не нужен.
+                    com.dash.headunit.ui.DashVisibility.awaitVisible()
                     refresh()
                     // Приложение могли поставить после старта — ищем сервис заново.
                     if (browserState == BrowserState.NO_SERVICE && ++tick % RESCAN_TICKS == 0) {

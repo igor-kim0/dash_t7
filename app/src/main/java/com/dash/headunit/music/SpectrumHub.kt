@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import com.dash.headunit.ui.DashVisibility
 import kotlin.math.PI
 import kotlin.math.ln
 import kotlin.math.log10
@@ -73,8 +74,14 @@ object SpectrumHub {
                 ticking = false
                 return
             }
-            if (step()) listeners.toList().forEach { it() }
-            main.postDelayed(this, FRAME_MS)
+            if (step()) {
+                listeners.toList().forEach { it() }
+                main.postDelayed(this, FRAME_MS)
+            } else {
+                // Всё погасло и ничего не играет — не тикаем 30 раз в секунду
+                // впустую; снова запустят [setPlaying] или звук из Visualizer.
+                ticking = false
+            }
         }
     }
 
@@ -92,6 +99,14 @@ object SpectrumHub {
     /** Состояние воспроизведения от виджета (у каждого виджета свой хаб плеера). */
     fun setPlaying(key: String, playing: Boolean) {
         playingBy[key] = playing
+        if (playing) ensureTicking()
+    }
+
+    /** Главный поток. */
+    private fun ensureTicking() {
+        if (ticking || listeners.isEmpty() || !DashVisibility.visible) return
+        ticking = true
+        main.post(tick)
     }
 
     fun clearPlaying(key: String) {
@@ -104,13 +119,31 @@ object SpectrumHub {
     private fun start(context: Context) {
         lastRealMs = 0L
         if (hasAudioPermission(context)) openVisualizer()
-        if (!ticking) {
-            ticking = true
-            main.post(tick)
+        DashVisibility.addListener(onVisibility)
+        if (!DashVisibility.visible) visualizer?.enabled = false
+        ensureTicking()
+    }
+
+    /**
+     * Дашборд скрыт (заставка, другое приложение) — захват звука и кадры
+     * спектра не нужны; вернулся — снова.
+     */
+    private val onVisibility: (Boolean) -> Unit = { v ->
+        try {
+            visualizer?.enabled = v
+        } catch (e: Exception) {
+            // ГУ: вендорский эффект мог уже умереть.
+        }
+        if (v) {
+            ensureTicking()
+        } else {
+            main.removeCallbacks(tick)
+            ticking = false
         }
     }
 
     private fun stop() {
+        DashVisibility.removeListener(onVisibility)
         main.removeCallbacks(tick)
         ticking = false
         try {
@@ -141,6 +174,8 @@ object SpectrumHub {
                     if (bands.any { it > 0.02f }) {
                         bands.copyInto(realTarget)
                         lastRealMs = SystemClock.uptimeMillis()
+                        // Колбэк — в главном потоке (Visualizer создан в нём).
+                        ensureTicking()
                     } else {
                         realTarget.fill(0f)
                     }

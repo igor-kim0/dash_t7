@@ -37,10 +37,16 @@ class ClimateIconsView(context: Context) : View(context) {
     private val icons = RetroClimateIcons(hood)
     private val rect = RectF()
 
-    init {
-        // Ореол «ламп» рисуется только программно.
-        setLayerType(LAYER_TYPE_SOFTWARE, null)
-    }
+    // Программный слой не нужен: ореол «ламп» (setShadowLayer) на Android 9
+    // рисуется аппаратно. Градиенты — один раз, не на каждый кадр.
+    private val panelShader = LinearGradient(
+        0f, 0f, 0f, VH,
+        Color.rgb(0x1C, 0x23, 0x2A), Color.rgb(0x0A, 0x0D, 0x10), Shader.TileMode.CLAMP
+    )
+    private val bezelShader = LinearGradient(
+        0f, 0f, 0f, VH,
+        Color.rgb(0xA8, 0xB0, 0xB8), Color.rgb(0x3A, 0x40, 0x46), Shader.TileMode.CLAMP
+    )
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
@@ -66,16 +72,10 @@ class ClimateIconsView(context: Context) : View(context) {
 
     private fun drawPanel(c: Canvas) {
         rect.set(4f, 4f, VW - 4f, VH - 4f)
-        panel.shader = LinearGradient(
-            0f, 0f, 0f, VH,
-            Color.rgb(0x1C, 0x23, 0x2A), Color.rgb(0x0A, 0x0D, 0x10), Shader.TileMode.CLAMP
-        )
+        panel.shader = panelShader
         c.drawRoundRect(rect, 26f, 26f, panel)
         bezel.strokeWidth = 5f
-        bezel.shader = LinearGradient(
-            0f, 0f, 0f, VH,
-            Color.rgb(0xA8, 0xB0, 0xB8), Color.rgb(0x3A, 0x40, 0x46), Shader.TileMode.CLAMP
-        )
+        bezel.shader = bezelShader
         c.drawRoundRect(rect, 26f, 26f, bezel)
     }
 

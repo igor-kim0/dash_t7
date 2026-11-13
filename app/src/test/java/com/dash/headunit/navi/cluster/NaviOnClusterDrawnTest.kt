@@ -1,5 +1,6 @@
 package com.dash.headunit.navi.cluster
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -36,5 +37,11 @@ class NaviOnClusterDrawnTest {
     fun otherPackageDrawnOnCluster() {
         assertFalse(NaviOnCluster.isDrawnOn(dump(1, "NO_SURFACE"), pkg, 1))
         assertFalse(NaviOnCluster.isDrawnOn(dump(1, "HAS_DRAWN"), "com.other", 1))
+    }
+
+    @Test
+    fun drawnWindowId() {
+        // Пересозданное окно — другой id: waitDrawn ждёт одно окно два опроса подряд.
+        assertEquals("b2", NaviOnCluster.drawnWindow(dump(1, "HAS_DRAWN"), pkg, 1))
     }
 }

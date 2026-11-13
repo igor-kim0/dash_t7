@@ -78,6 +78,9 @@ object ClusterOverlay {
     /** На дисплее приборки сам Яндекс Навигатор — своё окно не ставим. */
     private var yandex = false
 
+    /** Навигатор едет на приборку — наше окно чёрное, без плашки. */
+    private var covering = false
+
     /** Включена калибровочная рамка. */
     var calibration = false
         private set
@@ -96,6 +99,7 @@ object ClusterOverlay {
             (ctx.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager)
                 .registerDisplayListener(displayListener, main)
             GuidanceHub.addListener(guidanceListener)
+            updateReading()
             // Сразу занять дисплей 1 чёрным окном — чтобы в «Картах»
             // приборки не было зеркала главного экрана. Панель «Карты»
             // держим поднятой и без маршрута: блок остаётся пустым.
@@ -111,8 +115,10 @@ object ClusterOverlay {
     fun setYandex(on: Boolean) {
         main.post {
             yandex = on
+            covering = false
+            view?.blank = false
             // Карточки нет — чтение Навигатора ни к чему.
-            GuidanceHub.setPaused(on)
+            if (on) GuidanceHub.setPaused(true) else updateReading()
             val ctx = app ?: return@post
             if (on) {
                 if (!calibration) removeView()
@@ -122,6 +128,21 @@ object ClusterOverlay {
                 status("на приборке снова наше окно")
                 if (AppSettings.clusterNavi(ctx) && view == null && addView(ctx)) naviArea(ctx, true)
             }
+        }
+    }
+
+    /**
+     * Навигатор начинает переезд на приборку: наше окно на дисплее 1
+     * остаётся (без него там зеркало дашборда), но рисует только чёрный фон —
+     * не плашку карточки (ГУ 2026-11-13: «сначала наше приложение, потом
+     * навигатор»). Снимает занавес [setYandex].
+     */
+    fun coverForYandex() {
+        main.post {
+            covering = true
+            view?.blank = true
+            val ctx = app ?: return@post
+            if (view == null && !yandex && AppSettings.clusterNavi(ctx)) addView(ctx)
         }
     }
 
@@ -144,6 +165,7 @@ object ClusterOverlay {
     fun show() {
         main.post {
             val ctx = app ?: return@post
+            updateReading()
             if (view == null && !addView(ctx)) return@post
             naviArea(ctx, true)
         }
@@ -157,6 +179,7 @@ object ClusterOverlay {
         val ctx = app ?: return false
         calibration = !calibration
         view?.calibration = calibration
+        updateReading()
         main.removeCallbacks(calibrationInfo)
         if (calibration) {
             main.post(calibrationInfo)
@@ -249,7 +272,19 @@ object ClusterOverlay {
             val ctx = app ?: return@post
             removeView()
             naviArea(ctx, false)
+            updateReading()
         }
+    }
+
+    /**
+     * Читать Навигатор (спец. возможности, уведомления, снимки стрелки) —
+     * только когда наша карточка может быть на приборке: настройка включена
+     * или калибровка, и на приборке не сам Яндекс. Иначе чтение шло 24/7
+     * впустую (главный поток).
+     */
+    private fun updateReading() {
+        val ctx = app ?: return
+        GuidanceHub.setPaused(yandex || !(AppSettings.clusterNavi(ctx) || calibration))
     }
 
     private val guidanceListener = GuidanceHub.Listener { g ->
@@ -375,6 +410,7 @@ object ClusterOverlay {
                 contentWidth = AppSettings.clusterWidth(ctx)
                 guidance = GuidanceHub.current
                 calibration = this@ClusterOverlay.calibration
+                blank = covering
             }
             @Suppress("DEPRECATION")
             val lp = WindowManager.LayoutParams(

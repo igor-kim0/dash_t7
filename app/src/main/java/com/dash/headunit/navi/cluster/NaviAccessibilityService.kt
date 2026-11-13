@@ -47,6 +47,9 @@ class NaviAccessibilityService : AccessibilityService() {
     }
     private val poll = Runnable { scanNow() }
 
+    /** Id знака ограничения, давший значение в последний раз (поток [bg]). */
+    private var limitId: String? = null
+
     override fun onServiceConnected() {
         instance = this
         ClusterOverlay.init(this)
@@ -90,7 +93,8 @@ class NaviAccessibilityService : AccessibilityService() {
         val root = naviRoot()
         if (root == null) {
             publish(null)
-            bg.postDelayed(poll, IDLE_POLL_MS)
+            // Окна навигатора нет — его появление и так придёт событием.
+            bg.postDelayed(poll, NO_NAVI_POLL_MS)
             return
         }
         val g = try {
@@ -143,7 +147,15 @@ class NaviAccessibilityService : AccessibilityService() {
         fun text(id: String): String? =
             node(id)?.let { it.text ?: it.contentDescription }?.toString()?.trim()?.takeIf { it.isNotEmpty() }
 
-        val limit = SPEED_LIMIT_IDS.firstNotNullOfOrNull { GuidanceText.speedLimit(text(it)) }
+        // Каждый id — поиск по всему дереву навигатора (IPC в его главный
+        // поток): сработавший раньше спрашиваем первым.
+        val limitIds = limitId?.let { id -> listOf(id) + (SPEED_LIMIT_IDS - id) } ?: SPEED_LIMIT_IDS
+        var limit: Int? = null
+        for (id in limitIds) {
+            limit = GuidanceText.speedLimit(text(id)) ?: continue
+            limitId = id
+            break
+        }
         val dist = text("text_maneuverballoon_distance")
         val metrics = text("text_maneuverballoon_metrics")
         val arrow = node("image_maneuverballoon_maneuver")
@@ -252,10 +264,13 @@ class NaviAccessibilityService : AccessibilityService() {
         private val SPEED_LIMIT_IDS = listOf(
             "text_speedlimit", "speedlimitview_guidance", "view_projected_speed_limit", "speed_limit_text",
         )
-        private const val SCAN_MS = 500L
-        /** Перечитывание окна без событий: идёт ведение / навигатора нет или стоит без маршрута. */
-        private const val ROUTE_POLL_MS = 1_000L
+        /** Не чаще — скан по событиям (каждый — десяток IPC в навигатор). */
+        private const val SCAN_MS = 1_000L
+        /** Перечитывание окна без событий: идёт ведение (свежесть в GuidanceHub — 5 с) / стоит без маршрута. */
+        private const val ROUTE_POLL_MS = 2_000L
         private const val IDLE_POLL_MS = 3_000L
+        /** Окна навигатора нет вовсе. */
+        private const val NO_NAVI_POLL_MS = 10_000L
         private const val MAX_DUMP_NODES = 600
         private const val TAG = "NaviA11y"
     }

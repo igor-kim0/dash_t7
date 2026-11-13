@@ -234,7 +234,7 @@ object ClusterRecorder {
                 out.flush()
                 write("# ===== $label =====")
                 status = "запись ($label)…"
-                val input = s.getInputStream()
+                val input = s.getInputStream().buffered(4096)
                 val partial = StringBuilder()
                 var obj = "?"
                 val started = System.currentTimeMillis()

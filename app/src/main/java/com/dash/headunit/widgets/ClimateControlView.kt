@@ -61,7 +61,13 @@ class ClimateControlView(
 
     private class Cell(val item: Item, val rect: RectF)
 
-    private val hubListener: () -> Unit = { postInvalidateOnAnimation() }
+    private val hubListener: () -> Unit = {
+        onEngine(ClimateHub.data?.engineOn)
+        postInvalidateOnAnimation()
+    }
+
+    /** Двигатель по последнему опросу (null — ещё не видели). */
+    private var engineWasOn: Boolean? = null
 
     private val hood = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = if (retro) Color.rgb(0x07, 0x09, 0x0B) else theme.cardBackground
@@ -97,7 +103,8 @@ class ClimateControlView(
     private val lastTap = mutableMapOf<Item, Long>()
 
     /**
-     * Уровень сиденья из тапов: 1-й тап — 1 волна, 2-й — 2, 3-й — 3, 4-й — выкл.
+     * Уровень сиденья из тапов — как штатно: 1-й тап — сразу 3 (быстрый прогрев),
+     * дальше 2 → 1 → выкл.
      * Кодировка ячеек чтения сидений не подтверждена (задние читаются из ячейки
      * записи), поэтому шине верим, только когда она сама меняется после
      * [SEAT_HOLD_MS] без тапов (штатная панель): [seatBus] — последнее виденное.
@@ -105,10 +112,8 @@ class ClimateControlView(
     private val seatLevel = mutableMapOf<Item, Int>()
     private val seatBus = mutableMapOf<Item, Int?>()
 
-    init {
-        // Ореол «ламп» рисуется только программно.
-        if (retro) setLayerType(LAYER_TYPE_SOFTWARE, null)
-    }
+    // Программный слой не нужен: ореол «ламп» (setShadowLayer) на Android 9
+    // рисуется аппаратно.
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
@@ -363,6 +368,24 @@ class ClimateControlView(
         return local
     }
 
+    /**
+     * Машина сама выключает подогрев сидений при остановке двигателя, а шина
+     * этого может не показать (кодировка не подтверждена) — уровень из тапов
+     * тогда «залипал». На переходе «работал → заглушен» гасим сиденья.
+     */
+    private fun onEngine(on: Boolean?) {
+        if (on == null) return
+        if (on == false && engineWasOn != false) {
+            val bus = ClimateHub.data
+            Item.values().filter { it.isSeat }.forEach { item ->
+                seatLevel[item] = 0
+                lastTap.remove(item)
+                seatBus[item] = bus?.let { busValue(item, it) }
+            }
+        }
+        engineWasOn = on
+    }
+
     private fun busValue(item: Item, s: ClimateHub.ClimateState): Int? {
         fun b(v: Boolean?) = v?.let { if (it) 1 else 0 }
         return when (item) {
@@ -427,7 +450,11 @@ class ClimateControlView(
     private fun tap(item: Item, zone: Int) {
         val cur = value(item, ClimateHub.data)
         if (item.isSeat) {
-            val next = ((cur ?: 0).coerceIn(0, 3) + 1) % 4
+            // Как штатно: из «выкл» сразу на максимум, дальше 3 → 2 → 1 → выкл.
+            val next = when (val c = (cur ?: 0).coerceIn(0, 3)) {
+                0 -> 3
+                else -> c - 1
+            }
             seatLevel[item] = next
             lastTap[item] = SystemClock.uptimeMillis()
             invalidate()
