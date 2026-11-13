@@ -51,6 +51,7 @@ object RadioStations {
      * @param favorite в избранном
      * @param color свой цвет значка (null — по частоте, см. [colorOf])
      * @param favOrder место в избранном (меньше — левее)
+     * @param missing не нашлась при последнем полном сканировании диапазона
      */
     data class Station(
         val band: String,
@@ -59,7 +60,8 @@ object RadioStations {
         val rds: String? = null,
         val favorite: Boolean = false,
         val color: Int? = null,
-        val favOrder: Int = 0
+        val favOrder: Int = 0,
+        val missing: Boolean = false
     ) {
         /** Название для показа: своё → RDS → частота. */
         val title: String
@@ -127,9 +129,11 @@ object RadioStations {
         val i = out.indexOfFirst { keyOf(it.band, it.freq) == key }
         if (i >= 0) {
             val old = out[i]
+            // Станцию видели (или добавили снова) — она уже не «не найдена».
             out[i] = old.copy(
                 rds = rds?.takeIf { it.isNotBlank() } ?: old.rds,
-                name = old.name
+                name = old.name,
+                missing = false
             )
         } else {
             out.add(Station(band = band, freq = normalize(band, freq), rds = rds))
@@ -279,7 +283,115 @@ object RadioStations {
         }
     }
 
+    // ---------- сканирование ----------
+
+    /**
+     * Полное сканирование диапазона [band] закончено: станции, которые
+     * тюнер нашёл ([found] — ключи [keyOf]), отмечаются найденными,
+     * остальные этого диапазона — «не найдена».
+     */
+    fun markScan(context: Context, band: String, found: Set<String>) {
+        save(context, markedIn(load(context), band, found))
+    }
+
+    /** Чистая часть [markScan]. */
+    fun markedIn(list: List<Station>, band: String, found: Set<String>): List<Station> =
+        list.map { s ->
+            if (s.band != band) s else s.copy(missing = keyOf(s.band, s.freq) !in found)
+        }
+
+    /** Убрать из списка ненайденные станции диапазона [band] (избранные остаются). */
+    fun removeMissing(context: Context, band: String?) {
+        save(context, load(context).filterNot { it.missing && !it.favorite && (band == null || it.band == band) })
+    }
+
+    // ---------- сортировка и соседние станции ----------
+
+    const val SORT_FREQ = "freq"
+    const val SORT_NAME = "name"
+    const val SORT_LISTENED = "listened"
+
+    /**
+     * Станции по [mode]: по частоте, по названию или по времени
+     * прослушивания ([listened] — мс по ключу [keyOf]), при равенстве — по
+     * частоте. AM всегда после FM.
+     */
+    fun sorted(
+        stations: List<Station>,
+        mode: String,
+        listened: Map<String, Long> = emptyMap()
+    ): List<Station> {
+        val byFreq = compareBy<Station>({ if (it.band == RadioHub.AM) 1 else 0 }, { it.freq })
+        return when (mode) {
+            SORT_NAME -> stations.sortedWith(
+                compareBy<Station> { it.title.lowercase() }.then(byFreq)
+            )
+            SORT_LISTENED -> stations.sortedWith(
+                compareByDescending<Station> { listened[keyOf(it.band, it.freq)] ?: 0L }.then(byFreq)
+            )
+            else -> stations.sortedWith(byFreq)
+        }
+    }
+
+    /** Режим кнопок ⏮ ⏭: поиск станции тюнером. */
+    const val SKIP_SEEK = "seek"
+    /** ⏮ ⏭ — по ряду избранного (с переходом между диапазонами). */
+    const val SKIP_FAVORITES = "favorites"
+    /** ⏮ ⏭ — по своему списку станций текущего диапазона, по частоте. */
+    const val SKIP_LIST = "list"
+
+    /**
+     * Соседняя станция для ⏮ ([dir] = −1) / ⏭ (+1) в режиме [mode].
+     * [band]/[freq] — откуда считать (текущая станция или цель идущего
+     * переключения). null — переходить некуда (список пуст или в нём только
+     * эта станция) — тогда кнопка ищет станцию тюнером.
+     */
+    fun neighbor(
+        stations: List<Station>,
+        mode: String,
+        band: String,
+        freq: Double?,
+        dir: Int
+    ): Station? {
+        val key = freq?.let { keyOf(band, it) }
+        if (mode == SKIP_FAVORITES) {
+            val favs = favorites(stations)
+            if (favs.isEmpty()) return null
+            val i = favs.indexOfFirst { keyOf(it.band, it.freq) == key }
+            val next = when {
+                i >= 0 -> favs[((i + dir) % favs.size + favs.size) % favs.size]
+                dir > 0 -> favs.first()
+                else -> favs.last()
+            }
+            return next.takeIf { keyOf(it.band, it.freq) != key }
+        }
+        if (mode == SKIP_LIST) {
+            val list = stations.filter { it.band == band && !it.missing }.sortedBy { it.freq }
+            if (list.isEmpty()) return null
+            val next = if (freq == null) {
+                if (dir > 0) list.first() else list.last()
+            } else if (dir > 0) {
+                list.firstOrNull { it.freq > freq && !sameFreq(band, it.freq, freq) } ?: list.first()
+            } else {
+                list.lastOrNull { it.freq < freq && !sameFreq(band, it.freq, freq) } ?: list.last()
+            }
+            return next.takeIf { keyOf(it.band, it.freq) != key }
+        }
+        return null
+    }
+
     // ---------- частоты ----------
+
+    /** Станция по ключу [keyOf]: «fm:1015» → FM 101.5. null — ключ не наш. */
+    fun fromKey(key: String): Station? {
+        val band = key.substringBefore(':', "")
+        val n = key.substringAfter(':', "").toIntOrNull() ?: return null
+        return when (band) {
+            RadioHub.FM -> Station(band, n / 10.0)
+            RadioHub.AM -> Station(band, n.toDouble())
+            else -> null
+        }
+    }
 
     /** Ключ станции: диапазон + частота с шагом канала. */
     fun keyOf(band: String, freq: Double): String =
@@ -327,7 +439,8 @@ object RadioStations {
                     rds = o.optString("r").takeIf { it.isNotBlank() },
                     favorite = o.optBoolean("v"),
                     color = if (o.has("c")) o.optInt("c") else null,
-                    favOrder = o.optInt("o", 0)
+                    favOrder = o.optInt("o", 0),
+                    missing = o.optBoolean("m")
                 )
             }
         } catch (e: Exception) {
@@ -348,6 +461,7 @@ object RadioStations {
                     .apply {
                         s.color?.let { put("c", it) }
                         if (s.favorite && s.favOrder > 0) put("o", s.favOrder)
+                        if (s.missing) put("m", true)
                     }
             )
         }

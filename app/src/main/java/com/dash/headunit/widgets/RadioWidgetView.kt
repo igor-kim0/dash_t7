@@ -32,7 +32,9 @@ import com.dash.headunit.theme.ThemeCard
  */
 class RadioWidgetView(
     context: Context,
-    private val theme: DashTheme = DashTheme.DARK
+    private val theme: DashTheme = DashTheme.DARK,
+    private val widgetId: String? = null,
+    private val settingsStore: com.dash.headunit.dashboard.WidgetSettingsStore? = null
 ) : LinearLayout(context) {
 
     private val bandView = TextView(context)
@@ -150,9 +152,19 @@ class RadioWidgetView(
         styleButton(btnPrev, R.drawable.ic_prev, theme.cardBorder, theme.secondaryText, 52)
         styleButton(btnPlay, R.drawable.ic_play, theme.cardBorder, theme.primaryText, 56)
         styleButton(btnNext, R.drawable.ic_next, theme.accent, theme.background, 66)
-        btnPrev.setOnClickListener { RadioHub.seekDown() }
+        // ⏮ ⏭ — по режиму из настроек плитки, долгое нажатие — поиск тюнером.
+        val skip = RadioStationCard.skipMode(settingsStore, widgetId)
+        btnPrev.setOnClickListener { RadioStationCard.skip(context, skip, -1) }
+        btnPrev.setOnLongClickListener {
+            RadioStationCard.skip(context, RadioStations.SKIP_SEEK, -1)
+            true
+        }
         btnPlay.setOnClickListener { RadioHub.toggle() }
-        btnNext.setOnClickListener { RadioHub.seekUp() }
+        btnNext.setOnClickListener { RadioStationCard.skip(context, skip, 1) }
+        btnNext.setOnLongClickListener {
+            RadioStationCard.skip(context, RadioStations.SKIP_SEEK, 1)
+            true
+        }
         controls.addView(btnPrev)
         controls.addView(btnPlay)
         controls.addView(btnNext)

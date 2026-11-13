@@ -65,6 +65,8 @@ import com.dash.headunit.widgets.ForecastStripView
 import com.dash.headunit.widgets.MusicWidgetView
 import com.dash.headunit.widgets.RadioWidgetView
 import com.dash.headunit.widgets.ModernRadioView
+import com.dash.headunit.widgets.RadioStationCard
+import com.dash.headunit.radio.RadioStations
 import com.dash.headunit.widgets.SpectrumView
 import com.dash.headunit.music.SpectrumHub
 import com.dash.headunit.widgets.YandexMusicWidgetView
@@ -1006,8 +1008,8 @@ class MainActivity : AppCompatActivity() {
                 WidgetType.RADIO ->
                     when (settingsStore.getOption(spec.widgetId, RetroLook.OPT_LOOK, RetroLook.LOOK_MODERN)) {
                         RetroLook.LOOK_RETRO -> RetroRadioView(this)
-                        RetroLook.LOOK_CLASSIC -> RadioWidgetView(this, wTheme)
-                        else -> ModernRadioView(this, wTheme)
+                        RetroLook.LOOK_CLASSIC -> RadioWidgetView(this, wTheme, spec.widgetId, settingsStore)
+                        else -> ModernRadioView(this, wTheme, spec.widgetId, settingsStore)
                     }
                 WidgetType.WIFI -> WifiWidgetView(this, wTheme)
                 WidgetType.APP -> AppWidgetView(this, spec.widgetId, wTheme, settingsStore).apply {
@@ -1104,6 +1106,9 @@ class MainActivity : AppCompatActivity() {
                     }
                     WidgetType.SCREENSAVER -> {
                         { showScreensaverSettings(spec.widgetId) }
+                    }
+                    WidgetType.RADIO -> {
+                        { showRadioSettings(spec.widgetId) }
                     }
                     else -> {
                         { showLookSettings(spec.widgetId, spec.type) }
@@ -1412,20 +1417,43 @@ class MainActivity : AppCompatActivity() {
     /** Настройки виджета без своих опций — только вид и фон плитки. */
     private fun showLookSettings(widgetId: String, type: WidgetType) {
         val list = SettingsList(this, theme)
-        // У «Радио» три вида, по умолчанию — «Современный».
-        val saveTile = if (type == WidgetType.RADIO) {
-            list.tileSection(
-                widgetId,
-                looks = listOf(
-                    RetroLook.LOOK_MODERN to getString(R.string.look_modern),
-                    RetroLook.LOOK_CLASSIC to getString(R.string.look_classic),
-                    RetroLook.LOOK_RETRO to getString(R.string.look_retro)
-                )
-            )
-        } else {
-            list.tileSection(widgetId)
-        }
+        val saveTile = list.tileSection(widgetId)
         showWidgetSettings(type, list, 760) { saveTile() }
+    }
+
+    /**
+     * Настройки «Радио»: что делают ⏮ ⏭ ([RadioStations.SKIP_SEEK] — поиск
+     * тюнером, по избранному или по своему списку) и вид плитки — три вида,
+     * по умолчанию «Современный».
+     */
+    private fun showRadioSettings(widgetId: String) {
+        val modes = listOf(RadioStations.SKIP_SEEK, RadioStations.SKIP_FAVORITES, RadioStations.SKIP_LIST)
+        var mode = RadioStationCard.skipMode(settingsStore, widgetId)
+        val list = SettingsList(this, theme)
+            .section(getString(R.string.widget_radio))
+            .segmented(
+                R.drawable.ic_next, getString(R.string.radio_skip_title),
+                getString(R.string.radio_skip_hint),
+                listOf(
+                    getString(R.string.radio_skip_seek),
+                    getString(R.string.radio_skip_favorites),
+                    getString(R.string.radio_skip_list)
+                ),
+                modes.indexOf(mode).coerceAtLeast(0)
+            ) { mode = modes[it] }
+            .column()
+        val saveTile = list.tileSection(
+            widgetId,
+            looks = listOf(
+                RetroLook.LOOK_MODERN to getString(R.string.look_modern),
+                RetroLook.LOOK_CLASSIC to getString(R.string.look_classic),
+                RetroLook.LOOK_RETRO to getString(R.string.look_retro)
+            )
+        )
+        showWidgetSettings(WidgetType.RADIO, list, 1400) {
+            settingsStore.setOption(widgetId, RadioStationCard.OPT_SKIP, mode)
+            saveTile()
+        }
     }
 
     /**

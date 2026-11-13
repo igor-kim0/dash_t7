@@ -76,6 +76,16 @@ object RadioStats {
         return added(saved, live, System.currentTimeMillis())
     }
 
+    /** Вся статистика по ключам станций; у играющей — с текущим отрезком. */
+    @Synchronized
+    fun all(context: Context): Map<String, Entry> {
+        val map = entries(context).toMutableMap()
+        segKey?.let { key ->
+            map[key] = added(map[key], SystemClock.elapsedRealtime() - segStart, System.currentTimeMillis())
+        }
+        return map
+    }
+
     private fun entries(context: Context): MutableMap<String, Entry> =
         cache ?: parse(prefs(context).getString(KEY, null)).toMutableMap().also { cache = it }
 

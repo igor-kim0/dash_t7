@@ -12,6 +12,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import com.dash.headunit.R
+import com.dash.headunit.dashboard.WidgetSettingsStore
 import com.dash.headunit.radio.RadioHub
 import com.dash.headunit.radio.RadioStations
 import com.dash.headunit.radio.RadioStats
@@ -201,6 +202,40 @@ object RadioStationCard {
         }
     }
 
+    // ---------- ⏮ ⏭ ----------
+
+    /** Опция виджета: что делают ⏮ ⏭ ([RadioStations.SKIP_SEEK] и др.). */
+    const val OPT_SKIP = "radio_skip"
+
+    fun skipMode(store: WidgetSettingsStore?, widgetId: String?): String {
+        if (store == null || widgetId == null) return RadioStations.SKIP_SEEK
+        val m = store.getOption(widgetId, OPT_SKIP, RadioStations.SKIP_SEEK)
+        return m.takeIf {
+            it == RadioStations.SKIP_FAVORITES || it == RadioStations.SKIP_LIST
+        } ?: RadioStations.SKIP_SEEK
+    }
+
+    /**
+     * ⏮ ([dir] = −1) или ⏭ (+1) в режиме [mode]. По избранному и списку —
+     * настройка на соседнюю станцию (перебором); считаем от цели идущего
+     * переключения, чтобы двойное нажатие ушло на две станции. Соседней
+     * нет — обычный поиск тюнером.
+     */
+    fun skip(context: Context, mode: String, dir: Int) {
+        if (mode != RadioStations.SKIP_SEEK) {
+            val base = RadioHub.walkTarget
+            val band = base?.band ?: RadioHub.state.band
+            val freq = base?.freq ?: RadioHub.currentFrequency()
+            val next = RadioStations.neighbor(RadioStations.load(context), mode, band, freq, dir)
+            if (next != null) {
+                tune(context, next)
+                return
+            }
+        }
+        if (RadioHub.walking) RadioHub.cancelWalk()
+        if (dir > 0) RadioHub.seekUp() else RadioHub.seekDown()
+    }
+
     // ---------- действия ----------
 
     /** Настроиться на станцию; не нашлась у тюнера — сказать. */
@@ -302,28 +337,51 @@ object RadioStationCard {
             .showFullScreen()
     }
 
-    /** Меню избранной станции (долгое нажатие на карточку в ряду). */
-    fun favoriteMenu(context: Context, st: RadioStations.Station, done: () -> Unit) {
-        val items = arrayOf(
-            context.getString(R.string.radio_menu_info),
-            context.getString(R.string.radio_card_rename),
-            context.getString(R.string.radio_card_color),
-            context.getString(R.string.radio_menu_left),
-            context.getString(R.string.radio_menu_right),
-            context.getString(R.string.radio_card_unfav)
-        )
+    /**
+     * Меню станции (долгое нажатие на карточку избранного или плитку
+     * списка): о станции, избранное, имя, цвет, место в ряду избранного
+     * ([withMove]), убрать из списка.
+     */
+    fun stationMenu(
+        context: Context,
+        st: RadioStations.Station,
+        withMove: Boolean,
+        done: () -> Unit
+    ) {
+        val known = RadioStations.find(RadioStations.load(context), st.band, st.freq)
+        val actions = mutableListOf<Pair<String, () -> Unit>>()
+        actions += context.getString(R.string.radio_menu_info) to { show(context, st.band, st.freq) }
+        actions += context.getString(
+            if (st.favorite) R.string.radio_card_unfav else R.string.radio_card_fav
+        ) to { toggleFavorite(context, st.band, st.freq, st.rds, done) }
+        actions += context.getString(R.string.radio_card_rename) to { rename(context, st, done) }
+        actions += context.getString(R.string.radio_card_color) to { pickColor(context, st, done) }
+        if (withMove && st.favorite) {
+            actions += context.getString(R.string.radio_menu_left) to {
+                RadioStations.moveFavorite(context, st.band, st.freq, -1)
+                done()
+            }
+            actions += context.getString(R.string.radio_menu_right) to {
+                RadioStations.moveFavorite(context, st.band, st.freq, 1)
+                done()
+            }
+        }
+        if (known != null) {
+            actions += context.getString(R.string.radio_menu_remove) to {
+                DashDialog.Builder(context)
+                    .setTitle(R.string.radio_remove_title)
+                    .setMessage(context.getString(R.string.radio_remove_text, st.title))
+                    .setPositiveButton(R.string.radio_remove_ok) { _, _ ->
+                        RadioStations.remove(context, st.band, st.freq)
+                        done()
+                    }
+                    .setNegativeButton(R.string.dialog_cancel, null)
+                    .showFullScreen()
+            }
+        }
         DashDialog.Builder(context)
             .setTitle(st.title)
-            .setItems(items) { _, which ->
-                when (which) {
-                    0 -> show(context, st.band, st.freq)
-                    1 -> rename(context, st, done)
-                    2 -> pickColor(context, st, done)
-                    3 -> { RadioStations.moveFavorite(context, st.band, st.freq, -1); done() }
-                    4 -> { RadioStations.moveFavorite(context, st.band, st.freq, 1); done() }
-                    5 -> { RadioStations.setFavorite(context, st.band, st.freq, false); done() }
-                }
-            }
+            .setItems(actions.map { it.first }.toTypedArray()) { _, which -> actions[which].second() }
             .setNegativeButton(R.string.dialog_cancel, null)
             .showFullScreen()
     }

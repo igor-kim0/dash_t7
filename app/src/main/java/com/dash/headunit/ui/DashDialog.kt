@@ -233,7 +233,9 @@ class DashDialog private constructor() {
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
                 ))
             }
-            val scroll = MaxHeightScrollView(context, maxHeight()).apply {
+            // Шапка (если есть) уже измерена: LinearLayout меряет детей по порядку.
+            val headerView = header
+            val scroll = MaxHeightScrollView(context, maxHeight()) { headerView?.measuredHeight ?: 0 }.apply {
                 isVerticalScrollBarEnabled = true
                 addView(body)
             }
@@ -404,11 +406,20 @@ class DashDialog private constructor() {
     }
 
     /** ScrollView, который растёт по содержимому, но не выше [maxHeight]. */
-    private class MaxHeightScrollView(context: Context, private val maxHeight: Int) : ScrollView(context) {
+    /**
+     * Прокрутка не выше [maxHeight] минус высота шапки ([taken]) — иначе
+     * высокая шапка выдавливает кнопки за край окна.
+     */
+    private class MaxHeightScrollView(
+        context: Context,
+        private val maxHeight: Int,
+        private val taken: () -> Int = { 0 }
+    ) : ScrollView(context) {
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val h = (maxHeight - taken()).coerceAtLeast(maxHeight / 3)
             super.onMeasure(
                 widthMeasureSpec,
-                View.MeasureSpec.makeMeasureSpec(maxHeight, View.MeasureSpec.AT_MOST)
+                View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.AT_MOST)
             )
         }
     }

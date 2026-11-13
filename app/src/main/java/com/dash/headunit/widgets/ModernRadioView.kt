@@ -41,7 +41,9 @@ import com.dash.headunit.theme.ThemeCard
  */
 class ModernRadioView(
     context: Context,
-    private val theme: DashTheme = DashTheme.DARK
+    private val theme: DashTheme = DashTheme.DARK,
+    private val widgetId: String? = null,
+    private val settingsStore: com.dash.headunit.dashboard.WidgetSettingsStore? = null
 ) : LinearLayout(context) {
 
     private val avatar = StationAvatarView(context)
@@ -153,9 +155,19 @@ class ModernRadioView(
         styleIcon(btnPrev, R.drawable.ic_prev, theme.primaryText, theme.cardBorder, 52, 14)
         styleIcon(btnPlay, R.drawable.ic_play, theme.background, theme.accent, 62, 16)
         styleIcon(btnNext, R.drawable.ic_next, theme.primaryText, theme.cardBorder, 52, 14)
-        btnPrev.setOnClickListener { RadioHub.seekDown() }
+        // ⏮ ⏭ — по режиму из настроек плитки, долгое нажатие — поиск тюнером.
+        val skip = RadioStationCard.skipMode(settingsStore, widgetId)
+        btnPrev.setOnClickListener { RadioStationCard.skip(context, skip, -1) }
+        btnPrev.setOnLongClickListener {
+            RadioStationCard.skip(context, RadioStations.SKIP_SEEK, -1)
+            true
+        }
         btnPlay.setOnClickListener { RadioHub.toggle() }
-        btnNext.setOnClickListener { RadioHub.seekUp() }
+        btnNext.setOnClickListener { RadioStationCard.skip(context, skip, 1) }
+        btnNext.setOnLongClickListener {
+            RadioStationCard.skip(context, RadioStations.SKIP_SEEK, 1)
+            true
+        }
         topRow.addView(btnPrev)
         topRow.addView(btnPlay)
         topRow.addView(btnNext)
@@ -404,7 +416,7 @@ class ModernRadioView(
                 else RadioStationCard.tune(context, st)
             }
             setOnLongClickListener {
-                RadioStationCard.favoriteMenu(context, st) { render() }
+                RadioStationCard.stationMenu(context, st, withMove = true) { render() }
                 true
             }
         }

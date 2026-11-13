@@ -170,4 +170,72 @@ class RadioStationsTest {
         assertEquals("", RadioStations.initials("101.5 МГц".substringBefore(' ')))
         assertEquals("", RadioStations.initials(null))
     }
+
+    @Test
+    fun scanMarksMissingOnlyInItsBand() {
+        val found = setOf(RadioStations.keyOf("fm", 101.5))
+        val l = RadioStations.markedIn(list, "fm", found)
+        assertFalse(RadioStations.find(l, "fm", 101.5)!!.missing)
+        assertTrue(RadioStations.find(l, "fm", 104.0)!!.missing)
+        assertFalse(RadioStations.find(l, "am", 999.0)!!.missing)
+        // Отметка переживает сохранение, а повторная находка её снимает.
+        val back = RadioStations.parse(RadioStations.serialize(l))
+        assertTrue(RadioStations.find(back, "fm", 104.0)!!.missing)
+        val again = RadioStations.upsertIn(back, "fm", 104.0)
+        assertFalse(RadioStations.find(again, "fm", 104.0)!!.missing)
+    }
+
+    @Test
+    fun keyRoundTrip() {
+        assertEquals(101.5, RadioStations.fromKey("fm:1015")!!.freq, 0.001)
+        assertEquals("am", RadioStations.fromKey("am:999")!!.band)
+        assertNull(RadioStations.fromKey("dab:1"))
+        assertNull(RadioStations.fromKey("мусор"))
+    }
+
+    @Test
+    fun sortModes() {
+        val fm = list.filter { it.band == "fm" }
+        assertEquals(listOf(101.5, 104.0, 107.1),
+            RadioStations.sorted(fm, RadioStations.SORT_FREQ).map { it.freq })
+        // Europa Plus, Радио Победа, Ретро FM — по алфавиту (латиница раньше).
+        assertEquals(listOf(101.5, 104.0, 107.1),
+            RadioStations.sorted(fm.reversed(), RadioStations.SORT_NAME).map { it.freq })
+        val listened = mapOf(RadioStations.keyOf("fm", 107.1) to 5000L, RadioStations.keyOf("fm", 104.0) to 100L)
+        assertEquals(listOf(107.1, 104.0, 101.5),
+            RadioStations.sorted(fm, RadioStations.SORT_LISTENED, listened).map { it.freq })
+    }
+
+    @Test
+    fun neighborByList() {
+        val mode = RadioStations.SKIP_LIST
+        assertEquals(104.0, RadioStations.neighbor(list, mode, "fm", 101.5, 1)!!.freq, 0.001)
+        assertEquals(101.5, RadioStations.neighbor(list, mode, "fm", 104.0, -1)!!.freq, 0.001)
+        // По кругу: после последней — первая.
+        assertEquals(101.5, RadioStations.neighbor(list, mode, "fm", 107.1, 1)!!.freq, 0.001)
+        // С частоты не из списка — к ближайшей в эту сторону.
+        assertEquals(104.0, RadioStations.neighbor(list, mode, "fm", 102.0, 1)!!.freq, 0.001)
+        assertEquals(101.5, RadioStations.neighbor(list, mode, "fm", 102.0, -1)!!.freq, 0.001)
+        // Ненайденные пропускаются.
+        val l = RadioStations.markedIn(list, "fm", setOf(RadioStations.keyOf("fm", 101.5), RadioStations.keyOf("fm", 107.1)))
+        assertEquals(107.1, RadioStations.neighbor(l, mode, "fm", 101.5, 1)!!.freq, 0.001)
+        // Одна станция в диапазоне и она играет — переходить некуда.
+        assertNull(RadioStations.neighbor(list, mode, "am", 999.0, 1))
+    }
+
+    @Test
+    fun neighborByFavoritesCrossesBands() {
+        var l = RadioStations.favoriteIn(list, "am", 999.0, true)!!
+        val mode = RadioStations.SKIP_FAVORITES
+        // Ряд: 107.1 FM, 999 AM.
+        assertEquals(999.0, RadioStations.neighbor(l, mode, "fm", 107.1, 1)!!.freq, 0.001)
+        assertEquals(107.1, RadioStations.neighbor(l, mode, "am", 999.0, 1)!!.freq, 0.001)
+        // Не из избранного: ⏭ — первая, ⏮ — последняя.
+        assertEquals(107.1, RadioStations.neighbor(l, mode, "fm", 101.5, 1)!!.freq, 0.001)
+        assertEquals(999.0, RadioStations.neighbor(l, mode, "fm", 101.5, -1)!!.freq, 0.001)
+        // Поиск тюнером — соседей не ищем.
+        assertNull(RadioStations.neighbor(l, RadioStations.SKIP_SEEK, "fm", 101.5, 1))
+        l = RadioStations.favoriteIn(l, "am", 999.0, false)!!
+        assertNull(RadioStations.neighbor(l, mode, "fm", 107.1, 1))
+    }
 }

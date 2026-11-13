@@ -263,10 +263,13 @@ object RadioHub {
         // Первая станция, на которую попали, — начало кольца.
         var first: Double? = null
         while (steps < MAX_STEPS) {
-            if (walkGen != gen) break
+            // Перебор отменён или сменён новым — итог не сообщаем: иначе
+            // старый перебор сказал бы «станции нет» поверх нового.
+            if (walkGen != gen) return
             val before = currentFrequency()
             sendNow(if (forward) CMD_NEXT else CMD_PRE)
             if (!waitChange(before)) break
+            if (walkGen != gen) return
             val now = currentFrequency() ?: break
             steps++
             onStep(RadioStations.Station(state.band, now, rds = state.station))
@@ -282,7 +285,7 @@ object RadioHub {
                 return
             }
         }
-        done(false)
+        if (walkGen == gen) done(false)
     }
 
     /**
