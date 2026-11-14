@@ -17,6 +17,7 @@ import com.dash.headunit.car.ClusterPps
 import com.dash.headunit.car.CoolantCalibration
 import com.dash.headunit.widgets.engineTempColor
 import com.dash.headunit.widgets.fuelLevelColor
+import java.util.Locale
 
 /**
  * Картинка маршрута для приборки (дисплей 1, 1920×720) — карточка манёвра
@@ -35,17 +36,18 @@ import com.dash.headunit.widgets.fuelLevelColor
  *
  * Без маршрута ([Guidance.freeDrive]) карточка остаётся на месте, но
  * пустая: в ней строка предупреждений (если есть) — знак ограничения,
- * камера, светофор, текущая улица. Внизу карточки справа — литры в баке
- * и температура двигателя.
+ * камера, светофор, текущая улица. Внизу карточки справа — средний расход
+ * за поездку, литры в баке и температура двигателя.
  *
  * Чёрный фон: на приборке он сливается с рамкой. Окно держим и без
  * маршрута — иначе на дисплей 1 вернётся зеркало главного экрана.
  * [calibration] — поверх всего дисплея сетка координат (полосы A–H
  * по 240 px, линии через 80 px) и контур центральной полосы.
  *
- * Внизу блока маршрута, у правого края, — литры в баке и температура
- * двигателя цифрами; цвет по тем же порогам, что у виджета «Автомобиль»
- * ([fuelLevelColor], [engineTempColor]).
+ * Внизу блока маршрута, у правого края, — средний расход за поездку,
+ * литры в баке и температура двигателя цифрами; цвет топлива и ОЖ по тем
+ * же порогам, что у виджета «Автомобиль» ([fuelLevelColor],
+ * [engineTempColor]).
  */
 class ClusterGuidanceView(context: Context) : View(context) {
 
@@ -244,7 +246,7 @@ class ClusterGuidanceView(context: Context) : View(context) {
         }
 
         // Нижняя строка блока: слева остаток маршрута и время прибытия,
-        // справа — литры в баке и температура двигателя.
+        // справа — средний расход, литры в баке и температура двигателя.
         smallText.textSize = 38f * s
         val eta = listOfNotNull(
             g.remainingDistance,
@@ -272,10 +274,12 @@ class ClusterGuidanceView(context: Context) : View(context) {
     }
 
     /**
-     * Топливо и ОЖ в нижней строке блока маршрута, прижаты к правому краю.
+     * Средний расход, топливо и ОЖ в нижней строке блока маршрута, прижаты
+     * к правому краю: «расход: 8,4 л   в баке: 42 л   двигатель: 89°».
      * Возвращает занятую ширину (0 — данных нет): по ней слева ужимается
-     * остаток пути. Цвет — по тем же порогам, что у виджета «Автомобиль»
-     * ([fuelLevelColor], [engineTempColor]).
+     * остаток пути. Подписи — серые, значения топлива и ОЖ — по тем же
+     * порогам, что у виджета «Автомобиль» ([fuelLevelColor],
+     * [engineTempColor]).
      */
     private fun drawCarStatus(canvas: Canvas, right: Float, baseline: Float, s: Float): Float {
         val d = CarHub.data ?: return 0f
@@ -284,27 +288,52 @@ class ClusterGuidanceView(context: Context) : View(context) {
         // (как в ретро-спидометре и виджете «Автомобиль»).
         val exact = d.engineTempC
         val eng = exact ?: ClusterPps.needle()?.let { CoolantCalibration.estimate(it) }
-        if (fuel == null && eng == null) return 0f
+        // Средний расход «после запуска» — тот же, что в бортовом компьютере
+        // (приборка a001, иначе свой расчёт по топливу и пробегу).
+        val avg = CarHub.tripView?.avgCons
 
-        smallText.textAlign = Paint.Align.RIGHT
+        val parts = listOfNotNull(
+            avg?.let { StatusPart("расход: ", avgConsText(it), white) },
+            fuel?.let {
+                StatusPart(
+                    "в баке: ",
+                    "${Math.round(it)} л",
+                    d.fuelPct?.let { pct -> fuelLevelColor(pct, green) } ?: grey
+                )
+            },
+            eng?.let {
+                StatusPart(
+                    "двигатель: ",
+                    (if (exact == null) "≈" else "") + "${Math.round(it)}°",
+                    engineTempColor(it, green)
+                )
+            }
+        )
+        if (parts.isEmpty()) return 0f
+
+        smallText.textAlign = Paint.Align.LEFT
         smallText.textSize = 38f * s
-        var x = right
-        if (eng != null) {
-            smallText.color = engineTempColor(eng, green)
-            val text = (if (exact == null) "≈" else "") + "${Math.round(eng)}°"
-            canvas.drawText(text, x, baseline, smallText)
-            x -= smallText.measureText(text) + if (fuel != null) 28f * s else 0f
+        val gap = 28f * s
+        var width = gap * (parts.size - 1)
+        for (part in parts) {
+            width += smallText.measureText(part.label) + smallText.measureText(part.value)
         }
-        if (fuel != null) {
-            smallText.color = d.fuelPct?.let { fuelLevelColor(it, green) } ?: grey
-            val text = "${Math.round(fuel)} л"
-            canvas.drawText(text, x, baseline, smallText)
-            x -= smallText.measureText(text)
+        var x = right - width
+        for ((index, part) in parts.withIndex()) {
+            smallText.color = grey
+            canvas.drawText(part.label, x, baseline, smallText)
+            x += smallText.measureText(part.label)
+            smallText.color = part.color
+            canvas.drawText(part.value, x, baseline, smallText)
+            x += smallText.measureText(part.value)
+            if (index < parts.lastIndex) x += gap
         }
         smallText.color = grey
-        smallText.textAlign = Paint.Align.LEFT
-        return right - x
+        return width
     }
+
+    /** Подпись и значение в нижней строке блока маршрута. */
+    private data class StatusPart(val label: String, val value: String, val color: Int)
 
     /** Без маршрута: знак, камера, улица — в ряд от левого края полосы. */
     private fun drawWarningsRow(canvas: Canvas, g: Guidance, left: Float, right: Float, cy: Float, r: Float, s: Float) {
@@ -546,6 +575,14 @@ class ClusterGuidanceView(context: Context) : View(context) {
         )
     }
 }
+
+/**
+ * Средний расход для нижней строки блока маршрута: «8,4 л» (л/100 км —
+ * подразумевается по подписи, как на приборке).
+ * Чистая — тестируется.
+ */
+internal fun avgConsText(l100: Float): String =
+    "%.1f".format(Locale("ru"), l100) + " л"
 
 /**
  * Доля пути до манёвра, оставшаяся с момента, как он появился: 1 — только
