@@ -76,10 +76,13 @@ def human_date(iso: str) -> str:
 
 
 def build_post(*, tag: str, repo: str, changelog: str, prerelease: bool = False,
-               apk_url: str | None = None,
+               apk_url: str | None = None, full: bool = False,
                limit: int = markdown.SAFE_LIMIT) -> tuple[str, bool]:
     """Собирает HTML-сообщение анонса. Возвращает (html, обрезано ли).
 
+    По умолчанию — короткий пост: заголовок и ссылки, а список изменений
+    читается в GitHub Release (раздел CHANGELOG целиком в канал не влезает).
+    full=True — прежний вид: раздел CHANGELOG, обрезанный под лимит.
     apk_url — прямая ссылка на APK в GitHub Release; без неё — ссылка на
     страницу релиза.
     """
@@ -105,6 +108,13 @@ def build_post(*, tag: str, repo: str, changelog: str, prerelease: bool = False,
     elif url:
         footer = (f'📦 <a href="{markdown.esc(url)}">Скачать APK и полный '
                   f"список изменений</a>")
+    if not full:
+        lines = [title, ""]
+        if url:
+            lines.append(f'📝 <a href="{markdown.esc(url)}">Что нового — список изменений на GitHub</a>')
+        if apk_url:
+            lines.append(f'📦 <a href="{markdown.esc(apk_url)}">Скачать APK</a>')
+        return "\n".join(lines).rstrip(), False
     blocks = markdown.parse_blocks(section)
     return markdown.fit_blocks(blocks, header=title, footer=footer, limit=limit)
 

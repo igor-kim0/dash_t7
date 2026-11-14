@@ -3,7 +3,7 @@
 
 Команды:
 
-    bot.py post-release --tag v1.8.1     # анонс релиза из CHANGELOG (+ ссылка на APK)
+    bot.py post-release --tag v1.8.1     # короткий анонс: ссылки на релиз GitHub и APK
     bot.py run-queue                    # отложенные посты из content/telegram/queue
     bot.py queue-wait                   # сколько секунд ждать ближайший пост
     bot.py moderate                     # спам, приветствия, команды в чате обсуждений
@@ -54,7 +54,8 @@ def cmd_post_release(args: argparse.Namespace) -> int:
     apk_url = releases.apk_download_url(repo, tag, env("GITHUB_TOKEN") or None)
     try:
         html, truncated = releases.build_post(
-            tag=tag, repo=repo, changelog=changelog, prerelease=prerelease, apk_url=apk_url)
+            tag=tag, repo=repo, changelog=changelog, prerelease=prerelease, apk_url=apk_url,
+            full=args.full)
     except ValueError as exc:
         print(f"⚠️ {exc}")
         if not repo or args.no_release_body:
@@ -67,7 +68,8 @@ def cmd_post_release(args: argparse.Namespace) -> int:
         version = releases.version_from_tag(tag)
         fake = f"## [{version}]\n\n{body}\n"
         html, truncated = releases.build_post(
-            tag=tag, repo=repo, changelog=fake, prerelease=prerelease, apk_url=apk_url)
+            tag=tag, repo=repo, changelog=fake, prerelease=prerelease, apk_url=apk_url,
+            full=args.full)
 
     version = releases.version_from_tag(tag)
     print(f"Пост для {tag}: {markdown.visible_len(html)} символов"
@@ -264,6 +266,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--prerelease", action="store_true", help="пометить как тестовую сборку")
     p.add_argument("--apk", action="store_true",
                    help="прикрепить APK файлом (по умолчанию — только ссылка на GitHub)")
+    p.add_argument("--full", action="store_true",
+                   help="текст раздела CHANGELOG в посте (по умолчанию — только ссылки)")
     p.add_argument("--no-release-body", action="store_true",
                    help="не брать текст из GitHub Release, если нет раздела в CHANGELOG")
     p.add_argument("--dry-run", action="store_true")
