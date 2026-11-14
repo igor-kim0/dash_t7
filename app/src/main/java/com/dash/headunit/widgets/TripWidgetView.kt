@@ -44,6 +44,13 @@ class TripWidgetView(
     private val content = LinearLayout(context)
     private val footerView = TextView(context)
 
+    /** Набор метрик, под который построены вью ([render]).
+     * Объявлены до init: render() зовётся из него. */
+    private var builtItems: List<String>? = null
+    private var builtSp = 0f
+    /** Тексты значений по порядку метрик. */
+    private val valueViews = mutableListOf<TextView>()
+
     private val hubListener: () -> Unit = {
         // Счётчик качается в цикле опроса CarHub (журнал не зависит от вида
         // виджета); отсюда только читаем последний «вид поездки».
@@ -155,11 +162,6 @@ class TripWidgetView(
         }
     }
 
-    /** Набор метрик, под который построены вью ([render]). */
-    private var builtItems: List<String>? = null
-    private var builtSp = 0f
-    /** Тексты значений по порядку метрик. */
-    private val valueViews = mutableListOf<TextView>()
 
     /** Моточасы как на счётчике: часы с десятыми («12,4»). */
     private fun engineHoursText(millis: Long): String =
