@@ -387,6 +387,7 @@ class MainActivity : AppCompatActivity() {
         var etm = AppSettings.etmCoolant(this)
         var shade = AppSettings.shadeResume(this)
         var tank = CarHub.tankLiters(this)
+        var tireMin = (AppSettings.tirePressureMin(this) * 10).toInt()
         val keepOptions = intArrayOf(7, 14, 30, 0)
         var keep = keepOptions.indexOf(AppSettings.journalKeepDays(this))
             .takeIf { it >= 0 } ?: (keepOptions.size - 1)
@@ -428,6 +429,11 @@ class MainActivity : AppCompatActivity() {
                 getString(R.string.tank_sub), tank, CarHub.TANK_RANGE_L,
                 { getString(R.string.tank_value, it) }
             ) { tank = it }
+            .stepper(
+                R.drawable.ic_tire, getString(R.string.tire_min_title),
+                getString(R.string.tire_min_sub), tireMin, AppSettings.TIRE_MIN_RANGE,
+                { getString(R.string.tire_min_value, "%.1f".format(java.util.Locale("ru"), it / 10f)) }
+            ) { tireMin = it }
             .segmented(
                 R.drawable.ic_journal, getString(R.string.journal_keep_title_short),
                 getString(R.string.journal_keep_sub),
@@ -455,6 +461,9 @@ class MainActivity : AppCompatActivity() {
                 AppSettings.setEtmCoolant(this, etm)
                 if (!etm) Thread { runCatching { CoolantEtm.send(0) } }.start()
                 if (tank != CarHub.tankLiters(this)) CarHub.setTankLiters(this, tank)
+                if (tireMin != (AppSettings.tirePressureMin(this) * 10).toInt()) {
+                    AppSettings.setTirePressureMin(this, tireMin / 10f)
+                }
                 val days = keepOptions[keep]
                 if (days != AppSettings.journalKeepDays(this)) {
                     AppSettings.setJournalKeepDays(this, days)
@@ -1742,13 +1751,15 @@ class MainActivity : AppCompatActivity() {
             "fuel" to R.string.car_item_fuel,
             "batt" to R.string.car_item_batt,
             "eng" to R.string.car_item_eng,
-            "range" to R.string.car_item_range
+            "range" to R.string.car_item_range,
+            "tires" to R.string.car_item_tires
         )
         val icons = mapOf(
             "fuel" to R.drawable.ic_fuel,
             "batt" to R.drawable.ic_battery,
             "eng" to R.drawable.ic_thermo,
-            "range" to R.drawable.ic_range
+            "range" to R.drawable.ic_range,
+            "tires" to R.drawable.ic_tire
         )
         val orderRaw = settingsStore.getOption(widgetId, CarWidgetView.OPT_ORDER, "")
         val savedOrder = orderRaw.split(',')
@@ -1759,10 +1770,11 @@ class MainActivity : AppCompatActivity() {
             .toMutableList()
         val itemsRaw = settingsStore.getOption(widgetId, CarWidgetView.OPT_ITEMS, "")
         // Пусто = по умолчанию показываем всё — в диалоге все отмечены.
+        // Метрики, добавленные после сохранения списка, — тоже отмечены:
+        // пользователь их ещё не выбирал (см. CarWidgetView.visibleItems).
+        val visible = CarWidgetView.visibleItems(settingsStore, widgetId)
         val checked = (if (itemsRaw.isEmpty()) order
-        else order.filter { key ->
-            itemsRaw.split(',').any { it.trim() == key }
-        }).toMutableSet()
+        else order.filter { key -> key in visible }).toMutableSet()
         val list = SettingsList(this, theme)
             .section(getString(R.string.car_items_section))
             .reorder(order, checked, { getString(labelIds.getValue(it)) }, { icons[it] ?: 0 })
@@ -1774,6 +1786,8 @@ class MainActivity : AppCompatActivity() {
                 widgetId, CarWidgetView.OPT_ITEMS,
                 order.filter { it in checked }.joinToString(",")
             )
+            // Список сохранён — новые метрики больше не добавляются сами.
+            settingsStore.setOption(widgetId, CarWidgetView.OPT_ITEMS_VER, CarWidgetView.ITEMS_VER)
             saveTile()
         }
     }

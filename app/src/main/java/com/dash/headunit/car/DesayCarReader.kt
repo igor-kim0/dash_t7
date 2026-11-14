@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
 import android.os.Parcel
+import android.os.SystemClock
 import android.util.Log
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -216,6 +217,26 @@ class DesayCarReader(context: Context) {
      * старте, 1→0 при остановке) — им же считается наработка поездки.
      * Счётчик 4,62 для этого не годится: остаётся >0 и после остановки.
      */
+    /** Последние сырые давления 4,10 и время чтения — см. [tireRaw]. */
+    @Volatile
+    private var tireRawCache: IntArray? = null
+    @Volatile
+    private var tireReadAt = 0L
+
+    /**
+     * Сырые давления в шинах (4,10 = ReadOnlyID.CAN_TIRE_PRESSURE, 4 байта
+     * p0..p3, порядок — [TIRE_RAW_ORDER]). Меняется медленно — читаем не
+     * чаще раза в [TIRE_READ_MS], между чтениями отдаём последнее.
+     */
+    fun tireRaw(): IntArray? {
+        val now = SystemClock.uptimeMillis()
+        if (tireReadAt == 0L || now - tireReadAt >= TIRE_READ_MS) {
+            tireReadAt = now
+            tireRawCache = readRaw(4, 10, logErrors = false)
+        }
+        return tireRawCache
+    }
+
     fun snapshot(): CarData? {
         if (!isAvailable()) return null
         // Топливо может не читаться — не должны теряться пробег/напряжение.
@@ -239,6 +260,8 @@ class DesayCarReader(context: Context) {
         val brake = readInt(15, 17).takeIf { it >= 0 }?.let { it == 1 }
         // Селектор (4,26): 1=P, 2=R точно; 3–9 растут/падают со скоростью.
         val gear = readInt(4, 26).takeIf { it >= 0 }
+        // Давление в шинах: 4,10 — то же, что приборка рисует на экране TPMS.
+        val tires = tiresFromRaw(tireRaw())
         if (fuel == null && range == null && volts == null && outside == null && odo == null) {
             return null
         }
@@ -256,6 +279,7 @@ class DesayCarReader(context: Context) {
             rpm = rpm,
             brakePressed = brake,
             gearRaw = gear,
+            tirePressure = tires,
             source = CarData.SOURCE_DESAY
         )
     }
@@ -263,6 +287,7 @@ class DesayCarReader(context: Context) {
     companion object {
         private const val TAG = "DesayCar"
         private const val AVAILABLE_RECHECK_MS = 60_000L
+        private const val TIRE_READ_MS = 30_000L
 
         @Volatile
         private var sharedBinder: IBinder? = null

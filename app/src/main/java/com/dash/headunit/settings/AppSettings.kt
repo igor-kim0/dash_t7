@@ -86,6 +86,18 @@ object AppSettings {
         prefs(context).edit().putBoolean(KEY_ETM_COOLANT, enabled).apply()
     }
 
+    /**
+     * Минимальное давление в шинах, бар: ниже — колесо в виджете
+     * «Автомобиль» красное. Хранится в десятых бара (20 = 2,0 бар).
+     */
+    fun tirePressureMin(context: Context): Float =
+        prefs(context).getInt(KEY_TIRE_MIN, TIRE_MIN_DEFAULT) / 10f
+
+    fun setTirePressureMin(context: Context, bar: Float) {
+        val tenths = (bar * 10).toInt().coerceIn(TIRE_MIN_MIN, TIRE_MIN_MAX)
+        prefs(context).edit().putInt(KEY_TIRE_MIN, tenths).apply()
+    }
+
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
 
@@ -97,7 +109,16 @@ object AppSettings {
     private const val KEY_JOURNAL_KEEP_DAYS = "journal_keep_days"
     private const val KEY_SHADE_RESUME = "shade_resume"
     private const val KEY_ETM_COOLANT = "etm_coolant"
+    private const val KEY_TIRE_MIN = "tire_pressure_min"
 
     /** Срок хранения журнала поездок по умолчанию, дней. */
     private const val JOURNAL_KEEP_DEFAULT = 7
+
+    /** Порог давления в шинах по умолчанию, десятые бара (2,0 бар). */
+    private const val TIRE_MIN_DEFAULT = 20
+
+    /** Диапазон порога давления, десятые бара (1,0…3,5 бар). */
+    val TIRE_MIN_RANGE = 10..35
+    private const val TIRE_MIN_MIN = 10
+    private const val TIRE_MIN_MAX = 35
 }

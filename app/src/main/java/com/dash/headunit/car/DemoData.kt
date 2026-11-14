@@ -23,6 +23,7 @@ object DemoData {
         rpm = 800,
         speedKmh = 46f,
         gearRaw = 8, // 4-я передача (сырое = 4 + передача)
+        tirePressure = TirePressures(fl = 2.4f, fr = 2.3f, rl = 2.4f, rr = 2.2f),
         source = CarData.SOURCE_DEMO
     )
 

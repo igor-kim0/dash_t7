@@ -89,6 +89,9 @@
     <string name="tank_title_short">Объём бака</string>
     <string name="tank_sub">Для литров остатка и расхода по проценту топлива</string>
     <string name="tank_value">%d л</string>
+    <string name="tire_min_title">Мин. давление в шинах</string>
+    <string name="tire_min_sub">Ниже этого давления колесо в виджете «Автомобиль» красное</string>
+    <string name="tire_min_value">%1$s бар</string>
     <string name="journal_keep_title_short">Журнал поездок</string>
     <string name="journal_keep_sub">Сколько хранить записи</string>
     <string name="journal_keep_week_s">Неделя</string>
@@ -176,10 +179,12 @@
     <string name="car_cold">холодный</string>
     <string name="car_overheat">перегрев</string>
     <string name="car_range_sub">запас хода</string>
+    <string name="car_tires_ok">в норме</string>
     <string name="car_item_fuel">Топливо</string>
     <string name="car_item_batt">Аккумулятор</string>
     <string name="car_item_eng">Двигатель</string>
     <string name="car_item_range">Запас хода</string>
+    <string name="car_item_tires">Колёса</string>
     <string name="music_bluetooth">BLUETOOTH</string>
     <string name="music_yandex">ЯНДЕКС МУЗЫКА</string>
     <string name="widget_radio">Радио</string>

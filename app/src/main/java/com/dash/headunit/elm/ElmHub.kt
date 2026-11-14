@@ -8,6 +8,10 @@ import android.content.Context
 import android.os.SystemClock
 import android.util.Log
 import com.dash.headunit.car.ClusterRecorder
+import com.dash.headunit.car.Wheel
+import com.dash.headunit.car.isPressureUnit
+import com.dash.headunit.car.toBar
+import com.dash.headunit.car.wheelByName
 import com.dash.headunit.ui.DashVisibility
 import java.io.IOException
 import java.io.InputStream
@@ -183,14 +187,23 @@ object ElmHub {
     /**
      * Величины профиля по порядку из JSON; напряжение адаптера (ATRV)
      * опрашиваем всегда — это проверка, что сам ELM жив.
+     * Давление в шинах (TPMS) — раз в [SLOW_EVERY]-й круг и с длинным
+     * сроком годности: давление меняется медленно, а круг с профилем
+     * идёт дольше обычного.
      */
     private fun profilePolls(profile: ObdProfile): List<Poll> {
         var hasCoolant = false
         val polls = profile.params.map { p ->
             val coolant = !hasCoolant && p.command == COOLANT_CMD
             if (coolant) hasCoolant = true
-            Poll(profileKey(p), p.command, p.header, p.rxHeader, PROFILE_STALE_MS, slow = false, parse = p::decode,
-                alias = if (coolant) COOLANT_ID else null)
+            val tire = isPressureUnit(p.unit) &&
+                (wheelByName(p.shortName) ?: wheelByName(p.name)) != null
+            Poll(
+                profileKey(p), p.command, p.header, p.rxHeader,
+                if (tire) TPMS_STALE_MS else PROFILE_STALE_MS,
+                slow = tire, parse = p::decode,
+                alias = if (coolant) COOLANT_ID else null
+            )
         }
         // ОЖ нужна калибровке стрелки приборки и без профиля: если профиль
         // её не спрашивает — 0105 отдельно (на CAN — двигателю 7E0, иначе 7DF), раз в SLOW_EVERY
@@ -218,6 +231,29 @@ object ElmHub {
 
     /** Температура ОЖ по ELM (PID 0105), °C, или null. */
     fun coolantC(now: Long = SystemClock.uptimeMillis()): Float? = readings(now)[COOLANT_ID]?.toFloat()
+
+    /**
+     * Давление в шинах по параметрам профиля (TPMS), бар.
+     * Колесо опознаётся по названию параметра («Tire FL», «TPMS FR»,
+     * «Давление в шине Передняя Левая»), единица — по единице измерения
+     * профиля (кПа / bar / psi). Без профиля с TPMS — пусто.
+     */
+    fun tirePressures(now: Long = SystemClock.uptimeMillis()): Map<Wheel, Float> {
+        val prof = profile ?: return emptyMap()
+        val vals = readings(now)
+        if (vals.isEmpty()) return emptyMap()
+        val out = LinkedHashMap<Wheel, Float>()
+        for (p in prof.params) {
+            if (!isPressureUnit(p.unit)) continue
+            val v = vals[profileKey(p)] ?: continue
+            val wheel = wheelByName(p.shortName) ?: wheelByName(p.name) ?: continue
+            val bar = toBar(v.toFloat(), p.unit) ?: continue
+            // Давление в шине — 1…5 бар; остальное — мусор от блока.
+            if (bar <= 0f || bar > 10f) continue
+            out[wheel] = bar
+        }
+        return out
+    }
 
     /** Величины, переставшие отвечать ([MISS_LIMIT] промахов подряд), — экран пишет «н/д». */
     @Volatile
@@ -780,6 +816,9 @@ object ElmHub {
      * значение живёт дольше, чем у стандартного набора.
      */
     private const val PROFILE_STALE_MS = 30_000L
+
+    /** Давление в шинах живёт дольше прочих параметров профиля. */
+    private const val TPMS_STALE_MS = 3 * 60_000L
     /** Ожидание многокадрового ответа (VIN). */
     private const val INFO_TIMEOUT_MS = 3_000L
     /** Обороты/нагрузка/напряжение — только свежие. */

@@ -33,6 +33,8 @@ data class CarData(
     val brakePressed: Boolean? = null,
     /** Селектор КПП, сырой код Desay (4,26): 1=P, 2=R, 3=N?, 5+=4+передача. */
     val gearRaw: Int? = null,
+    /** Давление в шинах, бар (Desay 4,10 / приборка a005, запасной — OBD TPMS). */
+    val tirePressure: TirePressures? = null,
     /** Источник данных (для диагностики). */
     val source: String = SOURCE_UNKNOWN
 ) {

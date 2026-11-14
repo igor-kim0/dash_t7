@@ -315,6 +315,7 @@ object CarHub {
                 speedKmh = merged?.speedKmh ?: p.speedKmh,
                 brakePressed = merged?.brakePressed ?: p.brakePressed,
                 gearRaw = merged?.gearRaw ?: p.gearRaw,
+                tirePressure = merged?.tirePressure ?: p.tirePressure,
                 source = if (merged == null) p.source else CarData.SOURCE_MERGED
             )
         }
@@ -324,17 +325,23 @@ object CarHub {
         // Сканер на связи — учим стрелку ОЖ приборки его градусам.
         CoolantCalibration.observe(ClusterPps.needle(), elmCoolant)
         val coolant = ClusterPps.coolantC() ?: elmCoolant
+        // Давление в шинах — с машины: Desay 4,10 (уже в merged), затем
+        // приборка (a005 b4–b7, те же байты), и только потом OBD-профиль
+        // с TPMS. Пусто — виджет покажет «нет данных».
+        val tires = merged?.tirePressure ?: ClusterPps.tirePressures() ?: elmTires()
         if (merged == null) {
-            if (coolant == null) return null
+            if (coolant == null && tires == null) return null
             return CarData(
                 fuelPct = null, fuelLiters = null, rangeKm = null, voltageV = null,
                 charging = null, engineTempC = coolant, gearboxTempC = null,
-                outsideTempC = ClusterPps.outsideTempC(), odoKm = null, source = CarData.SOURCE_MERGED
+                outsideTempC = ClusterPps.outsideTempC(), odoKm = null,
+                tirePressure = tires, source = CarData.SOURCE_MERGED
             )
         }
         return merged.copy(
             fuelLiters = CarScaling.fuelLiters(merged.fuelPct, tank),
             engineTempC = coolant ?: merged.engineTempC,
+            tirePressure = tires,
             // VHAL в приложении без прав (CAR_VENDOR_EXTENSION denied),
             // а Desay-ячейка может не читаться: дублируем с приборки (PPS),
             // которая на ГУ proven working (скорость/обороты в логах).
@@ -348,6 +355,12 @@ object CarHub {
             outsideTempC = ClusterPps.outsideTempC() ?: merged.outsideTempC
         )
     }
+
+    /** Давление в шинах из OBD-профиля с TPMS ([ElmHub]) или null. */
+    private fun elmTires(): TirePressures? =
+        ElmHub.tirePressures().takeIf { it.isNotEmpty() }?.let { m ->
+            TirePressures(fl = m[Wheel.FL], fr = m[Wheel.FR], rl = m[Wheel.RL], rr = m[Wheel.RR])
+        }
 
     fun tankLiters(): Int = appContext?.let { tankLiters(it) } ?: DEFAULT_TANK_L
 

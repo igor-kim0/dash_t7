@@ -102,6 +102,12 @@ object ClusterPps {
     /** Забортная температура с приборки, °C (шаг 0,5), или null. */
     fun outsideTempC(): Float? = synchronized(parser) { parser.outsideTempC(SystemClock.uptimeMillis()) }
 
+    /** Давление в шинах с приборки (a005 b4–b7), бар, или null. */
+    fun tirePressures(): TirePressures? = synchronized(parser) { parser.tires(SystemClock.uptimeMillis()) }
+
+    /** Сырые давления a005 b4–b7 — для калибровки на экране отладки. */
+    fun tireRaw(): IntArray? = synchronized(parser) { parser.tireRaw(SystemClock.uptimeMillis()) }
+
     /** Разобранное состояние одной строкой — для диагностики. */
     fun describe(): String = synchronized(parser) { parser.describe(SystemClock.uptimeMillis()) }
 
@@ -296,7 +302,7 @@ object ClusterPps {
 
     private const val TAG = "ClusterPps"
     private const val DIR = "/var/pps/spi_service"
-    private val OBJECTS = listOf("a000", "a001", "a0ff", "a5a5", "a006")
+    private val OBJECTS = listOf("a000", "a001", "a0ff", "a5a5", "a006", "a005")
     private const val DATA_PREFIX = "data:json:"
     private const val HISTORY_MAX = 50
     private const val FRAME_HISTORY_MAX = 200
@@ -364,6 +370,9 @@ class ClusterParser {
 
     private var a5a5b2 = -1
 
+    private var tireRaw: IntArray? = null
+    private var tireAt = 0L
+
     /** [body] — текст после «data:json:», внутри должен быть массив data:[…]. */
     fun onFrame(obj: String, body: String, now: Long) {
         onFrame(obj, parseData(body) ?: return, now)
@@ -415,6 +424,16 @@ class ClusterParser {
                 }
                 if (rpmSource != "a000" || now - rpmAt >= FALLBACK_MS) {
                     u16(bytes, 6).takeIf { it <= MAX_RPM }?.let { setRpm(it, "a5a5", now) }
+                }
+            }
+            // TPMS (логи 2026-10-14, = Desay 4,10 / 4,8): b2 — номер колеса
+            // 0..3 (252 — нет данных TPMS: зажигание/первые секунды),
+            // b3 — его температура, b4–b7 — сырые давления всех колёс.
+            "a005" -> if (bytes.size >= 8 && bytes[2] != A005_NO_TPMS) {
+                val raw = bytes.copyOfRange(4, 8)
+                if (tiresFromRaw(raw) != null) {
+                    tireRaw = raw
+                    tireAt = now
                 }
             }
             // Забортная температура — ровно как её считает сама приборка
@@ -470,6 +489,12 @@ class ClusterParser {
     /** Обороты двигателя. */
     fun rpm(now: Long): Int? = rpm?.takeIf { now - rpmAt < LIVE_MS }
 
+    /** Сырые давления a005 b4–b7. */
+    fun tireRaw(now: Long): IntArray? = tireRaw?.takeIf { now - tireAt < STALE_MS }
+
+    /** Давление в шинах, бар. */
+    fun tires(now: Long): TirePressures? = tiresFromRaw(tireRaw(now))
+
     fun describe(now: Long): String {
         fun permille(v: Float?) = v?.let { "%.0f/1000".format(it * 1000) } ?: "нет"
         return "ОЖ ${coolant(now)?.let { "%.0f° (a0ff)".format(it) } ?: "нет"}, " +
@@ -479,7 +504,8 @@ class ClusterParser {
             "обороты ${rpm(now)?.let { "$it ($rpmSource)" } ?: "нет"}, " +
             "a5a5[2] ${if (a5a5b2 >= 0) a5a5b2 else "нет"}, " +
             "за бортом ${outsideTempC(now)?.let { "%.1f° ($outsideSource)".format(it) } ?: "нет"}, " +
-            "БК ${trip(now)?.describe() ?: "нет"}"
+            "БК ${trip(now)?.describe() ?: "нет"}, " +
+            "шины ${tireRaw(now)?.joinToString(",") ?: "нет"}"
     }
 
     companion object {
@@ -496,6 +522,8 @@ class ClusterParser {
         private const val MAX_SPEED = 300
         private const val MAX_RPM = 10_000
         private const val A5A5_MARKER = 0x55AA
+        /** a005 b2: TPMS ещё не дал данных. */
+        private const val A005_NO_TPMS = 252
         private const val MAX_ODO_KM = 2_000_000L
         /** 0.1 л/100: всё выше 99.9 — «нет данных» (0xFFFF). */
         private const val MAX_AVG_FUEL = 999
