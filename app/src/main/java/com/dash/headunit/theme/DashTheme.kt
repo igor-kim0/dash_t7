@@ -52,19 +52,21 @@ data class DashTheme(
         )
 
         /**
-         * Тёмно-красная, по образцу фиолетовой: тёплый тёмный фон, карточки
-         * чуть светлее, акцент — приглушённый терракотовый.
+         * Тёмно-красная, «винная»: почти чёрный фон с красным подтоном,
+         * бордовые карточки, малиновый акцент и слабое красное свечение
+         * в центре — как подсветка спортивной приборки.
          */
         val RED = DashTheme(
             id = "red",
             name = "Тёмно-красная",
-            background = 0xFF1C1616.toInt(),
-            cardBackground = 0xFF282120.toInt(),
-            cardBorder = 0xFF403534.toInt(),
-            primaryText = 0xFFF1EAE6.toInt(),
-            secondaryText = 0xFFA99993.toInt(),
-            accent = 0xFFD08C80.toInt(),
-            success = 0xFF8CBB96.toInt()
+            background = 0xFF0F0809.toInt(),
+            cardBackground = 0xFF1E1013.toInt(),
+            cardBorder = 0xFF4A1E26.toInt(),
+            primaryText = 0xFFF7EDEE.toInt(),
+            secondaryText = 0xFFBC9A9F.toInt(),
+            accent = 0xFFE8384F.toInt(),
+            success = 0xFF6FCF97.toInt(),
+            glow = 0xFF2C070C.toInt()
         )
 
         /**
