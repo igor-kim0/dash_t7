@@ -38,7 +38,7 @@ class CarDebugActivity : AppCompatActivity() {
             setPadding(dp(16), dp(16), dp(16), dp(16))
         }
         // Шины: сырые байты TPMS и расчёт — сверить с экраном шин приборки
-        // (формула raw×2,5−84 кПа и порядок колёс подобраны по одной точке).
+        // (формула raw×2−28 кПа и порядок колёс подобраны по двум снимкам).
         val tireInfo = TextView(this).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             setTextIsSelectable(true)

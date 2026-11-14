@@ -83,12 +83,15 @@ class TirePressureTest {
 
     @Test
     fun raw_calibrationPoint() {
-        // 2026-10-14: сырые 115,112,123,124 — приборка 2,0 2,0 2,3 2,2 (FL FR RL RR).
-        val t = tiresFromRaw(intArrayOf(115, 112, 123, 124))!!
-        assertEquals(2.0f, t.fl!!, 0.05f)
-        assertEquals(2.0f, t.fr!!, 0.05f)
-        assertEquals(2.3f, t.rl!!, 0.05f)
+        // 2026-11-14: сырые 125,128,126,123 — приборка FL 2,3, остальные 2,2.
+        val t = tiresFromRaw(intArrayOf(125, 128, 126, 123))!!
+        assertEquals(2.3f, t.fl!!, 0.05f)
+        assertEquals(2.2f, t.fr!!, 0.05f)
+        assertEquals(2.2f, t.rl!!, 0.05f)
         assertEquals(2.2f, t.rr!!, 0.05f)
+        // 2026-10-14: сырые 112 и 115 — оба 2,0 на приборке.
+        assertEquals(2.0f, tireBarFromRaw(112)!!, 0.05f)
+        assertEquals(2.0f, tireBarFromRaw(115)!!, 0.05f)
     }
 
     @Test
@@ -99,8 +102,8 @@ class TirePressureTest {
         assertNull(tiresFromRaw(intArrayOf(115, 112)))
         assertNull(tiresFromRaw(null))
         val partial = tiresFromRaw(intArrayOf(115, 0, 123, 124))!!
-        assertNull(partial.fr)
-        assertEquals(2.03f, partial.fl!!, 0.01f)
+        assertNull(partial.fl)
+        assertEquals(2.02f, partial.fr!!, 0.01f)
     }
 
     @Test

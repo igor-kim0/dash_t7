@@ -90,10 +90,11 @@ internal fun isPressureUnit(unit: String): Boolean = toBar(1f, unit) != null
 /**
  * Давление одного колеса из сырого байта TPMS машины (Desay 4,10 /
  * приборка a005 b4–b7), бар. Формулы в прошивке ГУ нет — считает сама
- * приборка; подобрано по контрольной точке 2026-10-14 (сырые 115,112,123,124
- * при показаниях приборки 2,0 2,0 2,3 2,2): кПа = raw × 2,5 − 84 (шаг 2,5 кПа —
- * обычный для TPMS). 0/255 и вне разумного диапазона — нет данных.
- * Чистая — тестируется. ГУ: ждёт второй точки (прогретые шины).
+ * приборка; подобрано по двум снимкам: 2026-10-14 (сырые 112/115 → 2,0) и
+ * 2026-11-14 (сырые 123,125,126 → 2,2, 128 → 2,3; приборка округляет до 0,1).
+ * Сходится шаг ~1,6…2,1 кПа (2,5 — нет): взято кПа = raw × 2 − 28.
+ * 0/255 и вне разумного диапазона — нет данных.
+ * Чистая — тестируется. ГУ: ждёт снимка с разным давлением во всех колёсах.
  */
 internal fun tireBarFromRaw(raw: Int): Float? {
     if (raw !in TIRE_RAW_MIN..TIRE_RAW_MAX) return null
@@ -101,12 +102,12 @@ internal fun tireBarFromRaw(raw: Int): Float? {
 }
 
 /**
- * Колёса в порядке сырых байтов p0..p3. По контрольной точке передние —
- * p0/p1, а задние переставлены: p2 = заднее правое, p3 = заднее левое
- * (иначе при росте давления с raw показания приборки не сходятся).
- * Одна точка для правки после сверки на ГУ.
+ * Колёса в порядке сырых байтов p0..p3. Снимок 2026-11-14: единственное
+ * колесо с 2,3 на приборке — переднее левое, а максимальный байт — p1,
+ * значит p1 = FL. Остальные три показывали одинаковые 2,2 — их порядок
+ * (p0 = FR, p2 = RR, p3 = RL) пока догадка. Одна точка для правки.
  */
-internal val TIRE_RAW_ORDER = listOf(Wheel.FL, Wheel.FR, Wheel.RR, Wheel.RL)
+internal val TIRE_RAW_ORDER = listOf(Wheel.FR, Wheel.FL, Wheel.RR, Wheel.RL)
 
 /**
  * Четыре давления из сырых байтов машины (Desay 4,10 или a005 b4–b7).
@@ -121,8 +122,8 @@ internal fun tiresFromRaw(raw: IntArray?, offset: Int = 0): TirePressures? {
     return TirePressures(fl = bar[Wheel.FL], fr = bar[Wheel.FR], rl = bar[Wheel.RL], rr = bar[Wheel.RR])
 }
 
-/** ~0,7 бар (raw 60) .. ~4,2 бар (raw 200); 0 и 255 — «нет датчика». */
+/** ~0,9 бар (raw 60) .. ~3,7 бар (raw 200); 0 и 255 — «нет датчика». */
 private const val TIRE_RAW_MIN = 60
 private const val TIRE_RAW_MAX = 200
-private const val TIRE_KPA_PER_RAW = 2.5f
-private const val TIRE_KPA_OFFSET = 84f
+private const val TIRE_KPA_PER_RAW = 2f
+private const val TIRE_KPA_OFFSET = 28f
