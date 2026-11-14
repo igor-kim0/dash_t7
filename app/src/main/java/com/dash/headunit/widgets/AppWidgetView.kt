@@ -37,6 +37,7 @@ class AppWidgetView(
 
     var onTapIdle: (() -> Unit)? = null
     var onExpand: (() -> Unit)? = null
+    var onAlice: (() -> Unit)? = null
 
     private val message = TextView(context).apply {
         gravity = Gravity.CENTER
@@ -58,6 +59,18 @@ class AppWidgetView(
         visibility = View.GONE
     }
 
+    /** Алиса навигатора (только Яндекс): поднять навигатор и нажать его голос. */
+    val aliceButton: ImageButton = ImageButton(context).apply {
+        setImageResource(R.drawable.ic_alice)
+        scaleType = ImageView.ScaleType.CENTER
+        background = ThemeCard.card(context, theme).apply {
+            setColor(theme.cardBackground or 0xFF000000.toInt())
+        }
+        contentDescription = context.getString(R.string.cd_navi_alice)
+        setOnClickListener { onAlice?.invoke() }
+        visibility = View.GONE
+    }
+
     /** true — виджет прозрачен, под ним навигатор. */
     var active = false
         private set
@@ -69,6 +82,12 @@ class AppWidgetView(
             expandButton,
             LayoutParams(size, size, Gravity.TOP or Gravity.END).apply {
                 setMargins(0, dp(8f), dp(8f), 0)
+            }
+        )
+        addView(
+            aliceButton,
+            LayoutParams(size, size, Gravity.TOP or Gravity.END).apply {
+                setMargins(0, dp(72f), dp(8f), 0)
             }
         )
         showMessage(context.getString(R.string.app_none))
@@ -109,6 +128,7 @@ class AppWidgetView(
         message.text = text
         message.visibility = View.VISIBLE
         expandButton.visibility = View.GONE
+        aliceButton.visibility = View.GONE
         (parent as? WidgetFrame)?.restoreBackground()
         setBackgroundColor(Color.TRANSPARENT)
     }
@@ -118,6 +138,8 @@ class AppWidgetView(
         active = true
         message.visibility = View.GONE
         expandButton.visibility = View.VISIBLE
+        aliceButton.visibility =
+            if (pkg() == com.dash.headunit.navi.cluster.YANDEX_NAVI) View.VISIBLE else View.GONE
         // Карточку рамки тоже убираем — иначе она закроет карту.
         (parent as? View)?.background = null
     }

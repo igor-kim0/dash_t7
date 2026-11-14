@@ -12,7 +12,7 @@ import com.dash.headunit.settings.AppSettings
 import com.dash.headunit.settings.Autostart
 
 /**
- * Читает окно Яндекс Навигатора (только чтение, ничего не нажимает):
+ * Читает окно Яндекс Навигатора (нажимает только кнопку голоса — [clickVoice]):
  * ограничение скорости (layout_map_speedlimit → text_speedlimit), камеры
  * (view_notification_speedcamera_*), остаток маршрута (textview_eta_*) и
  * карточку манёвра (contextmaneuverview: text_maneuverballoon_distance/metrics,
@@ -112,6 +112,58 @@ class NaviAccessibilityService : AccessibilityService() {
         bg.removeCallbacks(scan)
         scheduled = false
         bg.post(scan)
+    }
+
+    /**
+     * Нажать кнопку голоса (Алиса) навигатора — единственное, что служба
+     * нажимает сама. Навигатор к этому моменту должен быть поднят наверх
+     * ([com.dash.headunit.navi.NaviUnderlay.aliceSession]). Поиск — в потоке
+     * [bg] (вызовы в процесс навигатора), [done] — в главном: что вышло.
+     */
+    fun clickVoice(done: (Boolean, String) -> Unit) {
+        bg.post {
+            val (ok, why) = try {
+                clickVoiceNow()
+            } catch (e: Exception) {
+                false to "${e.javaClass.simpleName}: ${e.message}"
+            }
+            main.post { done(ok, why) }
+        }
+    }
+
+    private fun clickVoiceNow(): Pair<Boolean, String> {
+        val root = naviRoot() ?: return false to "окна навигатора нет"
+        val nodes = root.findAccessibilityNodeInfosByViewId("$YANDEX_NAVI:id/$VOICE_ID")
+            .ifEmpty { voiceByDescription(root) }
+        val node = nodes.firstOrNull { it.isVisibleToUser } ?: nodes.firstOrNull()
+            ?: return false to "кнопки голоса нет (ни #$VOICE_ID, ни описания «Алиса»)"
+        // Сама картинка может быть не clickable — жмём ближайшего родителя.
+        var n: AccessibilityNodeInfo? = node
+        var depth = 0
+        while (n != null && depth < 4) {
+            if (n.isClickable) {
+                val ok = n.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                return ok to "ACTION_CLICK (уровень $depth, visible=${node.isVisibleToUser}) → $ok"
+            }
+            n = n.parent
+            depth++
+        }
+        val ok = node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        return ok to "ACTION_CLICK по не-clickable узлу → $ok"
+    }
+
+    /** Другие версии навигатора: кнопка голоса без id, но с описанием. */
+    private fun voiceByDescription(root: AccessibilityNodeInfo): List<AccessibilityNodeInfo> {
+        val found = mutableListOf<AccessibilityNodeInfo>()
+        var seen = 0
+        fun walk(n: AccessibilityNodeInfo) {
+            if (seen++ > MAX_DUMP_NODES) return
+            val d = n.contentDescription?.toString()?.lowercase().orEmpty()
+            if (VOICE_DESC.any { d.contains(it) }) found.add(n)
+            for (i in 0 until n.childCount) n.getChild(i)?.let { walk(it) }
+        }
+        walk(root)
+        return found
     }
 
     /** Скан, закончившийся после onDestroy, не перетирает сброс. */
@@ -273,5 +325,8 @@ class NaviAccessibilityService : AccessibilityService() {
         private const val NO_NAVI_POLL_MS = 10_000L
         private const val MAX_DUMP_NODES = 600
         private const val TAG = "NaviA11y"
+        /** Кнопка голоса на карте (a11y-дампы навигатора 2026-10-25/30). */
+        private const val VOICE_ID = "voicebutton"
+        private val VOICE_DESC = listOf("алис", "alice") // не «голос»: это и кнопка подсказок
     }
 }

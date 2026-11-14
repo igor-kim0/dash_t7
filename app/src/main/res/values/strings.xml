@@ -164,6 +164,8 @@
     <string name="app_none">Блок «Навигатор»:\nвыберите приложение в настройках (шестерёнка)</string>
     <string name="app_none_selected">— Не выбрано —</string>
     <string name="cd_navi_full">Навигатор на весь экран</string>
+    <string name="cd_navi_alice">Алиса навигатора</string>
+    <string name="navi_alice_failed">Алиса: %1$s</string>
     <string name="navi_not_installed">%1$s не установлен</string>
     <string name="navi_edit">%1$s\n(в режиме редактирования скрыт)</string>
     <string name="navi_need_adb">%1$s в блоке: нужен доступ к системе.\nКоснитесь — на экране ГУ появится запрос «Разрешить отладку». Отметьте «Всегда разрешать» и нажмите «OK».</string>

@@ -316,6 +316,8 @@ class MainActivity : AppCompatActivity() {
         com.dash.headunit.car.TripTracker.persist(this)
         // Сами только что подняли навигатор под себя — это не уход с экрана.
         if (System.currentTimeMillis() - underlayLaunchedAt < UNDERLAY_GRACE_MS) return
+        // Идёт диалог с Алисой: навигатор наверху ненадолго, блок сохраняем.
+        if (System.currentTimeMillis() < aliceUntil) return
         stoppedAway = true
         // Виджетов не видно — опросы, нужные только им, ждут ([DashVisibility]).
         com.dash.headunit.ui.DashVisibility.setStarted(false)
@@ -912,7 +914,7 @@ class MainActivity : AppCompatActivity() {
         }
         frame.getLocationInWindow(loc)
         val inWindow = Rect(loc[0], loc[1], loc[0] + frame.width, loc[1] + frame.height)
-        setNaviHole(inWindow, view.expandButton)
+        setNaviHole(inWindow, view.expandButton, view.aliceButton)
         ClusterOverlay.naviVisible(true)
     }
 
@@ -943,21 +945,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** Вырезать [hole] (координаты окна) из фона и из зоны касаний дашборда. */
-    private fun setNaviHole(hole: Rect?, keepTouchable: View? = null) {
+    private fun setNaviHole(hole: Rect?, vararg keepTouchable: View) {
         // Фон рисует корень — переводим вырез в его координаты.
         val root = findViewById<View>(R.id.root)
         val rootLoc = IntArray(2).also { root.getLocationInWindow(it) }
         rootBackground.hole = hole?.let { Rect(it).apply { offset(-rootLoc[0], -rootLoc[1]) } }
         touchHole = hole?.let {
             Region(it).apply {
-                // Кнопка «на весь экран» лежит поверх карты — её касания наши.
-                if (keepTouchable != null && keepTouchable.width > 0) {
+                // Кнопки («на весь экран», Алиса) лежат поверх карты — их касания наши.
+                for (v in keepTouchable) {
+                    if (v.width == 0) continue
                     val loc = IntArray(2)
-                    keepTouchable.getLocationInWindow(loc)
-                    op(
-                        Rect(loc[0], loc[1], loc[0] + keepTouchable.width, loc[1] + keepTouchable.height),
-                        Region.Op.DIFFERENCE
-                    )
+                    v.getLocationInWindow(loc)
+                    op(Rect(loc[0], loc[1], loc[0] + v.width, loc[1] + v.height), Region.Op.DIFFERENCE)
                 }
             }
         }
@@ -978,6 +978,25 @@ class MainActivity : AppCompatActivity() {
                 return@connect
             }
             refreshNavi()
+        }
+    }
+
+    /** До какого времени наш onStop — диалог с Алисой, а не уход ([startAlice]). */
+    private var aliceUntil = 0L
+
+    /**
+     * Кнопка Алисы в блоке: навигатор ненадолго наверх, нажать его голос,
+     * после диалога дашборд обратно ([NaviUnderlay.aliceSession]).
+     */
+    private fun startAlice() {
+        val pkg = naviWidget()?.pkg().orEmpty()
+        if (pkg.isEmpty() || underlayPkg != pkg || System.currentTimeMillis() < aliceUntil) return
+        aliceUntil = System.currentTimeMillis() + NaviUnderlay.ALICE_MAX_MS + 5_000L
+        NaviUnderlay.aliceSession(this, pkg) { error ->
+            aliceUntil = 0L
+            if (error != null && !isDestroyed) {
+                Toast.makeText(this, getString(R.string.navi_alice_failed, error), Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -1024,6 +1043,7 @@ class MainActivity : AppCompatActivity() {
                 WidgetType.APP -> AppWidgetView(this, spec.widgetId, wTheme, settingsStore).apply {
                     onTapIdle = { if (!editMode) connectShell() }
                     onExpand = { openNaviFull() }
+                    onAlice = { if (!editMode) startAlice() }
                 }
                 WidgetType.APPS -> AppsWidgetView(
                     this, spec.widgetId, wTheme, settingsStore

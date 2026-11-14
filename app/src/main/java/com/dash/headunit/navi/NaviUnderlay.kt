@@ -370,6 +370,83 @@ object NaviUnderlay {
     }
 
     /**
+     * Голосовой запрос к Алисе навигатора [pkg] из блока. Под дашбордом
+     * навигатор PAUSED, и «Слушай, Алиса»/его кнопка там ненадёжны, поэтому:
+     * поднять навигатор наверх (как [resumeInBlock]), нажать его кнопку
+     * голоса через a11y и, когда микрофон отпустили, вернуть дашборд.
+     * Конец диалога — по [AudioManager.getActiveRecordingConfigurations]:
+     * запись была и её нет [ALICE_QUIET_MS], не началась за
+     * [ALICE_START_MS] или прошло [ALICE_MAX_MS]. [onDone] — в UI-потоке,
+     * аргумент — текст ошибки (null — диалог состоялся).
+     */
+    fun aliceSession(activity: Activity, pkg: String, onDone: (String?) -> Unit) {
+        val navi = activity.packageManager.getLaunchIntentForPackage(pkg)
+            ?: return onDone("навигатор $pkg не установлен")
+        val a11y = com.dash.headunit.navi.cluster.NaviAccessibilityService.instance
+            ?: return onDone("служба спец. возможностей навигатора выключена")
+        val app = activity.applicationContext
+        val self = Intent(app, activity.javaClass)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
+        val audio = app.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        fun status(text: String) {
+            lastStatus = "Алиса: $text"
+        }
+        try {
+            app.startActivity(
+                navi.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
+            )
+        } catch (e: Exception) {
+            return onDone("${e.javaClass.simpleName}: ${e.message}")
+        }
+        status("навигатор поднят")
+        val started = SystemClock.uptimeMillis()
+        fun finish(error: String?) {
+            try {
+                app.startActivity(self)
+            } catch (e: Exception) {
+                status("возврат: ${e.javaClass.simpleName}: ${e.message}")
+            }
+            onDone(error)
+        }
+        main.postDelayed({
+            a11y.clickVoice { ok, why ->
+                status("кнопка голоса: $why")
+                if (!ok) return@clickVoice finish("не нажалась кнопка голоса: $why")
+                var heard = false
+                var quietSince = 0L
+                val watch = object : Runnable {
+                    override fun run() {
+                        val now = SystemClock.uptimeMillis()
+                        val recording = try {
+                            audio.activeRecordingConfigurations.isNotEmpty()
+                        } catch (e: Exception) {
+                            false
+                        }
+                        when {
+                            recording -> { heard = true; quietSince = 0L }
+                            quietSince == 0L -> quietSince = now
+                        }
+                        val end = when {
+                            now - started > ALICE_MAX_MS -> "таймаут ${ALICE_MAX_MS / 1000} с"
+                            heard && quietSince != 0L && now - quietSince >= ALICE_QUIET_MS -> "микрофон отпущен"
+                            !heard && now - started > ALICE_START_MS -> "запись не началась"
+                            else -> null
+                        }
+                        if (end == null) {
+                            main.postDelayed(this, ALICE_POLL_MS)
+                            return
+                        }
+                        status("конец диалога: $end")
+                        finish(if (heard) null else "микрофон так и не включился (занят?)")
+                    }
+                }
+                main.postDelayed(watch, ALICE_POLL_MS)
+            }
+        }, ALICE_RESUME_MS)
+    }
+
+    /**
      * Открыть навигатор на весь экран: сначала вернуть стеку полный размер,
      * потом поднять — без кадра с маленьким навигатором на чёрном фоне.
      */
@@ -526,6 +603,12 @@ object NaviUnderlay {
     private const val STACK_ATTEMPTS = 5
     private const val STACK_RETRY_MS = 300L
     private const val RESUME_KICK_MS = 2000L
+    /** Алиса: навигатору стать RESUMED перед нажатием; опрос микрофона. */
+    private const val ALICE_RESUME_MS = 600L
+    private const val ALICE_POLL_MS = 500L
+    private const val ALICE_QUIET_MS = 2500L
+    private const val ALICE_START_MS = 5000L
+    const val ALICE_MAX_MS = 40_000L
     private const val DRAWN_TIMEOUT_MS = 20_000L
     private const val DRAWN_POLL_MS = 500L
     private val STACK_RE =
