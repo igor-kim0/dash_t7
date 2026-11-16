@@ -104,7 +104,7 @@ object SpectrumHub {
 
     /** Главный поток. */
     private fun ensureTicking() {
-        if (ticking || listeners.isEmpty() || !DashVisibility.visible) return
+        if (ticking || listeners.isEmpty() || !DashVisibility.musicVisible) return
         ticking = true
         main.post(tick)
     }
@@ -119,14 +119,14 @@ object SpectrumHub {
     private fun start(context: Context) {
         lastRealMs = 0L
         if (hasAudioPermission(context)) openVisualizer()
-        DashVisibility.addListener(onVisibility)
-        if (!DashVisibility.visible) visualizer?.enabled = false
+        DashVisibility.addMusicListener(onVisibility)
+        if (!DashVisibility.musicVisible) visualizer?.enabled = false
         ensureTicking()
     }
 
     /**
      * Дашборд скрыт (заставка, другое приложение) — захват звука и кадры
-     * спектра не нужны; вернулся — снова.
+     * спектра не нужны; вернулся — снова. Под «Цветомузыкой» — нужны.
      */
     private val onVisibility: (Boolean) -> Unit = { v ->
         try {
@@ -143,7 +143,7 @@ object SpectrumHub {
     }
 
     private fun stop() {
-        DashVisibility.removeListener(onVisibility)
+        DashVisibility.removeMusicListener(onVisibility)
         main.removeCallbacks(tick)
         ticking = false
         try {

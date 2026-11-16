@@ -416,6 +416,7 @@
     <string name="screensaver_bg_dark">Тёмный с часами</string>
     <string name="screensaver_bg_fireplace">Камин</string>
     <string name="screensaver_bg_aurora">Северное сияние</string>
+    <string name="screensaver_bg_color_music">Цветомузыка</string>
     <string name="screensaver_sec_rotate">Смена фонов</string>
     <string name="screensaver_rotate_t">Менять фон по кругу</string>
     <string name="screensaver_rotate_s">По кругу: часы → камин → сияние, начиная с выбранного</string>

@@ -1630,7 +1630,8 @@ class MainActivity : AppCompatActivity() {
                 listOf(
                     getString(R.string.screensaver_bg_dark),
                     getString(R.string.screensaver_bg_fireplace),
-                    getString(R.string.screensaver_bg_aurora)
+                    getString(R.string.screensaver_bg_aurora),
+                    getString(R.string.screensaver_bg_color_music)
                 ),
                 backgrounds.indexOf(background).coerceAtLeast(0)
             ) { background = backgrounds[it] }

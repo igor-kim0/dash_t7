@@ -22,8 +22,16 @@ object DashVisibility {
 
     @Volatile private var started = true
     @Volatile private var screensaver = false
+    @Volatile private var musicSaver = false
 
     val visible: Boolean get() = state.value
+
+    // Музыкальные хабы (плеер, спектр) нужны и под заставкой «Цветомузыка».
+    private val music = MutableStateFlow(true)
+    private val musicListeners = mutableListOf<(Boolean) -> Unit>()
+
+    /** Дашборд виден или показана заставка, которой нужна музыка. */
+    val musicVisible: Boolean get() = music.value
 
     /** onStart / «настоящий» onStop MainActivity (главный поток). */
     fun setStarted(on: Boolean) {
@@ -35,6 +43,26 @@ object DashVisibility {
     fun setScreensaver(on: Boolean) {
         screensaver = on
         update()
+    }
+
+    /** Показан фон заставки, которому нужны плеер и спектр (главный поток). */
+    fun setMusicSaver(on: Boolean) {
+        musicSaver = on
+        update()
+    }
+
+    /** Ждать [musicVisible] (сразу, если уже). */
+    suspend fun awaitMusicVisible() {
+        music.first { it }
+    }
+
+    /** Как [addListener], но для [musicVisible]. */
+    fun addMusicListener(l: (Boolean) -> Unit) {
+        musicListeners.add(l)
+    }
+
+    fun removeMusicListener(l: (Boolean) -> Unit) {
+        musicListeners.remove(l)
     }
 
     /** Ждать, пока дашборд снова виден (сразу, если уже). */
@@ -52,6 +80,11 @@ object DashVisibility {
     }
 
     private fun update() {
+        val mv = started && (!screensaver || musicSaver)
+        if (music.value != mv) {
+            music.value = mv
+            musicListeners.toList().forEach { it(mv) }
+        }
         val v = started && !screensaver
         if (state.value == v) return
         state.value = v

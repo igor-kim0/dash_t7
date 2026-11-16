@@ -17,7 +17,7 @@ import com.dash.headunit.dashboard.WidgetSettingsStore
  * Заставка дашборда (виджет «Заставка» — только настройки).
  *
  * Нет касаний экрана [Config.timeoutSec] — поверх всего окна кладётся фон
- * заставки ([BACKGROUNDS]: тёмный с часами, камин, северное сияние), подсветка ГУ снижается до уровня [Config.level] (1..10). Любое касание
+ * заставки ([BACKGROUNDS]: тёмный с часами, камин, северное сияние, цветомузыка), подсветка ГУ снижается до уровня [Config.level] (1..10). Любое касание
  * убирает заставку (само касание до виджетов не доходит), возвращает
  * яркость, и таймер начинается заново. С [Config.rotate] фоны сменяют друг
  * друга по кругу каждые [Config.rotateSec] секунд.
@@ -252,7 +252,8 @@ class Screensaver(
         const val BG_DARK = "dark"
         const val BG_FIREPLACE = "fireplace"
         const val BG_AURORA = "aurora"
-        val BACKGROUNDS = listOf(BG_DARK, BG_FIREPLACE, BG_AURORA)
+        const val BG_COLOR_MUSIC = "color_music"
+        val BACKGROUNDS = listOf(BG_DARK, BG_FIREPLACE, BG_AURORA, BG_COLOR_MUSIC)
 
         private const val FADE_MS = 800L
         private const val MIN_DELAY_MS = 200L
@@ -262,6 +263,7 @@ class Screensaver(
         fun createView(context: android.content.Context, bg: String): View = when (bg) {
             BG_FIREPLACE -> FireplaceView(context)
             BG_AURORA -> AuroraView(context)
+            BG_COLOR_MUSIC -> ColorMusicView(context)
             else -> DarkClockView(context)
         }
 

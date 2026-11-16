@@ -85,8 +85,8 @@ object MusicHub {
             probeAccess()
             pollJob = scope.launch {
                 while (true) {
-                    // Дашборд не виден — виджетам опрос не нужен.
-                    com.dash.headunit.ui.DashVisibility.awaitVisible()
+                    // Дашборд не виден — виджетам опрос не нужен (кроме «Цветомузыки»).
+                    com.dash.headunit.ui.DashVisibility.awaitMusicVisible()
                     refresh()
                     delay(POLL_MS)
                 }
