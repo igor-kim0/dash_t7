@@ -16,6 +16,7 @@ import com.dash.headunit.car.ClimateHub
 import com.dash.headunit.car.ClusterPps
 import com.dash.headunit.car.CoolantCalibration
 import com.dash.headunit.car.DemoData
+import com.dash.headunit.settings.AppSettings
 import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.roundToInt
@@ -31,7 +32,10 @@ import kotlin.math.tan
  * указатель ОЖ (стрелка приборки) с подписью в градусах — честные °C из a0ff
  * ([ClusterPps.coolantC]) или OBD в приоритете, без них оценка по стрелке
  * ([CoolantCalibration.estimate]),
- * в центре — одометр, под ним табличка
+ * в центре — одометр, над ним барабанчик запаса хода; по бокам от
+ * одометра — барабанчики с гравированными символами: напряжение, минимальное
+ * давление в шинах, средний расход поездки, температура КПП (если есть);
+ * отклонение — символ и цифры горят красным. Под ним табличка
  * селектора R N P 1–7 (как в цифровом виде): гравированные буквы,
  * включённая подсвечена «лампой», под ней ездит красный указатель.
  * По бокам от селектора — таблички климата ([ClimateHub]): слева
@@ -59,6 +63,13 @@ class RetroSpeedometerView(context: Context) : View(context) {
     private var waterC: Float? = null
     private var waterEstimated = false
     private var odo: Int? = null
+    /** Запас хода, км; напряжение, В; мин. давление, бар; расход, л/100; КПП, °C. */
+    private var range: Int? = null
+    private var volt: Float? = null
+    private var tireMin: Float? = null
+    private var tireLow = false
+    private var cons: Float? = null
+    private var gearbox: Float? = null
     /** Индекс включённой передачи в [GEARS] ([gearIndex]), -1 — неизвестно. */
     private var gear = -1
 
@@ -107,6 +118,14 @@ class RetroSpeedometerView(context: Context) : View(context) {
         typeface = Typeface.create("sans-serif-condensed", Typeface.BOLD)
     }
     private val climate = RetroClimateIcons(hood)
+    /** Ячейка десятых — светлая, как у старых одометров. */
+    private val tenthCell = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(0xD8, 0xD0, 0xBC) }
+    /** Гравированные символы барабанчиков. */
+    private val mark = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        strokeWidth = 2.5f
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
     private val rect = RectF()
 
     // Градиенты в виртуальных координатах — создаём один раз, не на каждый кадр.
@@ -167,10 +186,17 @@ class RetroSpeedometerView(context: Context) : View(context) {
             }
         }
         odo = d.odoKm ?: ClusterPps.trip()?.odometerKm?.toInt()
+        range = d.rangeKm?.takeIf { it >= 0 }
+        volt = d.voltageV?.takeIf { it > 0f }
+        tireMin = d.tirePressure?.min()
+        tireLow = tireMin?.let { it < AppSettings.tirePressureMin(context) } == true
+        cons = (CarHub.tripView ?: if (CarHub.data == null) DemoData.trip() else null)?.avgCons
+        gearbox = d.gearboxTempC
         gear = gearIndex(d.gearRaw)
         // Живой канал приходит ~10 раз/с и с оборотами, которых здесь нет:
         // перерисовка только при смене показываемого.
-        val shown = listOf(speedTarget, fuelTarget, fuelL, waterTarget, waterC, waterEstimated, odo, gear)
+        val shown = listOf(speedTarget, fuelTarget, fuelL, waterTarget, waterC, waterEstimated, odo, gear,
+            range, volt, tireMin, tireLow, cons, gearbox)
         if (shown == lastShown) return
         lastShown = shown
         postInvalidateOnAnimation()
@@ -212,8 +238,11 @@ class RetroSpeedometerView(context: Context) : View(context) {
         drawSpeedScale(canvas)
         drawFuel(canvas)
         drawWater(canvas)
+        // Запас хода — под стрелкой: она проходит поверх, как над окном шкалы.
+        drawRange(canvas)
         drawSpeedNeedle(canvas)
         drawOdometer(canvas)
+        drawReadouts(canvas)
         drawGears(canvas)
         drawClimate(canvas)
 
@@ -339,7 +368,7 @@ class RetroSpeedometerView(context: Context) : View(context) {
         val digits = odo?.let { "%06d".format(it % 1_000_000) } ?: "------"
         val cw = 27f
         val gap = 3f
-        val total = digits.length * cw + (digits.length - 1) * gap
+        val total = ODO_TOTAL
         val left = PIVOT_X - total / 2f
         val top = LEDGE_Y + 8f
         // Козырёк над осью: под ним прячется основание стрелки.
@@ -353,6 +382,151 @@ class RetroSpeedometerView(context: Context) : View(context) {
             c.drawRoundRect(rect, 3f, 3f, cell)
             c.drawText(ch.toString(), x + cw / 2f, top + 19f - (fm.ascent + fm.descent) / 2f, digit)
         }
+    }
+
+    /** Запас хода над одометром: барабанчики поменьше, правый край — как у одометра. */
+    private fun drawRange(c: Canvas) {
+        val text = range?.let { "%3d".format(it.coerceAtMost(999)) } ?: "---"
+        val w = drumWidth(text.length)
+        val right = PIVOT_X + ODO_TOTAL / 2f + 14f
+        val bottom = LEDGE_Y - 10f
+        rect.set(right - w - 20f, bottom - DRUM_H - 5f, right, bottom + 5f)
+        c.drawRoundRect(rect, 7f, 7f, hood)
+        drawDrums(c, right - w - 10f, bottom - DRUM_H, text, tenths = false,
+            warn = (fuelTarget ?: 1f) < LOW_FUEL)
+    }
+
+    /**
+     * Барабанчики по бокам одометра: слева напряжение и шины, справа
+     * расход и КПП. Символ гравирован; отклонение — символ и цифры красные.
+     */
+    private fun drawReadouts(c: Canvas) {
+        val v = volt
+        val voltWarn = v != null && (v < VOLT_LOW || v > VOLT_HIGH)
+        // Слева — к одометру справа налево.
+        var right = PIVOT_X - ODO_TOTAL / 2f - 14f - 10f
+        right = readout(c, right, alignRight = true, tenthsText(tireMin, 1), true, tireLow, ::iconTire)
+        readout(c, right - 10f, alignRight = true, tenthsText(v, 2), true, voltWarn, ::iconBattery)
+        // Справа — от одометра слева направо.
+        var left = PIVOT_X + ODO_TOTAL / 2f + 14f + 10f
+        left = readout(c, left, alignRight = false, tenthsText(cons, 2), true, false, ::iconPump)
+        gearbox?.let { t ->
+            readout(c, left + 10f, alignRight = false, "%3d".format(t.roundToInt().coerceIn(-99, 199)),
+                false, t >= GEARBOX_HOT, ::iconGearbox)
+        }
+    }
+
+    /**
+     * Один барабанчик с символом в козырьке. [edge] — край козырька со стороны
+     * одометра; [tenths] — последняя ячейка — десятые. Возвращает дальний
+     * край (для следующего).
+     */
+    private fun readout(
+        c: Canvas, edge: Float, alignRight: Boolean, text: String, tenths: Boolean, warn: Boolean,
+        icon: (Canvas, Float, Float) -> Unit,
+    ): Float {
+        val w = 8f + ICON_W + 6f + drumWidth(text.length) + 8f
+        val left = if (alignRight) edge - w else edge
+        val top = LEDGE_Y + 8f
+        rect.set(left, top, left + w, top + DRUM_H + 10f)
+        c.drawRoundRect(rect, 7f, 7f, hood)
+        val cy = top + 5f + DRUM_H / 2f
+        if (warn) {
+            mark.color = red
+            mark.setShadowLayer(6f, 0f, 0f, com.dash.headunit.theme.RetroLook.glowColor(red))
+        } else {
+            mark.color = RetroClimateIcons.ENGRAVED
+            mark.clearShadowLayer()
+        }
+        icon(c, left + 8f + ICON_W / 2f, cy)
+        drawDrums(c, left + 8f + ICON_W + 6f, top + 5f, text, tenths, warn)
+        return if (alignRight) left else left + w
+    }
+
+    /** 13.8 → «138» (последняя ячейка — десятые), нет данных → прочерки; [intCells] — ячеек целой части. */
+    private fun tenthsText(v: Float?, intCells: Int): String {
+        if (v == null) return "-".repeat(intCells + 1)
+        val max = Math.pow(10.0, intCells.toDouble()).toFloat() - 0.05f
+        val r = (v.coerceIn(0f, max) * 10f).roundToInt()
+        return "%${intCells}d".format(r / 10) + (r % 10)
+    }
+
+    private fun drumWidth(cells: Int): Float = cells * DRUM_W + (cells - 1) * DRUM_GAP
+
+    /**
+     * Ячейки барабанчиков от [left]: пробел — пустая ячейка; с [tenths]
+     * последняя ячейка — светлая с тёмной цифрой (десятые, как у старых
+     * одометров). [warn] — цифры красные.
+     */
+    private fun drawDrums(c: Canvas, left: Float, top: Float, text: String, tenths: Boolean, warn: Boolean) {
+        digit.textSize = 22f
+        val fm = digit.fontMetrics
+        val baseline = top + DRUM_H / 2f - (fm.ascent + fm.descent) / 2f
+        text.forEachIndexed { i, ch ->
+            val x = left + i * (DRUM_W + DRUM_GAP)
+            val last = tenths && i == text.length - 1
+            rect.set(x, top, x + DRUM_W, top + DRUM_H)
+            c.drawRoundRect(rect, 3f, 3f, if (last) tenthCell else cell)
+            if (ch == ' ') return@forEachIndexed
+            digit.color = when {
+                warn -> red
+                last -> Color.rgb(0x16, 0x1A, 0x1E)
+                else -> cream
+            }
+            c.drawText(ch.toString(), x + DRUM_W / 2f, baseline, digit)
+        }
+        digit.color = cream
+    }
+
+    // ---------- гравированные символы (~26×22 вокруг центра), цвет — [mark] ----------
+
+    /** Аккумулятор: корпус, клеммы, «+» и «−». */
+    private fun iconBattery(c: Canvas, cx: Float, cy: Float) {
+        mark.style = Paint.Style.STROKE
+        rect.set(cx - 12f, cy - 7f, cx + 12f, cy + 10f)
+        c.drawRoundRect(rect, 2f, 2f, mark)
+        mark.style = Paint.Style.FILL
+        rect.set(cx - 9f, cy - 11f, cx - 4f, cy - 7f); c.drawRect(rect, mark)
+        rect.set(cx + 4f, cy - 11f, cx + 9f, cy - 7f); c.drawRect(rect, mark)
+        mark.style = Paint.Style.STROKE
+        c.drawLine(cx - 9f, cy + 2f, cx - 3f, cy + 2f, mark)
+        c.drawLine(cx - 6f, cy - 1f, cx - 6f, cy + 5f, mark)
+        c.drawLine(cx + 3f, cy + 2f, cx + 9f, cy + 2f, mark)
+    }
+
+    /** Давление в шинах (символ TPMS): подкова шины и «!». */
+    private fun iconTire(c: Canvas, cx: Float, cy: Float) {
+        mark.style = Paint.Style.STROKE
+        rect.set(cx - 12f, cy - 11f, cx + 12f, cy + 11f)
+        c.drawArc(rect, -50f, 280f, false, mark)
+        c.drawLine(cx, cy - 6f, cx, cy + 2f, mark)
+        mark.style = Paint.Style.FILL
+        c.drawCircle(cx, cy + 6f, 1.8f, mark)
+        mark.style = Paint.Style.STROKE
+    }
+
+    /** Расход: топливная колонка со шлангом. */
+    private fun iconPump(c: Canvas, cx: Float, cy: Float) {
+        mark.style = Paint.Style.STROKE
+        rect.set(cx - 11f, cy - 11f, cx + 2f, cy + 11f)
+        c.drawRoundRect(rect, 2f, 2f, mark)
+        c.drawLine(cx - 8f, cy - 5f, cx - 1f, cy - 5f, mark)
+        c.drawLine(cx + 2f, cy - 6f, cx + 8f, cy - 2f, mark)
+        c.drawLine(cx + 8f, cy - 2f, cx + 8f, cy + 7f, mark)
+        c.drawLine(cx + 8f, cy + 7f, cx + 5f, cy + 7f, mark)
+    }
+
+    /** КПП: схема переключения «H» с точками на концах. */
+    private fun iconGearbox(c: Canvas, cx: Float, cy: Float) {
+        mark.style = Paint.Style.STROKE
+        for (dx in listOf(-9f, 0f, 9f)) c.drawLine(cx + dx, cy - 8f, cx + dx, cy + 8f, mark)
+        c.drawLine(cx - 9f, cy, cx + 9f, cy, mark)
+        mark.style = Paint.Style.FILL
+        for (dx in listOf(-9f, 0f, 9f)) {
+            c.drawCircle(cx + dx, cy - 9f, 2.2f, mark)
+            c.drawCircle(cx + dx, cy + 9f, 2.2f, mark)
+        }
+        mark.style = Paint.Style.STROKE
     }
 
     /**
@@ -475,6 +649,18 @@ class RetroSpeedometerView(context: Context) : View(context) {
         const val SCALE_HALF = 322f
         const val TICK_TOP_Y = 100f
         const val LEDGE_Y = 252f
+        /** Ширина ячеек одометра: 6 по 27 + 5 зазоров по 3. */
+        const val ODO_TOTAL = 6 * 27f + 5 * 3f
+        /** Малые барабанчики (запас хода, показания по бокам). */
+        const val DRUM_W = 20f
+        const val DRUM_H = 30f
+        const val DRUM_GAP = 2f
+        const val ICON_W = 28f
+        /** Напряжение вне нормы (как у цвета батареи в «Автомобиле»). */
+        const val VOLT_LOW = 11.2f
+        const val VOLT_HIGH = 14.6f
+        /** КПП перегрета, °C. */
+        const val GEARBOX_HOT = 110f
         /** Верх таблички селектора (под одометром). */
         const val GEAR_TOP = 314f
         /** Порядок как в цифровом виде; индекс — [gearIndex]. */
