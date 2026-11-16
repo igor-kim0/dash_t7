@@ -31,7 +31,7 @@ import kotlin.math.tan
  * указатель ОЖ (стрелка приборки) с подписью в градусах — честные °C из a0ff
  * ([ClusterPps.coolantC]) или OBD в приоритете, без них оценка по стрелке
  * ([CoolantCalibration.estimate]),
- * в центре — одометр, над ним барабанчик запаса хода, под ним табличка
+ * в центре — одометр, под ним табличка
  * селектора R N P 1–7 (как в цифровом виде): гравированные буквы,
  * включённая подсвечена «лампой», под ней ездит красный указатель.
  * По бокам от селектора — таблички климата ([ClimateHub]): слева
@@ -59,8 +59,6 @@ class RetroSpeedometerView(context: Context) : View(context) {
     private var waterC: Float? = null
     private var waterEstimated = false
     private var odo: Int? = null
-    /** Запас хода, км ([CarData.rangeKm]). */
-    private var range: Int? = null
     /** Индекс включённой передачи в [GEARS] ([gearIndex]), -1 — неизвестно. */
     private var gear = -1
 
@@ -169,11 +167,10 @@ class RetroSpeedometerView(context: Context) : View(context) {
             }
         }
         odo = d.odoKm ?: ClusterPps.trip()?.odometerKm?.toInt()
-        range = d.rangeKm?.takeIf { it >= 0 }
         gear = gearIndex(d.gearRaw)
         // Живой канал приходит ~10 раз/с и с оборотами, которых здесь нет:
         // перерисовка только при смене показываемого.
-        val shown = listOf(speedTarget, fuelTarget, fuelL, waterTarget, waterC, waterEstimated, odo, range, gear)
+        val shown = listOf(speedTarget, fuelTarget, fuelL, waterTarget, waterC, waterEstimated, odo, gear)
         if (shown == lastShown) return
         lastShown = shown
         postInvalidateOnAnimation()
@@ -215,8 +212,6 @@ class RetroSpeedometerView(context: Context) : View(context) {
         drawSpeedScale(canvas)
         drawFuel(canvas)
         drawWater(canvas)
-        // Запас хода — под стрелкой: она проходит поверх, как над окном шкалы.
-        drawRange(canvas)
         drawSpeedNeedle(canvas)
         drawOdometer(canvas)
         drawGears(canvas)
@@ -344,7 +339,7 @@ class RetroSpeedometerView(context: Context) : View(context) {
         val digits = odo?.let { "%06d".format(it % 1_000_000) } ?: "------"
         val cw = 27f
         val gap = 3f
-        val total = ODO_TOTAL
+        val total = digits.length * cw + (digits.length - 1) * gap
         val left = PIVOT_X - total / 2f
         val top = LEDGE_Y + 8f
         // Козырёк над осью: под ним прячется основание стрелки.
@@ -358,37 +353,6 @@ class RetroSpeedometerView(context: Context) : View(context) {
             c.drawRoundRect(rect, 3f, 3f, cell)
             c.drawText(ch.toString(), x + cw / 2f, top + 19f - (fm.ascent + fm.descent) / 2f, digit)
         }
-    }
-
-    /**
-     * Запас хода над одометром: те же барабанчики, только меньше, козырёк
-     * прижат к правому краю одометра. Нет данных — прочерки; резерв топлива —
-     * цифры красные.
-     */
-    private fun drawRange(c: Canvas) {
-        val digits = range?.let { "%3d".format(it.coerceAtMost(999)) } ?: "---"
-        val cw = 22f
-        val gap = 3f
-        val cells = digits.length * cw + (digits.length - 1) * gap
-        // Правый край — как у козырька одометра ([drawOdometer]).
-        val left = PIVOT_X + ODO_TOTAL / 2f + 14f - 10f - cells
-        val bottom = LEDGE_Y - 10f
-        val top = bottom - 32f
-        rect.set(left - 10f, top - 5f, left + cells + 10f, bottom + 5f)
-        c.drawRoundRect(rect, 7f, 7f, hood)
-        digit.textSize = 24f
-        val low = (fuelTarget ?: 1f) < LOW_FUEL
-        digit.color = if (low) red else cream
-        val fm = digit.fontMetrics
-        digits.forEachIndexed { i, ch ->
-            val x = left + i * (cw + gap)
-            rect.set(x, top, x + cw, bottom)
-            c.drawRoundRect(rect, 3f, 3f, cell)
-            if (ch != ' ') {
-                c.drawText(ch.toString(), x + cw / 2f, (top + bottom) / 2f - (fm.ascent + fm.descent) / 2f, digit)
-            }
-        }
-        digit.color = cream
     }
 
     /**
@@ -511,8 +475,6 @@ class RetroSpeedometerView(context: Context) : View(context) {
         const val SCALE_HALF = 322f
         const val TICK_TOP_Y = 100f
         const val LEDGE_Y = 252f
-        /** Ширина ячеек одометра: 6 по 27 + 5 зазоров по 3. */
-        const val ODO_TOTAL = 6 * 27f + 5 * 3f
         /** Верх таблички селектора (под одометром). */
         const val GEAR_TOP = 314f
         /** Порядок как в цифровом виде; индекс — [gearIndex]. */
