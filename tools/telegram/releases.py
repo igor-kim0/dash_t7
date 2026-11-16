@@ -49,6 +49,11 @@ def release_url(repo: str, tag: str) -> str:
     return f"https://github.com/{repo}/releases/tag/{tag}"
 
 
+def changelog_url(repo: str, tag: str) -> str:
+    """CHANGELOG.md на GitHub в состоянии тега релиза."""
+    return f"https://github.com/{repo}/blob/{tag}/CHANGELOG.md"
+
+
 def find_section(changelog: str, version: str) -> tuple[str, str] | None:
     """Возвращает (дата, markdown раздела) для версии из CHANGELOG."""
     lines = changelog.splitlines()
@@ -80,8 +85,8 @@ def build_post(*, tag: str, repo: str, changelog: str, prerelease: bool = False,
                limit: int = markdown.SAFE_LIMIT) -> tuple[str, bool]:
     """Собирает HTML-сообщение анонса. Возвращает (html, обрезано ли).
 
-    По умолчанию — короткий пост: заголовок и ссылки, а список изменений
-    читается в GitHub Release (раздел CHANGELOG целиком в канал не влезает).
+    По умолчанию — короткий пост: заголовок и одна ссылка на CHANGELOG.md
+    на GitHub (раздел целиком в канал не влезает).
     full=True — прежний вид: раздел CHANGELOG, обрезанный под лимит.
     apk_url — прямая ссылка на APK в GitHub Release; без неё — ссылка на
     страницу релиза.
@@ -110,10 +115,9 @@ def build_post(*, tag: str, repo: str, changelog: str, prerelease: bool = False,
                   f"список изменений</a>")
     if not full:
         lines = [title, ""]
-        if url:
-            lines.append(f'📝 <a href="{markdown.esc(url)}">Что нового — список изменений на GitHub</a>')
-        if apk_url:
-            lines.append(f'📦 <a href="{markdown.esc(apk_url)}">Скачать APK</a>')
+        if repo:
+            log = changelog_url(repo, tag)
+            lines.append(f'📝 <a href="{markdown.esc(log)}">Что нового — CHANGELOG.md на GitHub</a>')
         return "\n".join(lines).rstrip(), False
     blocks = markdown.parse_blocks(section)
     return markdown.fit_blocks(blocks, header=title, footer=footer, limit=limit)

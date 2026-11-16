@@ -91,7 +91,7 @@ class ReleaseTest(unittest.TestCase):
             tag="v1.9", repo="igor-kim0/dash_t7", changelog=CHANGELOG)
         self.assertFalse(truncated)
         self.assertIn("DashHeadUnit 1.9", html)
-        self.assertIn(releases.release_url("igor-kim0/dash_t7", "v1.9"), html)
+        self.assertIn(releases.changelog_url("igor-kim0/dash_t7", "v1.9"), html)
         self.assertLessEqual(markdown.visible_len(html), markdown.SAFE_LIMIT)
 
     def test_post_short_by_default(self):
@@ -102,12 +102,14 @@ class ReleaseTest(unittest.TestCase):
             tag="v1.9", repo="igor-kim0/dash_t7", changelog=CHANGELOG, full=True)
         self.assertIn("Первое изменение", full)
 
-    def test_post_links_apk(self):
+    def test_post_only_changelog_link(self):
         apk = "https://github.com/igor-kim0/dash_t7/releases/download/v1.9/app.apk"
         html, _ = releases.build_post(
             tag="v1.9", repo="igor-kim0/dash_t7", changelog=CHANGELOG, apk_url=apk)
-        self.assertIn(f'<a href="{apk}">Скачать APK</a>', html)
-        self.assertIn(releases.release_url("igor-kim0/dash_t7", "v1.9"), html)
+        self.assertIn(
+            '<a href="https://github.com/igor-kim0/dash_t7/blob/v1.9/CHANGELOG.md">', html)
+        self.assertNotIn(apk, html)
+        self.assertEqual(html.count("<a "), 1)
 
 
 class QueueTest(unittest.TestCase):

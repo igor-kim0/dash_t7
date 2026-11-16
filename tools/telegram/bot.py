@@ -85,7 +85,7 @@ def cmd_post_release(args: argparse.Namespace) -> int:
     tg.send_message(chat, html)
     print(f"✅ Анонс {version} опубликован в {chat}")
 
-    # APK в канал не прикрепляем — в посте прямая ссылка на GitHub.
+    # APK в канал не прикрепляем — в посте только ссылка на CHANGELOG.md.
     if not args.apk:
         return 0
     try:
