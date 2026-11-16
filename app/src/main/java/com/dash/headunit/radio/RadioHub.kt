@@ -124,6 +124,33 @@ object RadioHub {
         }
     }
 
+    /**
+     * Включить радио при запуске приложения (настройка
+     * [com.dash.headunit.settings.AppSettings.radioOnStart]). Один раз на
+     * процесс: пересоздание активности (смена темы) источник не перебивает.
+     * Радио делается источником в фоне (дашборд остаётся сверху); если
+     * через пару секунд не играет — шлём play.
+     */
+    fun startOnLaunch(context: Context) {
+        if (launchDone) return
+        launchDone = true
+        val ctx = context.applicationContext
+        init(ctx)
+        worker.postDelayed({
+            note("startOnLaunch: ${state.band}, служба ${if (service != null) "есть" else "нет"}")
+            startSource(ctx, state.band)
+            worker.postDelayed({
+                if (service != null && state.playing != true) {
+                    note("startOnLaunch: не играет — play")
+                    sendNow(CMD_PLAY)
+                }
+            }, 2000)
+        }, 1500)
+    }
+
+    @Volatile
+    private var launchDone = false
+
     /** Поставить радио на паузу, если оно играет (звук забирает другой плеер). */
     fun pauseIfPlaying() {
         worker.post { if (service != null && state.playing == true) sendNow(CMD_PAUSE) }
@@ -571,6 +598,7 @@ object RadioHub {
 
     private const val CMD_PLAY_OR_PAUSE = "play_or_pause"
     private const val CMD_PAUSE = "pause"
+    private const val CMD_PLAY = "play"
     private const val CMD_NEXT = "next"
     private const val CMD_PRE = "pre"
     private const val CMD_COLLECT = "change_collect"

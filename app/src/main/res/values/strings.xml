@@ -86,6 +86,8 @@
     <string name="settings_etm_coolant_s">Вход в инженерное меню приборки при старте (запись в tx)</string>
     <string name="settings_shade_resume_t">Шторка люка</string>
     <string name="settings_shade_resume_s">Открывать при старте, если была открыта в конце поездки</string>
+    <string name="settings_radio_on_start_t">Радио при старте</string>
+    <string name="settings_radio_on_start_s">Включать штатное радио при запуске приложения</string>
     <string name="tank_title_short">Объём бака</string>
     <string name="tank_sub">Для литров остатка и расхода по проценту топлива</string>
     <string name="tank_value">%d л</string>

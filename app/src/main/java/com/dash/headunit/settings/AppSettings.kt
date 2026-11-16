@@ -73,6 +73,14 @@ object AppSettings {
         prefs(context).edit().putBoolean(KEY_SHADE_RESUME, enabled).apply()
     }
 
+    /** Включать штатное радио при запуске приложения ([com.dash.headunit.radio.RadioHub.startOnLaunch]). */
+    fun radioOnStart(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_RADIO_ON_START, false)
+
+    fun setRadioOnStart(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_RADIO_ON_START, enabled).apply()
+    }
+
     /**
      * Вход в инженерное меню (ETM) приборки ради °C ОЖ
      * ([com.dash.headunit.car.CoolantEtm]): запись в tx при старте и
@@ -108,6 +116,7 @@ object AppSettings {
     private const val KEY_CLUSTER_YANDEX = "cluster_yandex"
     private const val KEY_JOURNAL_KEEP_DAYS = "journal_keep_days"
     private const val KEY_SHADE_RESUME = "shade_resume"
+    private const val KEY_RADIO_ON_START = "radio_on_start"
     private const val KEY_ETM_COOLANT = "etm_coolant"
     private const val KEY_TIRE_MIN = "tire_pressure_min"
 

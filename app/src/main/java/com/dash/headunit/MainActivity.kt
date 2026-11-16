@@ -122,6 +122,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
         ClusterOverlay.init(this)
         ClusterSetup.restoreOnStart(this)
+        if (AppSettings.radioOnStart(this)) com.dash.headunit.radio.RadioHub.startOnLaunch(this)
 
         // Не гаснуть на ГУ + во весь экран.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -388,6 +389,7 @@ class MainActivity : AppCompatActivity() {
         var clusterNavi = AppSettings.clusterNavi(this)
         var etm = AppSettings.etmCoolant(this)
         var shade = AppSettings.shadeResume(this)
+        var radioOnStart = AppSettings.radioOnStart(this)
         var tank = CarHub.tankLiters(this)
         var tireMin = (AppSettings.tirePressureMin(this) * 10).toInt()
         val keepOptions = intArrayOf(7, 14, 30, 0)
@@ -399,6 +401,10 @@ class MainActivity : AppCompatActivity() {
         val list = SettingsList(this, theme)
             .section(getString(R.string.settings_sec_general))
             .switch(R.drawable.ic_power, getString(R.string.settings_autostart), null, autostart) { autostart = it }
+            .switch(
+                R.drawable.ic_radio, getString(R.string.settings_radio_on_start_t),
+                getString(R.string.settings_radio_on_start_s), radioOnStart
+            ) { radioOnStart = it }
             .switch(
                 R.drawable.ic_grid, getString(R.string.settings_bar_left_t),
                 getString(R.string.settings_bar_left_s), barLeft
@@ -457,6 +463,8 @@ class MainActivity : AppCompatActivity() {
                 else if (clusterMode() == CLUSTER_OFF) setClusterMode(CLUSTER_OURS)
                 // Шторка: настройка проверяется при следующем старте.
                 AppSettings.setShadeResume(this, shade)
+                // Радио: проверяется при следующем запуске приложения.
+                AppSettings.setRadioOnStart(this, radioOnStart)
                 // ETM: отключили — посылаем приборке выход из инженерного
                 // меню (вернуть как было). Вход идёт при каждом
                 // подключении [ClusterPps] к qconn.
