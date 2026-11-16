@@ -20,10 +20,12 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
- * Фон «Цветомузыка» — как светомузыкальная приставка 80-х: три лампы
- * за матовым стеклом (низкие, средние, высокие частоты) вспыхивают
- * в такт музыке, на сильной доле баса гамма сдвигается и экран коротко
- * подсвечивается. По центру — часы и дата, подкрашенные текущим светом.
+ * Фон «Цветомузыка» — спокойная светомузыка, не отвлекающая от дороги:
+ * три приглушённые лампы за матовым стеклом (низкие, средние, высокие
+ * частоты) плавно разгораются и гаснут вместе с громкостью музыки — без
+ * вспышек и мигания (подъём ~0,5 с, спад ~1,5 с, яркость не выше ~⅓).
+ * Цвета медленно плывут по кругу; сильная доля баса лишь чуть подталкивает
+ * их (не чаще раза в 2 с). По центру — часы и дата ровным светом.
  *
  * Уровни — [SpectrumHub] (Visualizer на общем выходе; если звук идёт мимо
  * микшера Android, как BT на ГУ, — имитация с ритмом, пока плеер играет).
@@ -34,7 +36,7 @@ import kotlin.math.sqrt
  * Лампа — заранее посчитанное мягкое пятно (ALPHA_8), рисуется цветом
  * кисти со сложением света: без шейдеров и выделений памяти на кадр.
  */
-class ColorMusicView(context: Context) : SaverView(context, 30) {
+class ColorMusicView(context: Context) : SaverView(context, 20) {
 
     private val glow: Bitmap = makeGlow()
     private val lampPaint = Paint(Paint.FILTER_BITMAP_FLAG).apply {
@@ -56,8 +58,6 @@ class ColorMusicView(context: Context) : SaverView(context, 30) {
     /** Средний уровень баса за ~2 с — фон для поиска сильной доли. */
     private var bassAvg = 0f
     private var sinceBeat = 10f
-    /** Вспышка на сильной доле, 1 → 0. */
-    private var flash = 0f
     /** Сдвиг гаммы, градусы: плывёт сам и прыгает на сильной доле. */
     private var hue = 0f
     private var hueTarget = 0f
@@ -103,10 +103,8 @@ class ColorMusicView(context: Context) : SaverView(context, 30) {
         val w = width.toFloat()
         val h = height.toFloat()
 
-        // Вспышка доли — общий отсвет текущим цветом баса.
+        canvas.drawColor(Color.BLACK)
         val base = color(0, 1f)
-        val fl = (flash * 40).toInt()
-        canvas.drawColor(Color.rgb(Color.red(base) * fl / 255, Color.green(base) * fl / 255, Color.blue(base) * fl / 255))
 
         // Три лампы по ширине: низкие в центре (самая большая), средние и
         // высокие по бокам; центры медленно плавают — картинка не застывает.
@@ -115,12 +113,11 @@ class ColorMusicView(context: Context) : SaverView(context, 30) {
         drawLamp(canvas, w * 0.17f + w * 0.05f * sin(t * 0.07f + 1f), h * 0.42f + h * 0.08f * sin(t * 0.09f), r * (0.8f + 0.2f * lamp[1]), 1)
         drawLamp(canvas, w * 0.83f + w * 0.05f * sin(t * 0.08f + 2f), h * 0.45f + h * 0.08f * sin(t * 0.1f + 1f), r * (0.75f + 0.2f * lamp[2]), 2)
 
-        // Часы — чуть подкрашены светом баса, ореол — им же.
-        val tint = blend(Color.WHITE, base, 0.25f + 0.25f * lamp[0])
-        val halo = Color.argb((90 + 120 * max(lamp[0], flash)).toInt().coerceAtMost(255), Color.red(base), Color.green(base), Color.blue(base))
-        timePaint.color = tint
-        datePaint.color = blend(Color.WHITE, base, 0.15f)
-        datePaint.alpha = 200
+        // Часы — ровный светлый, чуть в тон ламп; ореол слабый и постоянный.
+        val halo = Color.argb(70, Color.red(base), Color.green(base), Color.blue(base))
+        timePaint.color = blend(TEXT, base, 0.15f)
+        datePaint.color = blend(TEXT, base, 0.1f)
+        datePaint.alpha = 170
         timePaint.setShadowLayer(h * 0.03f, 0f, 0f, halo)
         // Медленный дрейф по экрану от выгорания.
         val cx = w / 2f + w * 0.03f * sin(t * 0.013f)
@@ -131,8 +128,8 @@ class ColorMusicView(context: Context) : SaverView(context, 30) {
     }
 
     private fun drawLamp(c: Canvas, x: Float, y: Float, radius: Float, i: Int) {
-        // Тишина — еле тлеет, громко — почти полная яркость.
-        val level = 0.10f + 0.90f * lamp[i]
+        // Тишина — еле тлеет, громко — не ярче ~⅓: свет фоном, не вспышкой.
+        val level = 0.07f + 0.28f * lamp[i]
         lampPaint.color = color(i, 1f)
         lampPaint.alpha = (255 * level.coerceIn(0f, 1f)).toInt()
         dst.set(x - radius, y - radius, x + radius, y + radius)
@@ -152,15 +149,14 @@ class ColorMusicView(context: Context) : SaverView(context, 30) {
 
         bassAvg += (bass - bassAvg) * (dt / 2f).coerceAtMost(1f)
         sinceBeat += dt
-        if (bass > 0.22f && bass > bassAvg * 1.3f && sinceBeat > 0.28f) {
+        // Сильная доля лишь подталкивает цвета, не чаще раза в 2 с.
+        if (bass > 0.25f && bass > bassAvg * 1.35f && sinceBeat > 2f) {
             sinceBeat = 0f
-            flash = 1f
-            hueTarget += 35f + 40f * bass
+            hueTarget += 12f
         }
-        flash = max(0f, flash - dt * 3.5f)
-        // Сама по себе гамма плывёт по кругу за ~2 мин; к цели — плавно.
-        hueTarget += dt * 3f
-        hue += (hueTarget - hue) * (dt * 4f).coerceAtMost(1f)
+        // Сама по себе гамма плывёт по кругу за ~4 мин; к цели — за пару секунд.
+        hueTarget += dt * 1.5f
+        hue += (hueTarget - hue) * (dt * 0.6f).coerceAtMost(1f)
         if (hue > 3600f) {
             hue -= 3600f
             hueTarget -= 3600f
@@ -174,7 +170,8 @@ class ColorMusicView(context: Context) : SaverView(context, 30) {
 
     private fun follow(i: Int, target: Float, dt: Float) {
         val v = target.pow(0.8f)
-        val k = if (v > lamp[i]) (dt * 18f) else (dt * 3f)
+        // Подъём ~0,5 с, спад ~1,5 с: свет следует за громкостью, не за ударами.
+        val k = if (v > lamp[i]) (dt * 2.2f) else (dt * 0.7f)
         lamp[i] += (v - lamp[i]) * k.coerceAtMost(1f)
     }
 
@@ -187,7 +184,7 @@ class ColorMusicView(context: Context) : SaverView(context, 30) {
     /** Цвет лампы [i]: красная, зелёная, синяя по кругу, сдвинутые на [hue]. */
     private fun color(i: Int, value: Float): Int {
         hsv[0] = ((BASE_HUES[i] + hue) % 360f + 360f) % 360f
-        hsv[1] = 0.85f
+        hsv[1] = 0.7f
         hsv[2] = value
         return Color.HSVToColor(hsv)
     }
@@ -201,6 +198,7 @@ class ColorMusicView(context: Context) : SaverView(context, 30) {
     companion object {
         private const val KEY = "screensaver_color_music"
         private val BASE_HUES = floatArrayOf(0f, 120f, 230f)
+        private val TEXT = Color.rgb(0xC8, 0xC8, 0xC8)
         private const val GLOW_SIZE = 256
 
         /** Мягкое пятно: гаусс по радиусу, к краю — ноль. */
