@@ -32,10 +32,10 @@ import kotlin.math.tan
  * указатель ОЖ (стрелка приборки) с подписью в градусах — честные °C из a0ff
  * ([ClusterPps.coolantC]) или OBD в приоритете, без них оценка по стрелке
  * ([CoolantCalibration.estimate]),
- * в центре — одометр; по бокам от него барабанчики с гравированными
+ * в центре — одометр; по бокам от него показания с гравированными
  * символами: напряжение, минимальное давление в шинах, средний расход
- * поездки, запас хода (цифры — шрифтом подписи литров); отклонение —
- * символ и цифры горят красным. Под ним табличка
+ * поездки, запас хода (цифры — шрифтом подписи литров, без фона);
+ * отклонение — символ и цифры горят красным. Под ним табличка
  * селектора R N P 1–7 (как в цифровом виде): гравированные буквы,
  * включённая подсвечена «лампой», под ней ездит красный указатель.
  * По бокам от селектора — таблички климата ([ClimateHub]): слева
@@ -117,15 +117,13 @@ class RetroSpeedometerView(context: Context) : View(context) {
         typeface = Typeface.create("sans-serif-condensed", Typeface.BOLD)
     }
     private val climate = RetroClimateIcons(hood)
-    /** Ячейка десятых — светлая, как у старых одометров. */
-    private val tenthCell = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(0xD8, 0xD0, 0xBC) }
-    /** Цифры барабанчиков — шрифт подписи литров у топлива ([label]). */
-    private val drumDigit = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        textAlign = Paint.Align.CENTER
+    /** Цифры показаний — шрифт подписи литров у топлива ([label]). */
+    private val readoutText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textAlign = Paint.Align.LEFT
         typeface = Typeface.create("sans-serif-condensed", Typeface.NORMAL)
         textSize = 24f
     }
-    /** Гравированные символы барабанчиков. */
+    /** Гравированные символы показаний. */
     private val mark = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         strokeWidth = 2.5f
         strokeCap = Paint.Cap.ROUND
@@ -387,38 +385,39 @@ class RetroSpeedometerView(context: Context) : View(context) {
     }
 
     /**
-     * Барабанчики по бокам одометра: слева напряжение и шины, справа
-     * расход и запас хода (на резерве топлива — красный). Символ гравирован; отклонение — символ и цифры красные.
+     * Показания по бокам одометра: слева напряжение и шины, справа расход и
+     * запас хода (на резерве топлива — красный). Гравированный символ и
+     * цифры шрифтом подписи литров, без фона; отклонение — символ и цифры
+     * красные. Место под цифры — по образцу ([sample]), чтобы ряд не
+     * прыгал при смене значений.
      */
     private fun drawReadouts(c: Canvas) {
         val v = volt
         val voltWarn = v != null && (v < VOLT_LOW || v > VOLT_HIGH)
         // Слева — к одометру справа налево.
-        var right = PIVOT_X - ODO_TOTAL / 2f - 14f - 10f
-        right = readout(c, right, alignRight = true, tenthsText(tireMin, 1), true, tireLow, ::iconTire)
-        readout(c, right - 10f, alignRight = true, tenthsText(v, 2), true, voltWarn, ::iconBattery)
+        var right = PIVOT_X - ODO_TOTAL / 2f - 14f - READOUT_GAP / 2f
+        right = readout(c, right, alignRight = true, decimal(tireMin), "8,8", tireLow, ::iconTire)
+        readout(c, right - READOUT_GAP, alignRight = true, decimal(v), "88,8", voltWarn, ::iconBattery)
         // Справа — от одометра слева направо.
-        var left = PIVOT_X + ODO_TOTAL / 2f + 14f + 10f
-        left = readout(c, left, alignRight = false, tenthsText(cons, 2), true, false, ::iconPump)
-        readout(c, left + 10f, alignRight = false, range?.let { "%3d".format(it.coerceAtMost(999)) } ?: "---",
-            false, (fuelTarget ?: 1f) < LOW_FUEL, ::iconRange)
+        var left = PIVOT_X + ODO_TOTAL / 2f + 14f + READOUT_GAP / 2f
+        left = readout(c, left, alignRight = false, decimal(cons), "88,8", false, ::iconPump)
+        readout(c, left + READOUT_GAP, alignRight = false, range?.toString() ?: "--", "888",
+            (fuelTarget ?: 1f) < LOW_FUEL, ::iconRange)
     }
 
     /**
-     * Один барабанчик с символом в козырьке. [edge] — край козырька со стороны
-     * одометра; [tenths] — последняя ячейка — десятые. Возвращает дальний
-     * край (для следующего).
+     * Символ и значение. [edge] — край со стороны одометра; ширина — по
+     * образцу [sample]. Возвращает дальний край (для следующего).
      */
     private fun readout(
-        c: Canvas, edge: Float, alignRight: Boolean, text: String, tenths: Boolean, warn: Boolean,
+        c: Canvas, edge: Float, alignRight: Boolean, text: String, sample: String, warn: Boolean,
         icon: (Canvas, Float, Float) -> Unit,
     ): Float {
-        val w = 8f + ICON_W + 6f + drumWidth(text.length) + 8f
+        val textW = maxOf(readoutText.measureText(sample), readoutText.measureText(text))
+        val w = ICON_W + 6f + textW
         val left = if (alignRight) edge - w else edge
-        val top = LEDGE_Y + 8f
-        rect.set(left, top, left + w, top + DRUM_H + 10f)
-        c.drawRoundRect(rect, 7f, 7f, hood)
-        val cy = top + 5f + DRUM_H / 2f
+        // Базовая линия — как у «42 л» под указателем топлива.
+        val baseline = LEDGE_Y + 30f
         if (warn) {
             mark.color = red
             mark.setShadowLayer(6f, 0f, 0f, com.dash.headunit.theme.RetroLook.glowColor(red))
@@ -426,43 +425,15 @@ class RetroSpeedometerView(context: Context) : View(context) {
             mark.color = RetroClimateIcons.ENGRAVED
             mark.clearShadowLayer()
         }
-        icon(c, left + 8f + ICON_W / 2f, cy)
-        drawDrums(c, left + 8f + ICON_W + 6f, top + 5f, text, tenths, warn)
+        icon(c, left + ICON_W / 2f, baseline - 8f)
+        readoutText.color = if (warn) red else dimCream
+        c.drawText(text, left + ICON_W + 6f, baseline, readoutText)
         return if (alignRight) left else left + w
     }
 
-    /** 13.8 → «138» (последняя ячейка — десятые), нет данных → прочерки; [intCells] — ячеек целой части. */
-    private fun tenthsText(v: Float?, intCells: Int): String {
-        if (v == null) return "-".repeat(intCells + 1)
-        val max = Math.pow(10.0, intCells.toDouble()).toFloat() - 0.05f
-        val r = (v.coerceIn(0f, max) * 10f).roundToInt()
-        return "%${intCells}d".format(r / 10) + (r % 10)
-    }
-
-    private fun drumWidth(cells: Int): Float = cells * DRUM_W + (cells - 1) * DRUM_GAP
-
-    /**
-     * Ячейки барабанчиков от [left]: пробел — пустая ячейка; с [tenths]
-     * последняя ячейка — светлая с тёмной цифрой (десятые, как у старых
-     * одометров). [warn] — цифры красные.
-     */
-    private fun drawDrums(c: Canvas, left: Float, top: Float, text: String, tenths: Boolean, warn: Boolean) {
-        val fm = drumDigit.fontMetrics
-        val baseline = top + DRUM_H / 2f - (fm.ascent + fm.descent) / 2f
-        text.forEachIndexed { i, ch ->
-            val x = left + i * (DRUM_W + DRUM_GAP)
-            val last = tenths && i == text.length - 1
-            rect.set(x, top, x + DRUM_W, top + DRUM_H)
-            c.drawRoundRect(rect, 3f, 3f, if (last) tenthCell else cell)
-            if (ch == ' ') return@forEachIndexed
-            drumDigit.color = when {
-                warn -> red
-                last -> Color.rgb(0x16, 0x1A, 0x1E)
-                else -> dimCream
-            }
-            c.drawText(ch.toString(), x + DRUM_W / 2f, baseline, drumDigit)
-        }
-    }
+    /** 13.8 → «13,8»; нет данных → «--». */
+    private fun decimal(v: Float?): String =
+        v?.let { "%.1f".format(java.util.Locale("ru"), it) } ?: "--"
 
     // ---------- гравированные символы (~26×22 вокруг центра), цвет — [mark] ----------
 
@@ -634,11 +605,9 @@ class RetroSpeedometerView(context: Context) : View(context) {
         const val LEDGE_Y = 252f
         /** Ширина ячеек одометра: 6 по 27 + 5 зазоров по 3. */
         const val ODO_TOTAL = 6 * 27f + 5 * 3f
-        /** Малые барабанчики (показания по бокам одометра). */
-        const val DRUM_W = 20f
-        const val DRUM_H = 30f
-        const val DRUM_GAP = 2f
+        /** Показания по бокам одометра: ширина символа и зазор между показаниями. */
         const val ICON_W = 28f
+        const val READOUT_GAP = 24f
         /** Напряжение вне нормы (как у цвета батареи в «Автомобиле»). */
         const val VOLT_LOW = 11.2f
         const val VOLT_HIGH = 14.6f
