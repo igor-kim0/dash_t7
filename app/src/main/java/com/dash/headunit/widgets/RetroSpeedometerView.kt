@@ -344,7 +344,7 @@ class RetroSpeedometerView(context: Context) : View(context) {
         val digits = odo?.let { "%06d".format(it % 1_000_000) } ?: "------"
         val cw = 27f
         val gap = 3f
-        val total = digits.length * cw + (digits.length - 1) * gap
+        val total = ODO_TOTAL
         val left = PIVOT_X - total / 2f
         val top = LEDGE_Y + 8f
         // Козырёк над осью: под ним прячется основание стрелки.
@@ -361,19 +361,20 @@ class RetroSpeedometerView(context: Context) : View(context) {
     }
 
     /**
-     * Запас хода над одометром: те же барабанчики, только меньше, и «км»
-     * в том же козырьке. Нет данных — прочерки; резерв топлива — цифры красные.
+     * Запас хода над одометром: те же барабанчики, только меньше, козырёк
+     * прижат к правому краю одометра. Нет данных — прочерки; резерв топлива —
+     * цифры красные.
      */
     private fun drawRange(c: Canvas) {
         val digits = range?.let { "%3d".format(it.coerceAtMost(999)) } ?: "---"
         val cw = 22f
         val gap = 3f
-        val unitW = 34f
         val cells = digits.length * cw + (digits.length - 1) * gap
-        val left = PIVOT_X - (cells + unitW) / 2f
+        // Правый край — как у козырька одометра ([drawOdometer]).
+        val left = PIVOT_X + ODO_TOTAL / 2f + 14f - 10f - cells
         val bottom = LEDGE_Y - 10f
         val top = bottom - 32f
-        rect.set(left - 10f, top - 5f, left + cells + unitW + 6f, bottom + 5f)
+        rect.set(left - 10f, top - 5f, left + cells + 10f, bottom + 5f)
         c.drawRoundRect(rect, 7f, 7f, hood)
         digit.textSize = 24f
         val low = (fuelTarget ?: 1f) < LOW_FUEL
@@ -388,9 +389,6 @@ class RetroSpeedometerView(context: Context) : View(context) {
             }
         }
         digit.color = cream
-        label.textSize = 20f
-        label.color = dimCream
-        c.drawText("км", left + cells + unitW / 2f, (top + bottom) / 2f + 7f, label)
     }
 
     /**
@@ -513,6 +511,8 @@ class RetroSpeedometerView(context: Context) : View(context) {
         const val SCALE_HALF = 322f
         const val TICK_TOP_Y = 100f
         const val LEDGE_Y = 252f
+        /** Ширина ячеек одометра: 6 по 27 + 5 зазоров по 3. */
+        const val ODO_TOTAL = 6 * 27f + 5 * 3f
         /** Верх таблички селектора (под одометром). */
         const val GEAR_TOP = 314f
         /** Порядок как в цифровом виде; индекс — [gearIndex]. */
