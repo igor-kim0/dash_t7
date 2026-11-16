@@ -233,34 +233,6 @@ object ElmHub {
     fun coolantC(now: Long = SystemClock.uptimeMillis()): Float? = readings(now)[COOLANT_ID]?.toFloat()
 
     /**
-     * Температура КПП (масла / ATF / вариатора) по параметру профиля, °C.
-     * Параметр опознаётся по названию («Температура КПП», «ATF temp»,
-     * «Transmission temperature») и единице °C. Без такого параметра — null.
-     */
-    fun gearboxTempC(now: Long = SystemClock.uptimeMillis()): Float? {
-        val prof = profile ?: return null
-        val vals = readings(now)
-        if (vals.isEmpty()) return null
-        for (p in prof.params) {
-            if (!isGearboxTemp(p.name) && !isGearboxTemp(p.shortName)) continue
-            if (!p.unit.trim().uppercase().let { it == "°C" || it == "C" || it == "ºC" }) continue
-            val v = vals[profileKey(p)]?.toFloat() ?: continue
-            if (v < -40f || v > 200f) continue
-            return v
-        }
-        return null
-    }
-
-    /** Название параметра — температура КПП. Чистая. */
-    internal fun isGearboxTemp(name: String): Boolean {
-        val n = name.lowercase()
-        val temp = n.contains("темп") || n.contains("temp")
-        val box = listOf("кпп", "коробк", "трансмис", "вариатор", "atf", "cvt", "transmission", "gearbox", "tcm")
-            .any { n.contains(it) }
-        return temp && box
-    }
-
-    /**
      * Давление в шинах по параметрам профиля (TPMS), бар.
      * Колесо опознаётся по названию параметра («Tire FL», «TPMS FR»,
      * «Давление в шине Передняя Левая»), единица — по единице измерения

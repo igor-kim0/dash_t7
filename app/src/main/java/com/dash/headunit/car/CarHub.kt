@@ -380,8 +380,6 @@ object CarHub {
             fuelLiters = CarScaling.fuelLiters(merged.fuelPct, tank),
             engineTempC = coolant ?: merged.engineTempC,
             tirePressure = tires,
-            // КПП: штатно не отдаётся — только параметр OBD-профиля.
-            gearboxTempC = merged.gearboxTempC ?: ElmHub.gearboxTempC(),
             // VHAL в приложении без прав (CAR_VENDOR_EXTENSION denied),
             // а Desay-ячейка может не читаться: дублируем с приборки (PPS),
             // которая на ГУ proven working (скорость/обороты в логах).

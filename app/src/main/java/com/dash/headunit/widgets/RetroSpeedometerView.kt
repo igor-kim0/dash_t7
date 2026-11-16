@@ -32,10 +32,10 @@ import kotlin.math.tan
  * указатель ОЖ (стрелка приборки) с подписью в градусах — честные °C из a0ff
  * ([ClusterPps.coolantC]) или OBD в приоритете, без них оценка по стрелке
  * ([CoolantCalibration.estimate]),
- * в центре — одометр, над ним барабанчик запаса хода; по бокам от
- * одометра — барабанчики с гравированными символами: напряжение, минимальное
- * давление в шинах, средний расход поездки, температура КПП (если есть);
- * отклонение — символ и цифры горят красным. Под ним табличка
+ * в центре — одометр; по бокам от него барабанчики с гравированными
+ * символами: напряжение, минимальное давление в шинах, средний расход
+ * поездки, запас хода (цифры — шрифтом подписи литров); отклонение —
+ * символ и цифры горят красным. Под ним табличка
  * селектора R N P 1–7 (как в цифровом виде): гравированные буквы,
  * включённая подсвечена «лампой», под ней ездит красный указатель.
  * По бокам от селектора — таблички климата ([ClimateHub]): слева
@@ -63,13 +63,12 @@ class RetroSpeedometerView(context: Context) : View(context) {
     private var waterC: Float? = null
     private var waterEstimated = false
     private var odo: Int? = null
-    /** Запас хода, км; напряжение, В; мин. давление, бар; расход, л/100; КПП, °C. */
+    /** Запас хода, км; напряжение, В; мин. давление, бар; расход, л/100. */
     private var range: Int? = null
     private var volt: Float? = null
     private var tireMin: Float? = null
     private var tireLow = false
     private var cons: Float? = null
-    private var gearbox: Float? = null
     /** Индекс включённой передачи в [GEARS] ([gearIndex]), -1 — неизвестно. */
     private var gear = -1
 
@@ -120,6 +119,12 @@ class RetroSpeedometerView(context: Context) : View(context) {
     private val climate = RetroClimateIcons(hood)
     /** Ячейка десятых — светлая, как у старых одометров. */
     private val tenthCell = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(0xD8, 0xD0, 0xBC) }
+    /** Цифры барабанчиков — шрифт подписи литров у топлива ([label]). */
+    private val drumDigit = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textAlign = Paint.Align.CENTER
+        typeface = Typeface.create("sans-serif-condensed", Typeface.NORMAL)
+        textSize = 24f
+    }
     /** Гравированные символы барабанчиков. */
     private val mark = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         strokeWidth = 2.5f
@@ -191,12 +196,11 @@ class RetroSpeedometerView(context: Context) : View(context) {
         tireMin = d.tirePressure?.min()
         tireLow = tireMin?.let { it < AppSettings.tirePressureMin(context) } == true
         cons = (CarHub.tripView ?: if (CarHub.data == null) DemoData.trip() else null)?.avgCons
-        gearbox = d.gearboxTempC
         gear = gearIndex(d.gearRaw)
         // Живой канал приходит ~10 раз/с и с оборотами, которых здесь нет:
         // перерисовка только при смене показываемого.
         val shown = listOf(speedTarget, fuelTarget, fuelL, waterTarget, waterC, waterEstimated, odo, gear,
-            range, volt, tireMin, tireLow, cons, gearbox)
+            range, volt, tireMin, tireLow, cons)
         if (shown == lastShown) return
         lastShown = shown
         postInvalidateOnAnimation()
@@ -238,8 +242,6 @@ class RetroSpeedometerView(context: Context) : View(context) {
         drawSpeedScale(canvas)
         drawFuel(canvas)
         drawWater(canvas)
-        // Запас хода — под стрелкой: она проходит поверх, как над окном шкалы.
-        drawRange(canvas)
         drawSpeedNeedle(canvas)
         drawOdometer(canvas)
         drawReadouts(canvas)
@@ -384,21 +386,9 @@ class RetroSpeedometerView(context: Context) : View(context) {
         }
     }
 
-    /** Запас хода над одометром: барабанчики поменьше, правый край — как у одометра. */
-    private fun drawRange(c: Canvas) {
-        val text = range?.let { "%3d".format(it.coerceAtMost(999)) } ?: "---"
-        val w = drumWidth(text.length)
-        val right = PIVOT_X + ODO_TOTAL / 2f + 14f
-        val bottom = LEDGE_Y - 10f
-        rect.set(right - w - 20f, bottom - DRUM_H - 5f, right, bottom + 5f)
-        c.drawRoundRect(rect, 7f, 7f, hood)
-        drawDrums(c, right - w - 10f, bottom - DRUM_H, text, tenths = false,
-            warn = (fuelTarget ?: 1f) < LOW_FUEL)
-    }
-
     /**
      * Барабанчики по бокам одометра: слева напряжение и шины, справа
-     * расход и КПП. Символ гравирован; отклонение — символ и цифры красные.
+     * расход и запас хода (на резерве топлива — красный). Символ гравирован; отклонение — символ и цифры красные.
      */
     private fun drawReadouts(c: Canvas) {
         val v = volt
@@ -410,10 +400,8 @@ class RetroSpeedometerView(context: Context) : View(context) {
         // Справа — от одометра слева направо.
         var left = PIVOT_X + ODO_TOTAL / 2f + 14f + 10f
         left = readout(c, left, alignRight = false, tenthsText(cons, 2), true, false, ::iconPump)
-        gearbox?.let { t ->
-            readout(c, left + 10f, alignRight = false, "%3d".format(t.roundToInt().coerceIn(-99, 199)),
-                false, t >= GEARBOX_HOT, ::iconGearbox)
-        }
+        readout(c, left + 10f, alignRight = false, range?.let { "%3d".format(it.coerceAtMost(999)) } ?: "---",
+            false, (fuelTarget ?: 1f) < LOW_FUEL, ::iconRange)
     }
 
     /**
@@ -459,8 +447,7 @@ class RetroSpeedometerView(context: Context) : View(context) {
      * одометров). [warn] — цифры красные.
      */
     private fun drawDrums(c: Canvas, left: Float, top: Float, text: String, tenths: Boolean, warn: Boolean) {
-        digit.textSize = 22f
-        val fm = digit.fontMetrics
+        val fm = drumDigit.fontMetrics
         val baseline = top + DRUM_H / 2f - (fm.ascent + fm.descent) / 2f
         text.forEachIndexed { i, ch ->
             val x = left + i * (DRUM_W + DRUM_GAP)
@@ -468,14 +455,13 @@ class RetroSpeedometerView(context: Context) : View(context) {
             rect.set(x, top, x + DRUM_W, top + DRUM_H)
             c.drawRoundRect(rect, 3f, 3f, if (last) tenthCell else cell)
             if (ch == ' ') return@forEachIndexed
-            digit.color = when {
+            drumDigit.color = when {
                 warn -> red
                 last -> Color.rgb(0x16, 0x1A, 0x1E)
-                else -> cream
+                else -> dimCream
             }
-            c.drawText(ch.toString(), x + DRUM_W / 2f, baseline, digit)
+            c.drawText(ch.toString(), x + DRUM_W / 2f, baseline, drumDigit)
         }
-        digit.color = cream
     }
 
     // ---------- гравированные символы (~26×22 вокруг центра), цвет — [mark] ----------
@@ -516,17 +502,14 @@ class RetroSpeedometerView(context: Context) : View(context) {
         c.drawLine(cx + 8f, cy + 7f, cx + 5f, cy + 7f, mark)
     }
 
-    /** КПП: схема переключения «H» с точками на концах. */
-    private fun iconGearbox(c: Canvas, cx: Float, cy: Float) {
+    /** Запас хода: дорога в перспективу с разметкой. */
+    private fun iconRange(c: Canvas, cx: Float, cy: Float) {
         mark.style = Paint.Style.STROKE
-        for (dx in listOf(-9f, 0f, 9f)) c.drawLine(cx + dx, cy - 8f, cx + dx, cy + 8f, mark)
-        c.drawLine(cx - 9f, cy, cx + 9f, cy, mark)
-        mark.style = Paint.Style.FILL
-        for (dx in listOf(-9f, 0f, 9f)) {
-            c.drawCircle(cx + dx, cy - 9f, 2.2f, mark)
-            c.drawCircle(cx + dx, cy + 9f, 2.2f, mark)
-        }
-        mark.style = Paint.Style.STROKE
+        c.drawLine(cx - 12f, cy + 11f, cx - 4f, cy - 11f, mark)
+        c.drawLine(cx + 12f, cy + 11f, cx + 4f, cy - 11f, mark)
+        c.drawLine(cx, cy + 10f, cx, cy + 5f, mark)
+        c.drawLine(cx, cy + 1f, cx, cy - 3f, mark)
+        c.drawLine(cx, cy - 7f, cx, cy - 10f, mark)
     }
 
     /**
@@ -651,7 +634,7 @@ class RetroSpeedometerView(context: Context) : View(context) {
         const val LEDGE_Y = 252f
         /** Ширина ячеек одометра: 6 по 27 + 5 зазоров по 3. */
         const val ODO_TOTAL = 6 * 27f + 5 * 3f
-        /** Малые барабанчики (запас хода, показания по бокам). */
+        /** Малые барабанчики (показания по бокам одометра). */
         const val DRUM_W = 20f
         const val DRUM_H = 30f
         const val DRUM_GAP = 2f
@@ -659,8 +642,7 @@ class RetroSpeedometerView(context: Context) : View(context) {
         /** Напряжение вне нормы (как у цвета батареи в «Автомобиле»). */
         const val VOLT_LOW = 11.2f
         const val VOLT_HIGH = 14.6f
-        /** КПП перегрета, °C. */
-        const val GEARBOX_HOT = 110f
+
         /** Верх таблички селектора (под одометром). */
         const val GEAR_TOP = 314f
         /** Порядок как в цифровом виде; индекс — [gearIndex]. */
