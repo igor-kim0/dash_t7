@@ -28,7 +28,7 @@ import kotlin.math.tan
  * спрятанной под одометром (поэтому к середине шкалы цифры сжимаются,
  * к краям — разъезжаются), слева указатель топлива 0 · 1/2 · 4/4 с подписью
  * литров в баке (по объёму бака из настроек, [CarData.fuelLiters]), справа
- * «ВОДА» (стрелка ОЖ приборки) с подписью в градусах — честные °C из a0ff
+ * указатель ОЖ (стрелка приборки) с подписью в градусах — честные °C из a0ff
  * ([ClusterPps.coolantC]) или OBD в приоритете, без них оценка по стрелке
  * ([CoolantCalibration.estimate]),
  * в центре — одометр, под ним табличка
@@ -312,7 +312,7 @@ class RetroSpeedometerView(context: Context) : View(context) {
         )
     }
 
-    /** Топливо: стрелка уровня + подпись литров под шкалой (как градусы у «ВОДА»). */
+    /** Топливо: стрелка уровня + подпись литров под шкалой (как градусы ОЖ). */
     private fun drawFuel(c: Canvas) {
         drawSmallGauge(c, 108f, listOf("0", "1/2", "4/4"), redAtEnd = false, pos = fuelPos)
         fuelL?.let { l ->
@@ -323,7 +323,7 @@ class RetroSpeedometerView(context: Context) : View(context) {
         }
     }
 
-    /** «ВОДА»: стрелка ОЖ приборки + градусы под шкалой, подпись под ними. */
+    /** ОЖ: стрелка приборки + градусы под шкалой (без подписи). */
     private fun drawWater(c: Canvas) {
         drawSmallGauge(c, VW - 108f, emptyList(), redAtEnd = true, pos = waterPos)
         waterC?.let { t ->
@@ -333,10 +333,6 @@ class RetroSpeedometerView(context: Context) : View(context) {
             label.color = if (t >= 110f) red else dimCream
             c.drawText(text, VW - 108f, LEDGE_Y + 30f, label)
         }
-        // Подпись метрики — под значением (как во всех виджетах).
-        label.textSize = 20f
-        label.color = dimCream
-        c.drawText("ВОДА", VW - 108f, LEDGE_Y + 58f, label)
     }
 
     private fun drawOdometer(c: Canvas) {
