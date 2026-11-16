@@ -64,11 +64,21 @@ object CarHub {
             CoolantEtm.init(app)
             // Экран гаснет (ГУ засыпает с зажиганием) — сохранить поездку и
             // моточасы: сами по себе они пишутся только на пуске/глушении.
+            // Запись синхронная — не в главном потоке.
             app.registerReceiver(object : android.content.BroadcastReceiver() {
                 override fun onReceive(c: Context?, i: android.content.Intent?) {
-                    TripTracker.persist(app)
+                    scope.launch(Dispatchers.IO) { runCatching { TripTracker.persist(app) } }
                 }
             }, android.content.IntentFilter(android.content.Intent.ACTION_SCREEN_OFF))
+            // Выключили зажигание: ГУ уходит в режим питания 19 (экран ещё
+            // горит, SCREEN_OFF нет), Desay рассылает power.half (дамп ГУ
+            // 2026-10-12, шаг engine_stop). Закрываем поездку сразу — до сна
+            // ГУ опрос раз в 5 с может глушение не увидеть.
+            app.registerReceiver(object : android.content.BroadcastReceiver() {
+                override fun onReceive(c: Context?, i: android.content.Intent?) {
+                    scope.launch(Dispatchers.IO) { runCatching { TripTracker.endTrip(app, tankLiters()) } }
+                }
+            }, android.content.IntentFilter(ACTION_POWER_HALF))
         }
     }
 
@@ -115,6 +125,7 @@ object CarHub {
 
     /** Кадр приборки (поток чтения PPS) → скорость/обороты в главный поток. */
     private val onClusterLive: () -> Unit = onClusterLive@{
+        checkEngineStop()
         // Спидометров нет или дашборд не виден — главный поток не будим.
         if (liveListeners.isEmpty() || !com.dash.headunit.ui.DashVisibility.visible) return@onClusterLive
         synchronized(main) {
@@ -122,6 +133,33 @@ object CarHub {
                 livePosted = true
                 val wait = (lastLiveUi + LIVE_UI_MS - android.os.SystemClock.uptimeMillis()).coerceAtLeast(0)
                 main.postDelayed(applyClusterLive, wait)
+            }
+        }
+    }
+
+    @Volatile
+    private var lastStopKick = 0L
+
+    /**
+     * Запасной путь к концу поездки (если power.half не пришёл): обороты
+     * с приборки упали, а борткомпьютер ещё считает двигатель работающим —
+     * внеочередной тик сразу, а не через до 5 с: ГУ может уснуть раньше.
+     * Поток чтения PPS; не чаще раза в [STOP_KICK_MS].
+     */
+    private fun checkEngineStop() {
+        if (!TripTracker.engineRunning) return
+        val rpm = ClusterPps.rpm() ?: return
+        if (rpm > 400) return
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - lastStopKick < STOP_KICK_MS) return
+        lastStopKick = now
+        scope.launch {
+            try {
+                refreshNow()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.w(TAG, "stop tick", e)
             }
         }
     }
@@ -402,6 +440,10 @@ object CarHub {
     /** Данные устарели: шина спит/сервис отвалился — двигателю не верим. */
     private const val FRESH_MS = 25_000L
     private const val TAG = "CarHub"
+    /** Не чаще — внеочередной тик по падению оборотов. */
+    private const val STOP_KICK_MS = 5000L
+    /** Desay: зажигание выключено, ГУ в режиме питания 19 (TIMING). */
+    private const val ACTION_POWER_HALF = "com.desaysv.power.half"
     private const val PREFS = "car_prefs"
     private const val KEY_TANK = "tankLiters"
     const val DEFAULT_TANK_L = 51

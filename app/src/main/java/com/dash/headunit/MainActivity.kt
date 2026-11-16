@@ -314,7 +314,9 @@ class MainActivity : AppCompatActivity() {
         super.onStop()
         // Сон ГУ / уход с дашборда — поездка и моточасы на флеш (иначе
         // пишутся только на пуске и глушении).
-        com.dash.headunit.car.TripTracker.persist(this)
+        // Запись синхронная — не в главном потоке.
+        val app = applicationContext
+        Thread { runCatching { com.dash.headunit.car.TripTracker.persist(app) } }.start()
         // Сами только что подняли навигатор под себя — это не уход с экрана.
         if (System.currentTimeMillis() - underlayLaunchedAt < UNDERLAY_GRACE_MS) return
         // Идёт диалог с Алисой: навигатор наверху ненадолго, блок сохраняем.

@@ -107,6 +107,14 @@ object TripTracker {
     private var prunedAt = 0L
     private var prunedKeep = 0
 
+    /**
+     * Двигатель работал на последнем тике [update] — для быстрой проверки
+     * глушения по кадрам приборки ([CarHub]) без захвата монитора.
+     */
+    @Volatile
+    var engineRunning = false
+        private set
+
     /** Изменилось что-то из этого — пишем состояние в prefs (иначе не пишем вовсе). */
     private data class FlushKey(
         val prevEngineOn: Boolean?,
@@ -351,8 +359,11 @@ object TripTracker {
         lastEngineFlag = blindOpen || on
         lastHasData = data != null
         lastOn = on
+        engineRunning = on
         if (key != flushedKey) {
-            writeState(prefs, t, engineClock)
+            // Не работает — это конец поездки (или стоянка): пишем сразу на
+            // флеш, процесс могут заморозить и убить следом.
+            writeState(prefs, t, engineClock, sync = !on)
             flushedKey = key
         }
         return v
@@ -380,11 +391,42 @@ object TripTracker {
             prefs.getLong(KEY_EH_IDLE, -1L) == clock.idleMillis &&
             prefs.getInt("last_odo", -2) == memLastOdo
         ) return
-        writeState(prefs, t, clock)
+        writeState(prefs, t, clock, sync = true)
+    }
+
+    /**
+     * Конец поездки по событию питания ГУ (выключили зажигание —
+     * `com.desaysv.power.half`, см. [CarHub]): закрыть поездку тем, что
+     * накоплено в памяти к последнему тику, и сразу записать журнал и
+     * моточасы. Опрос раз в 5 с может не успеть увидеть глушение до сна ГУ.
+     * Двигатель уже заглушен (или тиков в этом процессе не было) — только
+     * сохранить состояние.
+     */
+    @Synchronized
+    fun endTrip(context: Context, tankLiters: Int, now: Long = System.currentTimeMillis()) {
+        val t = memTrip ?: return
+        val clock = memClock ?: return
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (prevEngineOn == true) {
+            finalizeBlind(prefs, t, tankLiters, if (memLastOnTs > 0L) memLastOnTs else now)
+            prevEngineOn = false
+            blindSince = 0L
+        }
+        clock.lastOn = false
+        lastEngineFlag = false
+        lastOn = false
+        engineRunning = false
+        writeState(prefs, t, clock, sync = true)
+        flushedKey = null
     }
 
     /** Одна запись: состояние, «слепой» момент, снимок приборки, моточасы. */
-    private fun writeState(prefs: android.content.SharedPreferences, t: Period, engineClock: EngineClock) {
+    private fun writeState(
+        prefs: android.content.SharedPreferences,
+        t: Period,
+        engineClock: EngineClock,
+        sync: Boolean = false
+    ) {
         val edit = prefs.edit()
         putPeriod(edit, PREFIX, t)
         edit.putLong("blind_ts", blindSince)
@@ -401,7 +443,7 @@ object TripTracker {
         // lastClusterOn, а не cluster: на тике пуска его уже сбросили
         // (снимок приборки от прошлой поездки сохранять нельзя).
         lastClusterOn?.takeIf { lastOn }?.let { edit.putString(KEY_CLUSTER, encodeCluster(it)) }
-        edit.apply()
+        if (sync) edit.commit() else edit.apply()
     }
 
     /** Живой переход «заглушили» (со снимком): цифры из текущего расчёта/приборки. */
@@ -451,7 +493,7 @@ object TripTracker {
         prefs.edit().remove(KEY_CLUSTER).apply()
         reset(t)
         t.startTs = 0
-        save(prefs, PREFIX, t)
+        putPeriod(prefs.edit(), PREFIX, t).commit()
     }
 
     /**
@@ -579,7 +621,8 @@ object TripTracker {
     ) {
         val list = (listOf(e) + decodeJournal(prefs.getString(KEY_JOURNAL, "") ?: ""))
             .take(MAX_JOURNAL)
-        prefs.edit().putString(KEY_JOURNAL, encodeJournal(list)).apply()
+        // Запись журнала — конец поездки: сразу на флеш.
+        prefs.edit().putString(KEY_JOURNAL, encodeJournal(list)).commit()
     }
 
     /**
@@ -741,14 +784,6 @@ object TripTracker {
         lastTs = prefs.getLong("${prefix}_ts", 0),
         startTs = prefs.getLong("${prefix}_start", 0)
     )
-
-    private fun save(
-        prefs: android.content.SharedPreferences,
-        prefix: String,
-        p: Period
-    ) {
-        putPeriod(prefs.edit(), prefix, p).apply()
-    }
 
     private fun putPeriod(
         edit: android.content.SharedPreferences.Editor,
