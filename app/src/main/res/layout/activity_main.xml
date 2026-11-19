@@ -63,6 +63,18 @@
                     android:padding="15dp"
                     android:src="@drawable/ic_home" />
 
+                <!-- Следующий дашборд (видна, если дашбордов больше одного). -->
+                <ImageButton
+                    android:id="@+id/btn_pages"
+                    android:layout_width="68dp"
+                    android:layout_height="68dp"
+                    android:layout_marginBottom="10dp"
+                    android:background="@drawable/widget_card"
+                    android:contentDescription="@string/cd_pages"
+                    android:padding="15dp"
+                    android:src="@drawable/ic_pages"
+                    android:visibility="gone" />
+
                 <ImageButton
                     android:id="@+id/btn_night"
                     android:layout_width="68dp"
@@ -173,6 +185,26 @@
                     android:contentDescription="@string/cd_edit_clear"
                     android:padding="15dp"
                     android:src="@drawable/ic_trash"
+                    android:layout_marginBottom="10dp" />
+
+                <ImageButton
+                    android:id="@+id/btn_page_add"
+                    android:layout_width="68dp"
+                    android:layout_height="68dp"
+                    android:background="@drawable/widget_card"
+                    android:contentDescription="@string/cd_page_add"
+                    android:padding="15dp"
+                    android:src="@drawable/ic_page_add"
+                    android:layout_marginBottom="10dp" />
+
+                <ImageButton
+                    android:id="@+id/btn_page_remove"
+                    android:layout_width="68dp"
+                    android:layout_height="68dp"
+                    android:background="@drawable/widget_card"
+                    android:contentDescription="@string/cd_page_remove"
+                    android:padding="15dp"
+                    android:src="@drawable/ic_page_remove"
                     android:layout_marginBottom="40dp" />
 
                 <ImageButton

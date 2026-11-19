@@ -162,6 +162,13 @@ class MainActivity : AppCompatActivity() {
         applyBarSide()
 
         dashboard.onLayoutChanged = { persistLayout() }
+        // Несколько дашбордов: свайп по свободному месту, кнопка в колонке,
+        // в режиме правки — новый / удалить.
+        dashboard.onSwipe = { dir -> stepPage(dir, wrap = false) }
+        findViewById<View>(R.id.btn_pages).setOnClickListener { stepPage(1, wrap = true) }
+        findViewById<View>(R.id.btn_page_add).setOnClickListener { addPage() }
+        findViewById<View>(R.id.btn_page_remove).setOnClickListener { confirmRemovePage() }
+        updatePageUi()
 
         btnEdit.setOnClickListener { setEditMode(!editMode) }
         findViewById<View>(R.id.btn_done).setOnClickListener { setEditMode(false) }
@@ -352,6 +359,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btn_add).background = ThemeCard.card(this, theme)
         findViewById<View>(R.id.btn_cluster_navi).background = ThemeCard.card(this, theme)
         findViewById<View>(R.id.btn_debug).background = ThemeCard.card(this, theme)
+        findViewById<View>(R.id.btn_pages).background = ThemeCard.card(this, theme)
+        findViewById<View>(R.id.btn_page_add).background = ThemeCard.card(this, theme)
+        findViewById<View>(R.id.btn_page_remove).background = ThemeCard.card(this, theme)
         findViewById<View>(R.id.btn_done).background = ThemeCard.accent(this, theme)
         findViewById<ImageButton>(R.id.btn_done).setColorFilter(theme.background)
         findViewById<View>(R.id.top_glow_line).apply {
@@ -1225,7 +1235,10 @@ class MainActivity : AppCompatActivity() {
 
     /** Заставка — по первому виджету «Заставка»; нет виджета или выключена кнопкой — нет. */
     private fun applyScreensaverConfig(specs: List<WidgetSpec>) {
-        screensaver.config = specs.firstOrNull { it.type == WidgetType.SCREENSAVER }
+        // «Заставка» действует, на каком бы дашборде ни лежала.
+        val cur = store.currentPage()
+        val all = specs + store.pages().filter { it != cur }.flatMap { store.load(it) }
+        screensaver.config = all.firstOrNull { it.type == WidgetType.SCREENSAVER }
             ?.let { Screensaver.config(settingsStore, it.widgetId) }
             ?.takeIf { it.enabled }
     }
@@ -1262,6 +1275,139 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton(R.string.clear_confirm_ok) { _, _ -> clearDashboard() }
             .setNegativeButton(R.string.dialog_cancel, null)
             .showFullScreen()
+    }
+
+    // ---------- несколько дашбордов ----------
+
+    /**
+     * До какого момента (uptime) идёт анимация смены дашборда — новые
+     * переключения ждут. По времени, а не флагом: отменённая анимация не
+     * вызывает конечное действие, и флаг остался бы поднятым навсегда.
+     */
+    private var pageAnimUntil = 0L
+    private val pageAnimating: Boolean
+        get() = android.os.SystemClock.uptimeMillis() < pageAnimUntil
+
+    /** Точки, кнопка «Дашборды», доступность «Новый» / «Удалить». */
+    private fun updatePageUi() {
+        val pages = store.pages()
+        dashboard.pageCount = pages.size
+        dashboard.pageIndex = pages.indexOf(store.currentPage()).coerceAtLeast(0)
+        findViewById<View>(R.id.btn_pages).visibility = if (pages.size > 1) View.VISIBLE else View.GONE
+        findViewById<View>(R.id.btn_page_add).alpha = if (pages.size < DashboardStore.MAX_PAGES) 1f else 0.4f
+        // Один дашборд — удалять нечего: кнопка приглушена (не прячем —
+        // иначе «Готово» прилипает к остальным кнопкам).
+        findViewById<View>(R.id.btn_page_remove).apply {
+            isEnabled = pages.size > 1
+            alpha = if (pages.size > 1) 1f else 0.35f
+        }
+    }
+
+    /**
+     * На соседний дашборд: [dir] +1 — следующий, −1 — предыдущий. [wrap] —
+     * по кругу (кнопка); свайп у края дальше не листает.
+     */
+    private fun stepPage(dir: Int, wrap: Boolean) {
+        val pages = store.pages()
+        if (pages.size <= 1) return
+        val i = pages.indexOf(store.currentPage()).coerceAtLeast(0)
+        var j = i + dir
+        if (j !in pages.indices) {
+            if (!wrap) return
+            j = (j + pages.size) % pages.size
+        }
+        showPage(pages[j], dir, toast = true)
+    }
+
+    /**
+     * Показать дашборд [page]: сохранить текущий, уехать в сторону [dir],
+     * собрать виджеты нового и въехать с другой стороны.
+     */
+    private fun showPage(page: Int, dir: Int, toast: Boolean) {
+        if (pageAnimating) return
+        if (page != store.currentPage()) persistLayout()
+        store.setCurrentPage(page)
+        val w = dashboard.width.toFloat().takeIf { it > 0f } ?: 0f
+        val rebuild = {
+            buildWidgets(store.load())
+            if (editMode) {
+                for (i in 0 until dashboard.childCount) {
+                    (dashboard.getChildAt(i) as? WidgetFrame)?.setEditMode(true)
+                }
+            }
+            updatePageUi()
+        }
+        if (toast) {
+            val pages = store.pages()
+            Toast.makeText(
+                this, getString(R.string.page_toast, pages.indexOf(page) + 1, pages.size), Toast.LENGTH_SHORT
+            ).show()
+        }
+        if (w == 0f) {
+            rebuild()
+            return
+        }
+        pageAnimUntil = android.os.SystemClock.uptimeMillis() + PAGE_ANIM_MS * 2 + 100
+        dashboard.animate().translationX(-dir * w * PAGE_SHIFT).alpha(0f).setDuration(PAGE_ANIM_MS)
+            .withEndAction {
+                rebuild()
+                dashboard.translationX = dir * w * PAGE_SHIFT
+                dashboard.animate().translationX(0f).alpha(1f).setDuration(PAGE_ANIM_MS)
+                    .start()
+            }
+            .start()
+    }
+
+    /** «Новый дашборд»: пустой, сразу на него. */
+    private fun addPage() {
+        if (pageAnimating) return
+        persistLayout()
+        val id = store.addPage()
+        if (id == null) {
+            Toast.makeText(this, getString(R.string.page_max, DashboardStore.MAX_PAGES), Toast.LENGTH_SHORT).show()
+            return
+        }
+        val pages = store.pages()
+        showPage(id, 1, toast = false)
+        Toast.makeText(this, getString(R.string.page_added, pages.indexOf(id) + 1, pages.size), Toast.LENGTH_SHORT)
+            .show()
+    }
+
+    private fun confirmRemovePage() {
+        val pages = store.pages()
+        if (pages.size <= 1) return
+        val number = pages.indexOf(store.currentPage()) + 1
+        DashDialog.Builder(this)
+            .setTitle(getString(R.string.page_remove_title, number))
+            .setMessage(R.string.page_remove_text)
+            .setPositiveButton(R.string.page_remove_ok) { _, _ -> removePage() }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .showFullScreen()
+    }
+
+    /** Удалить текущий дашборд и перейти на соседний. */
+    private fun removePage() {
+        if (pageAnimating) return
+        val pages = store.pages()
+        val cur = store.currentPage()
+        val next = store.removePage(cur) ?: return
+        // Настройки удалённых блоков не чистим: id новых виджетов не повторяются.
+        val dir = if (pages.indexOf(next) > pages.indexOf(cur)) 1 else -1
+        pageAnimUntil = android.os.SystemClock.uptimeMillis() + PAGE_ANIM_MS * 2 + 100
+        val w = dashboard.width.toFloat()
+        dashboard.animate().alpha(0f).setDuration(PAGE_ANIM_MS).withEndAction {
+            buildWidgets(store.load())
+            if (editMode) {
+                for (i in 0 until dashboard.childCount) {
+                    (dashboard.getChildAt(i) as? WidgetFrame)?.setEditMode(true)
+                }
+            }
+            updatePageUi()
+            dashboard.translationX = dir * w * PAGE_SHIFT
+            dashboard.animate().translationX(0f).alpha(1f).setDuration(PAGE_ANIM_MS)
+                .start()
+        }.start()
+        Toast.makeText(this, R.string.page_removed, Toast.LENGTH_SHORT).show()
     }
 
     /** «Сбросить»: убрать все виджеты, дашборд остаётся пустым. */
@@ -1433,7 +1579,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun addWidget(type: WidgetType) {
         val specs = readSpecs().toMutableList()
-        val sameCount = specs.count { it.type == type }
         val (w, h) = when (type) {
             WidgetType.COMBO -> 60 to 20
             WidgetType.WEATHER -> 92 to 30
@@ -1460,7 +1605,7 @@ class MainActivity : AppCompatActivity() {
         }
         // Каскадом от левого верхнего угла, кламп — в границы сетки.
         val spec = WidgetSpec(
-            widgetId = "${type.id}_${sameCount + 1}",
+            widgetId = DashboardStore.nextWidgetId(type, store.allSpecs() + specs),
             type = type,
             x = (4 + specs.size * 6) % (DashboardGridLayout.COLS - w),
             y = (6 + specs.size * 4) % (DashboardGridLayout.ROWS - h),
@@ -2353,7 +2498,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun resetLayout() {
         store.reset()
-        buildWidgets(store.defaultLayout())
+        buildWidgets(store.load())
     }
 
     private fun persistLayout() {
@@ -2398,6 +2543,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
+        /** Смена дашборда: сдвиг (доля ширины) и длительность половины анимации. */
+        private const val PAGE_SHIFT = 0.25f
+        private const val PAGE_ANIM_MS = 140L
+
         /** onStop в этот срок после запуска навигатора под себя — не уход с экрана. */
         private const val UNDERLAY_GRACE_MS = 5000L
         private const val CLUSTER_OFF = 0

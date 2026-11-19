@@ -6,6 +6,7 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.util.AttributeSet
 import android.util.TypedValue
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 
@@ -68,6 +69,87 @@ class DashboardGridLayout @JvmOverloads constructor(
 
     init {
         setWillNotDraw(false)
+    }
+
+    // ---------- страницы (несколько дашбордов) ----------
+
+    /** Свайп по свободному месту: +1 — следующая страница (влево), −1 — предыдущая. */
+    var onSwipe: ((Int) -> Unit)? = null
+
+    /** Листать нельзя (режим правки: свободное место там — для бейджей/драга). */
+    var swipeEnabled = true
+
+    /** Точки-индикатор внизу: сколько страниц и какая текущая (видны при > 1). */
+    var pageCount = 1
+        set(value) {
+            field = value
+            invalidate()
+        }
+    var pageIndex = 0
+        set(value) {
+            field = value
+            invalidate()
+        }
+
+    private val dp = resources.displayMetrics.density
+    private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var swipeDownX = 0f
+    private var swipeDownY = 0f
+    private var swipeTracking = false
+
+    /** Под точкой ([x],[y]) нет ни одного блока — свободное место. */
+    private fun isFreeSpot(x: Float, y: Float): Boolean {
+        for (i in 0 until childCount) {
+            val c = getChildAt(i)
+            if (c.visibility == View.VISIBLE &&
+                x >= c.left && x < c.right && y >= c.top && y < c.bottom
+            ) return false
+        }
+        return true
+    }
+
+    override fun onTouchEvent(ev: MotionEvent): Boolean {
+        // Сюда доходят только касания мимо блоков (их съедают сами блоки).
+        if (!swipeEnabled || onSwipe == null) return super.onTouchEvent(ev)
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                if (!isFreeSpot(ev.x, ev.y)) return super.onTouchEvent(ev)
+                swipeDownX = ev.x
+                swipeDownY = ev.y
+                swipeTracking = true
+                return true
+            }
+            MotionEvent.ACTION_UP -> {
+                if (!swipeTracking) return super.onTouchEvent(ev)
+                swipeTracking = false
+                val dx = ev.x - swipeDownX
+                val dy = ev.y - swipeDownY
+                if (kotlin.math.abs(dx) >= SWIPE_MIN_DP * dp && kotlin.math.abs(dx) > 2 * kotlin.math.abs(dy)) {
+                    onSwipe?.invoke(if (dx < 0) 1 else -1)
+                }
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> return swipeTracking
+            MotionEvent.ACTION_CANCEL -> {
+                swipeTracking = false
+                return true
+            }
+        }
+        return super.onTouchEvent(ev)
+    }
+
+    override fun dispatchDraw(canvas: Canvas) {
+        super.dispatchDraw(canvas)
+        if (pageCount <= 1) return
+        // Точки страниц поверх блоков, по центру снизу.
+        val r = 4.5f * dp
+        val step = 18f * dp
+        val y = height - 10f * dp
+        val x0 = width / 2f - step * (pageCount - 1) / 2f
+        for (i in 0 until pageCount) {
+            dotPaint.color = if (i == pageIndex) 0xE6FFFFFF.toInt() else 0x55FFFFFF
+            canvas.drawCircle(x0 + i * step, y, if (i == pageIndex) r * 1.2f else r, dotPaint)
+        }
     }
 
     class LayoutParams(
@@ -179,6 +261,8 @@ class DashboardGridLayout @JvmOverloads constructor(
         /** Минимум размера в свободной сетке. */
         const val MIN_W = 10
         const val MIN_H = 8
+        /** Минимальная длина свайпа для смены страницы. */
+        private const val SWIPE_MIN_DP = 120f
         /** Зазор между блоками крупной сетки. */
         private const val BLOCK_GAP_DP = 12f
     }
