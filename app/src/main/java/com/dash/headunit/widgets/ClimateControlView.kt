@@ -530,20 +530,42 @@ class ClimateControlView(
         /** Включённый подогрев в классической теме — жёлтый, как в «Подогреве». */
         private val HEAT_ON = 0xFFFDD835.toInt()
 
-        /** Полный порядок кнопок виджета [widgetId] (сохранённый + новые в конце). */
-        fun order(settings: WidgetSettingsStore, widgetId: String): List<Item> {
-            val saved = parse(settings.getOption(widgetId, OPT_ORDER, ""))
-            val base = if (saved.isEmpty()) DEFAULT_ITEMS + Item.values().filter { it !in DEFAULT_ITEMS } else saved
-            return base + Item.values().filter { it !in base }
+        /**
+         * Полный порядок кнопок виджета [widgetId] (сохранённый + новые в конце).
+         * [pool] — какие кнопки у виджета вообще есть («Подогрев» — только
+         * [HEAT_ITEMS]), [defaults] — состав по умолчанию.
+         */
+        fun order(
+            settings: WidgetSettingsStore,
+            widgetId: String,
+            defaults: List<Item> = DEFAULT_ITEMS,
+            pool: List<Item> = Item.values().toList()
+        ): List<Item> {
+            val saved = parse(settings.getOption(widgetId, OPT_ORDER, "")).filter { it in pool }
+            val base = if (saved.isEmpty()) defaults + pool.filter { it !in defaults } else saved
+            return base + pool.filter { it !in base }
         }
 
-        /** Показываемые кнопки по порядку; пусто в настройках — [DEFAULT_ITEMS]. */
-        fun selected(settings: WidgetSettingsStore, widgetId: String): List<Item> {
+        /** Показываемые кнопки по порядку; пусто в настройках — [defaults]. */
+        fun selected(
+            settings: WidgetSettingsStore,
+            widgetId: String,
+            defaults: List<Item> = DEFAULT_ITEMS,
+            pool: List<Item> = Item.values().toList()
+        ): List<Item> {
             val raw = settings.getOption(widgetId, OPT_ITEMS, "")
-            if (raw.isEmpty()) return DEFAULT_ITEMS
+            if (raw.isEmpty()) return defaults
             val visible = parse(raw).toSet()
-            return order(settings, widgetId).filter { it in visible }
+            return order(settings, widgetId, defaults, pool).filter { it in visible }
+                .ifEmpty { defaults }
         }
+
+        /** Кнопки виджета «Подогрев»: из [HEAT_ITEMS], по умолчанию все. */
+        fun heatSelected(settings: WidgetSettingsStore, widgetId: String): List<Item> =
+            selected(settings, widgetId, HEAT_ITEMS, HEAT_ITEMS)
+
+        fun heatOrder(settings: WidgetSettingsStore, widgetId: String): List<Item> =
+            order(settings, widgetId, HEAT_ITEMS, HEAT_ITEMS)
 
         private fun parse(raw: String): List<Item> = raw.split(',')
             .mapNotNull { key -> Item.values().firstOrNull { it.key == key.trim() } }

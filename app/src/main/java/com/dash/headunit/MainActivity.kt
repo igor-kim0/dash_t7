@@ -1127,7 +1127,7 @@ class MainActivity : AppCompatActivity() {
                 WidgetType.HEAT -> ClimateControlView(
                     this, wTheme,
                     retro = RetroLook.isOn(settingsStore, spec.widgetId),
-                    items = ClimateControlView.HEAT_ITEMS
+                    items = ClimateControlView.heatSelected(settingsStore, spec.widgetId)
                 )
                 WidgetType.OUTSIDE -> OutsideWidgetView(this, wTheme)
                 WidgetType.ELM -> ElmWidgetView(this, wTheme, spec.widgetId, settingsStore)
@@ -1186,6 +1186,9 @@ class MainActivity : AppCompatActivity() {
                     }
                     WidgetType.CLIMATE_CONTROL -> {
                         { showClimateControlSettings(spec.widgetId) }
+                    }
+                    WidgetType.HEAT -> {
+                        { showHeatSettings(spec.widgetId) }
                     }
                     WidgetType.COMBO -> {
                         { showClockSettings(spec.widgetId) }
@@ -1776,6 +1779,31 @@ class MainActivity : AppCompatActivity() {
         }
         showWidgetSettings(WidgetType.CLIMATE_CONTROL, list, 1400) {
             settingsStore.setOption(widgetId, ClimateControlView.OPT_THEME, themeSel)
+            saveTile()
+            settingsStore.setOption(
+                widgetId, ClimateControlView.OPT_ORDER, order.joinToString(",") { it.key }
+            )
+            settingsStore.setOption(
+                widgetId, ClimateControlView.OPT_ITEMS,
+                order.filter { it in checked }.joinToString(",") { it.key }
+            )
+        }
+    }
+
+    /**
+     * Настройки «Подогрева»: какие кнопки показывать и в каком порядке
+     * (стекло, сиденья), вид плитки (в т.ч. «Ретро»). Хоть одна кнопка
+     * должна остаться — пустой выбор = все.
+     */
+    private fun showHeatSettings(widgetId: String) {
+        val order = ClimateControlView.heatOrder(settingsStore, widgetId).toMutableList()
+        val checked = ClimateControlView.heatSelected(settingsStore, widgetId).toMutableSet()
+        val list = SettingsList(this, theme)
+            .section(getString(R.string.cc_items_title))
+            .reorder(order, checked, { getString(it.labelRes) })
+            .column()
+        val saveTile = list.tileSection(widgetId)
+        showWidgetSettings(WidgetType.HEAT, list, 1400) {
             saveTile()
             settingsStore.setOption(
                 widgetId, ClimateControlView.OPT_ORDER, order.joinToString(",") { it.key }
