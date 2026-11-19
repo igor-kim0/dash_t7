@@ -1001,6 +1001,7 @@ class MainActivity : AppCompatActivity() {
      * после диалога дашборд обратно ([NaviUnderlay.aliceSession]).
      */
     private fun startAlice() {
+        if (!AppWidgetView.ALICE_ENABLED) return
         val pkg = naviWidget()?.pkg().orEmpty()
         if (pkg.isEmpty() || underlayPkg != pkg || System.currentTimeMillis() < aliceUntil) return
         aliceUntil = System.currentTimeMillis() + NaviUnderlay.ALICE_MAX_MS + 5_000L

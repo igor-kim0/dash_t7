@@ -139,7 +139,7 @@ class AppWidgetView(
         message.visibility = View.GONE
         expandButton.visibility = View.VISIBLE
         aliceButton.visibility =
-            if (pkg() == com.dash.headunit.navi.cluster.YANDEX_NAVI) View.VISIBLE else View.GONE
+            if (ALICE_ENABLED && pkg() == com.dash.headunit.navi.cluster.YANDEX_NAVI) View.VISIBLE else View.GONE
         // Карточку рамки тоже убираем — иначе она закроет карту.
         (parent as? View)?.background = null
     }
@@ -148,6 +148,14 @@ class AppWidgetView(
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, resources.displayMetrics).toInt()
 
     companion object {
+        /**
+         * Кнопка Алисы (микрофон) в блоке Яндекс Навигатора и её сессия
+         * ([com.dash.headunit.navi.NaviUnderlay.aliceSession]). Пока выключено
+         * по решению пользователя (2026-11-19): кнопка не показывается и не
+         * срабатывает. Код оставлен — вернуть, поставив true.
+         */
+        const val ALICE_ENABLED = false
+
         /** Имя опции пакета в [WidgetSettingsStore]. */
         const val OPT_PKG = "pkg"
 
