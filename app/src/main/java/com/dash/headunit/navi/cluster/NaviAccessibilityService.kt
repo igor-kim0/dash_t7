@@ -54,6 +54,9 @@ class NaviAccessibilityService : AccessibilityService() {
         instance = this
         ClusterOverlay.init(this)
         Autostart.onServiceBound(this, "спец. возможности")
+        // Диагностика борткомпьютера: процесс могли поднять без дашборда.
+        com.dash.headunit.car.TripLog.init(this)
+        com.dash.headunit.car.TripLog.write { "служба привязана (спец. возможности): ${com.dash.headunit.car.TripLog.processInfo(this)}" }
         bg.post(scan)
     }
 

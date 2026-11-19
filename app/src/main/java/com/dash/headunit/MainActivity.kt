@@ -164,7 +164,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btn_done).setOnClickListener { setEditMode(false) }
         findViewById<View>(R.id.btn_clear).setOnClickListener { confirmClearDashboard() }
         findViewById<View>(R.id.btn_add).setOnClickListener { showAddDialog() }
-        // Диагностика: проба подогрева руля.
+        // Диагностика: лог поездок и моточасов.
         findViewById<View>(R.id.btn_debug).setOnClickListener {
             startActivity(android.content.Intent(this, com.dash.headunit.car.CarDebugActivity::class.java))
         }
@@ -282,6 +282,7 @@ class MainActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         com.dash.headunit.ui.DashVisibility.setStarted(true)
+        com.dash.headunit.car.TripLog.write("дашборд onStart")
     }
 
     override fun onResume() {
@@ -312,6 +313,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
+        com.dash.headunit.car.TripLog.write("дашборд onStop")
         // Сон ГУ / уход с дашборда — поездка и моточасы на флеш (иначе
         // пишутся только на пуске и глушении).
         // Запись синхронная — не в главном потоке.

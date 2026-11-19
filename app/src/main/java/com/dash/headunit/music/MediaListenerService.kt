@@ -55,6 +55,9 @@ class MediaListenerService : NotificationListenerService() {
         // Система привязывает слушатель при загрузке — это и есть автозапуск
         // (BOOT_COMPLETED на ГУ Desay режется белым списком).
         Autostart.onServiceBound(this, "слушатель уведомлений")
+        // Диагностика борткомпьютера: процесс могли поднять без дашборда.
+        com.dash.headunit.car.TripLog.init(this)
+        com.dash.headunit.car.TripLog.write { "служба привязана (слушатель уведомлений): ${com.dash.headunit.car.TripLog.processInfo(this)}" }
     }
 
     override fun onListenerConnected() {

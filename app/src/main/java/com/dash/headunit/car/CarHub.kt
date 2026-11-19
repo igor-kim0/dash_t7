@@ -58,6 +58,19 @@ object CarHub {
         if (appContext == null) {
             val app = context.applicationContext
             appContext = app
+            TripLog.init(app)
+            TripLog.write { "процесс поднят (${context.javaClass.simpleName}): ${TripLog.processInfo(app)}" }
+            installCrashLog()
+            // Система поджимает процесс (перед убийством в фоне) — только лог.
+            app.registerComponentCallbacks(object : android.content.ComponentCallbacks2 {
+                override fun onTrimMemory(level: Int) {
+                    TripLog.write { "onTrimMemory level=$level" }
+                }
+                override fun onConfigurationChanged(c: android.content.res.Configuration) = Unit
+                override fun onLowMemory() {
+                    TripLog.write("onLowMemory")
+                }
+            })
             desay = DesayCarReader(app)
             vhal = VhalReader(app)
             CoolantCalibration.init(app)
@@ -67,6 +80,7 @@ object CarHub {
             // Запись синхронная — не в главном потоке.
             app.registerReceiver(object : android.content.BroadcastReceiver() {
                 override fun onReceive(c: Context?, i: android.content.Intent?) {
+                    TripLog.write("SCREEN_OFF")
                     scope.launch(Dispatchers.IO) { runCatching { TripTracker.persist(app) } }
                 }
             }, android.content.IntentFilter(android.content.Intent.ACTION_SCREEN_OFF))
@@ -76,9 +90,24 @@ object CarHub {
             // ГУ опрос раз в 5 с может глушение не увидеть.
             app.registerReceiver(object : android.content.BroadcastReceiver() {
                 override fun onReceive(c: Context?, i: android.content.Intent?) {
+                    TripLog.write { "power.half (rpm=${ClusterPps.rpm()} engineRunning=${TripTracker.engineRunning})" }
                     scope.launch(Dispatchers.IO) { runCatching { TripTracker.endTrip(app, tankLiters()) } }
                 }
             }, android.content.IntentFilter(ACTION_POWER_HALF))
+        }
+    }
+
+    @Volatile
+    private var crashLogInstalled = false
+
+    /** Падение процесса — строка в [TripLog] (синхронно), затем прежний обработчик. */
+    private fun installCrashLog() {
+        if (crashLogInstalled) return
+        crashLogInstalled = true
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+            runCatching { TripLog.writeNow("CRASH в ${thread.name}: ${android.util.Log.getStackTraceString(error).take(2000)}") }
+            previous?.uncaughtException(thread, error)
         }
     }
 
@@ -153,6 +182,7 @@ object CarHub {
         val now = android.os.SystemClock.uptimeMillis()
         if (now - lastStopKick < STOP_KICK_MS) return
         lastStopKick = now
+        TripLog.write { "обороты с приборки $rpm — внеочередной тик" }
         scope.launch {
             try {
                 refreshNow()
@@ -198,6 +228,7 @@ object CarHub {
         ClusterPps.onLive = onClusterLive
         ClusterPps.start()
         if (pollJob == null) {
+            TripLog.write("опрос запущен")
             pollJob = scope.launch {
                 while (true) {
                     // Ждём конца чтения: при сбое svcarinfo оно идёт десятки

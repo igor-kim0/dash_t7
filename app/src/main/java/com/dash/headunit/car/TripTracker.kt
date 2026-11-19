@@ -211,6 +211,7 @@ object TripTracker {
             .apply()
         // Следующий тик перечитает сброшенное из prefs.
         memClock = null
+        TripLog.write("моточасы сброшены вручную")
     }
 
     /**
@@ -249,6 +250,14 @@ object TripTracker {
             memLastOdo = prefs.getInt("last_odo", -1)
             memLastFuel = prefs.getFloat("last_fuel", -1f)
             memLoaded = true
+            TripLog.write {
+                "первый тик процесса, из prefs: last_engine=${prefs.getBoolean("last_engine", false)} " +
+                    "last_on_ts=${ts(memLastOnTs)} blind_ts=${ts(prefs.getLong("blind_ts", 0L))} " +
+                    "last_odo=$memLastOdo t_odo=${prefs.getInt("${PREFIX}_odo", -1)} " +
+                    "t_drive=${min(prefs.getLong("${PREFIX}_drive", 0L))} t_start=${ts(prefs.getLong("${PREFIX}_start", 0L))} " +
+                    "eh=${min(prefs.getLong(KEY_EH_MOVING, 0L))}+${min(prefs.getLong(KEY_EH_IDLE, 0L))} " +
+                    "eh_last_ts=${ts(prefs.getLong(KEY_EH_LAST_TS, 0L))} eh_last_on=${prefs.getBoolean(KEY_EH_LAST_ON, false)}"
+            }
         }
         // Смена настройки / новый день: старые записи уходят ещё до любых
         // переходов поездок (журнал разбираем не чаще [PRUNE_MS]).
@@ -257,6 +266,11 @@ object TripTracker {
         val engineClock = memClock ?: loadEngineClock(prefs).also { memClock = it }
 
         val on = engineOn(data)
+        if (TripLog.enabled && data != null && engineClock.lastOn && on && engineClock.lastTs > 0L &&
+            now - engineClock.lastTs > GAP_MS
+        ) {
+            TripLog.write("моточасы: разрыв ${(now - engineClock.lastTs) / 1000} с > GAP — интервал не засчитан")
+        }
         accumulateEngineHours(engineClock, data, on, now)
         // prevEngineOn живёт только в памяти: после перезапуска процесса
         // (перезагрузка ГУ, убийство) восстанавливаем из prefs, иначе
@@ -286,6 +300,7 @@ object TripTracker {
         if (prevEngineOn == true && data != null &&
             isGap(lastOnTs, now)
         ) {
+            TripLog.write { "разрыв с last_on_ts=${ts(lastOnTs)} (${(now - lastOnTs) / 1000} с) — закрываем поездку вслепую" }
             finalizeBlind(prefs, t, tankLiters, lastOnTs)
             prevEngineOn = false
             blindSince = 0L
@@ -300,6 +315,7 @@ object TripTracker {
         if (blindSince > 0L) {
             if (data == null) {
                 if (now - blindSince >= BLIND_GRACE_MS) {
+                    TripLog.write { "нет данных с ${ts(blindSince)} дольше grace — закрываем вслепую" }
                     // Шина молчит достаточно долго — закрываем поездку тем,
                     // что успели сохранить: пробег = last_odo − база одометра.
                     finalizeBlind(prefs, t, tankLiters, blindSince)
@@ -312,6 +328,7 @@ object TripTracker {
                 // Данные вернулись.
                 val wasBlind = blindSince
                 blindSince = 0L
+                TripLog.write { "данные вернулись после ${(now - wasBlind) / 1000} с, on=$on" }
                 if (!on) {
                     // Заглушили, пока мы ослепли; снимок живой — считаем
                     // по нему, как при живом переходе.
@@ -323,6 +340,7 @@ object TripTracker {
             }
         } else if (prevEngineOn == true && data != null) {
             if (!on) {
+                TripLog.write("заглушили (живой переход)")
                 // Живой наблюдаемый переход «заглушили». Приборка после
                 // выключения может обнулить a001, поэтому берём её последний
                 // снимок с работающим двигателем.
@@ -334,9 +352,11 @@ object TripTracker {
             // не считаем «заглушили» — ловим момент (grace), счётчик живёт.
             blindSince = now
             blindOpen = true
+            TripLog.write("снимок пропал при работающем двигателе — ждём grace")
         } else {
             if (prevEngineOn == false && on) {
                 // Запуск двигателя — счётчик с нуля.
+                TripLog.write { "пуск двигателя: odo=${data?.odoKm} fuel=${data?.fuelPct}" }
                 reset(t)
                 t.startTs = now
                 lastClusterOn = null
@@ -356,6 +376,7 @@ object TripTracker {
             prevEngineOn, blindSince, blindOpen || on, data != null,
             t.odoStartKm, t.fuelPctStart, t.startTs
         )
+        if (TripLog.enabled) logPulse(data, on, t, engineClock, now)
         lastEngineFlag = blindOpen || on
         lastHasData = data != null
         lastOn = on
@@ -368,6 +389,39 @@ object TripTracker {
         }
         return v
     }
+
+    // Пульс лога: последний и момент последнего пульса.
+    private var pulseKey: String? = null
+    private var pulseAt = 0L
+    private var pulseEh = 0L
+
+    /**
+     * Строка [TripLog] на каждой смене состояния и не реже раза в минуту при
+     * работающем двигателе: по последнему пульсу видно, когда процесс умер.
+     */
+    private fun logPulse(data: CarData?, on: Boolean, t: Period, clock: EngineClock, now: Long) {
+        val key = "on=$on data=${data != null} prev=$prevEngineOn blind=${blindSince > 0L}"
+        if (key == pulseKey && (!on || now - pulseAt < PULSE_MS)) return
+        val eh = clock.movingMillis + clock.idleMillis
+        val dEh = if (pulseAt > 0L) eh - pulseEh else 0L
+        TripLog.write(
+            "тик $key rpm=${data?.rpm} chg=${data?.charging} V=${data?.voltageV} " +
+                "odo=${data?.odoKm} v=${data?.speedKmh} fuel=${data?.fuelPct} | " +
+                "eh=${min(eh)} (+${dEh / 1000} с за ${if (pulseAt > 0L) (now - pulseAt) / 1000 else 0} с) " +
+                "trip: odo0=${t.odoStartKm} drive=${min(t.driveMillis)} start=${ts(t.startTs)}"
+        )
+        pulseKey = key
+        pulseAt = now
+        pulseEh = eh
+    }
+
+    private val tsFmt = java.text.SimpleDateFormat("dd.MM HH:mm:ss", java.util.Locale.US)
+
+    /** Время для лога. */
+    private fun ts(ms: Long): String = if (ms <= 0L) "0" else synchronized(tsFmt) { tsFmt.format(java.util.Date(ms)) }
+
+    /** Минуты для лога. */
+    private fun min(ms: Long): String = "%.1fмин".format(java.util.Locale.US, ms / 60_000.0)
 
     // Флаги последнего тика — для [persist] вне тика.
     private var lastEngineFlag = false
@@ -383,15 +437,19 @@ object TripTracker {
      */
     @Synchronized
     fun persist(context: Context) {
-        val t = memTrip ?: return
+        val t = memTrip ?: return TripLog.write("persist: тиков ещё не было")
         val clock = memClock ?: return
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         if (prefs.getLong("${PREFIX}_drive", -1L) == t.driveMillis &&
             prefs.getLong(KEY_EH_MOVING, -1L) == clock.movingMillis &&
             prefs.getLong(KEY_EH_IDLE, -1L) == clock.idleMillis &&
             prefs.getInt("last_odo", -2) == memLastOdo
-        ) return
+        ) {
+            TripLog.write("persist: нечего писать")
+            return
+        }
         writeState(prefs, t, clock, sync = true)
+        TripLog.write { "persist: записано drive=${min(t.driveMillis)} eh=${min(clock.movingMillis + clock.idleMillis)}" }
     }
 
     /**
@@ -404,9 +462,13 @@ object TripTracker {
      */
     @Synchronized
     fun endTrip(context: Context, tankLiters: Int, now: Long = System.currentTimeMillis()) {
-        val t = memTrip ?: return
+        val t = memTrip ?: return TripLog.write("endTrip: тиков ещё не было — нечего закрывать")
         val clock = memClock ?: return
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        TripLog.write {
+            "endTrip: prevEngineOn=$prevEngineOn last_on_ts=${ts(memLastOnTs)} drive=${min(t.driveMillis)} " +
+                "eh=${min(clock.movingMillis + clock.idleMillis)}"
+        }
         if (prevEngineOn == true) {
             finalizeBlind(prefs, t, tankLiters, if (memLastOnTs > 0L) memLastOnTs else now)
             prevEngineOn = false
@@ -444,6 +506,10 @@ object TripTracker {
         // (снимок приборки от прошлой поездки сохранять нельзя).
         lastClusterOn?.takeIf { lastOn }?.let { edit.putString(KEY_CLUSTER, encodeCluster(it)) }
         if (sync) edit.commit() else edit.apply()
+        TripLog.write {
+            "запись prefs (${if (sync) "commit" else "apply"}): last_engine=$lastEngineFlag " +
+                "drive=${min(t.driveMillis)} eh=${min(engineClock.movingMillis + engineClock.idleMillis)}"
+        }
     }
 
     /** Живой переход «заглушили» (со снимком): цифры из текущего расчёта/приборки. */
@@ -518,7 +584,12 @@ object TripTracker {
 
     /** Запись в журнал по итогам поездки; пустые «поездки» отбрасываются. */
     private fun finalizeTrip(startTs: Long, endTs: Long, v: TripView): TripEntry? =
-        finalizeEntry(startTs, endTs, v)
+        finalizeEntry(startTs, endTs, v).also { e ->
+            TripLog.write {
+                (if (e != null) "в журнал" else "ОТБРОШЕНА") + ": ${ts(startTs)}–${ts(endTs)} " +
+                    "dist=${v.distKm} drive=${min(v.driveMillis)} длит=${min(endTs - startTs)} cons=${v.avgCons}"
+            }
+        }
 
     /**
      * Подменить пробег/расход/скорость данными приборки; чего на приборке
@@ -563,6 +634,7 @@ object TripTracker {
     fun clearJournal(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().remove(KEY_JOURNAL).apply()
+        TripLog.write("журнал очищен вручную")
     }
 
     /**
@@ -821,6 +893,8 @@ object TripTracker {
     private const val KEY_CLUSTER = "last_cluster"
     /** Не чаще этого журнал обрезается по сроку из цикла опроса. */
     private const val PRUNE_MS = 3_600_000L
+    /** Пульс [TripLog] при работающем двигателе. */
+    private const val PULSE_MS = 60_000L
     /** Моточасы: накопитель и его последний тик (переживают перезапуск). */
     private const val KEY_EH_MOVING = "eh_moving"
     private const val KEY_EH_IDLE = "eh_idle"
