@@ -24,6 +24,7 @@ import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.view.KeyEvent
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
@@ -31,6 +32,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.dash.headunit.dashboard.DashboardGridLayout
 import com.dash.headunit.dashboard.GridSpec
+import com.dash.headunit.navi.WheelKeys
 import com.dash.headunit.dashboard.DashboardStore
 import com.dash.headunit.dashboard.PickerGrid
 import com.dash.headunit.dashboard.WidgetFrame
@@ -52,6 +54,7 @@ import com.dash.headunit.navi.cluster.ClusterOverlay
 import com.dash.headunit.navi.cluster.ClusterSetup
 import com.dash.headunit.navi.cluster.NaviOnCluster
 import com.dash.headunit.navi.cluster.YANDEX_NAVI
+import com.dash.headunit.navi.cluster.NaviAccessibilityService
 import com.dash.headunit.settings.AppSettings
 import com.dash.headunit.theme.DashTheme
 import com.dash.headunit.theme.RetroLook
@@ -297,6 +300,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        WheelKeys.onAliceRequest = wheelAliceHook
         updateStatusIcons()
         refreshNavi()
         // Заставку могли не убрать (процесс убит при показанной) — вернуть подсветку ГУ.
@@ -312,6 +316,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
+        if (WheelKeys.onAliceRequest === wheelAliceHook) WheelKeys.onAliceRequest = null
         screensaver.pause()
     }
 
@@ -430,6 +435,17 @@ class MainActivity : AppCompatActivity() {
                 R.drawable.ic_grid, getString(R.string.settings_bar_left_t),
                 getString(R.string.settings_bar_left_s), barLeft
             ) { barLeft = it }
+            .nav(
+                R.drawable.ic_alice, getString(R.string.wheel_alice_title), null,
+                if (AppSettings.wheelAlice(this) && AppSettings.wheelAliceKey(this) >= 0)
+                    getString(R.string.wheel_alice_value_on, AppSettings.wheelAliceKey(this))
+                else getString(R.string.wheel_alice_value_off)
+            ) {
+                // Уходим в отдельный диалог — отмеченное здесь не теряем.
+                applyRef()
+                dialog?.dismiss()
+                showWheelAliceDialog()
+            }
             .section(getString(R.string.settings_sec_about))
             .nav(
                 R.drawable.ic_telegram, getString(R.string.contacts_telegram_t),
@@ -1054,10 +1070,12 @@ class MainActivity : AppCompatActivity() {
      * Кнопка Алисы в блоке: навигатор ненадолго наверх, нажать его голос,
      * после диалога дашборд обратно ([NaviUnderlay.aliceSession]).
      */
-    private fun startAlice() {
-        if (!AppWidgetView.ALICE_ENABLED) return
+    private fun startAlice(fromWheel: Boolean = false): Boolean {
+        if (!fromWheel && !AppWidgetView.ALICE_ENABLED) return false
         val pkg = naviWidget()?.pkg().orEmpty()
-        if (pkg.isEmpty() || underlayPkg != pkg || System.currentTimeMillis() < aliceUntil) return
+        if (pkg.isEmpty() || underlayPkg != pkg) return false
+        // Сессия уже идёт — повторное нажатие ничего не начинает.
+        if (System.currentTimeMillis() < aliceUntil) return true
         aliceUntil = System.currentTimeMillis() + NaviUnderlay.ALICE_MAX_MS + 5_000L
         NaviUnderlay.aliceSession(this, pkg) { error ->
             aliceUntil = 0L
@@ -1065,6 +1083,97 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, getString(R.string.navi_alice_failed, error), Toast.LENGTH_LONG).show()
             }
         }
+        return true
+    }
+
+    /**
+     * Алиса по кнопке руля ([WheelKeys]): дашборд на экране и в блоке
+     * Яндекс Навигатор — сессия с возвратом дашборда. Иначе false —
+     * [WheelKeys] нажмёт кнопку голоса сам.
+     */
+    private val wheelAliceHook: () -> Boolean = {
+        isResumedNow() && naviWidget()?.pkg() == YANDEX_NAVI && startAlice(fromWheel = true)
+    }
+
+    /**
+     * «Алиса по кнопке руля»: включить, назначить кнопку (следующее нажатие
+     * на руле), журнал последних клавиш — что вообще приходит с руля.
+     * Применяется сразу.
+     */
+    private fun showWheelAliceDialog() {
+        WheelKeys.init(this)
+        val d = resources.displayMetrics.density
+        fun dp(v: Int) = (v * d).toInt()
+        var key = AppSettings.wheelAliceKey(this)
+        val list = SettingsList(this, theme)
+            .section(getString(R.string.wheel_alice_title))
+            .switch(
+                R.drawable.ic_alice, getString(R.string.wheel_alice_switch),
+                getString(R.string.wheel_alice_switch_s), AppSettings.wheelAlice(this)
+            ) { on ->
+                AppSettings.setWheelAlice(this, on)
+                WheelKeys.init(this)
+            }
+        val status = TextView(this).apply {
+            textSize = 18f
+            setTextColor(theme.primaryText)
+            setPadding(dp(20), dp(12), dp(20), dp(4))
+        }
+        val journal = TextView(this).apply {
+            textSize = 14f
+            setTextColor(theme.secondaryText)
+            typeface = android.graphics.Typeface.MONOSPACE
+            setPadding(dp(20), dp(8), dp(20), dp(8))
+        }
+        fun keyText(k: Int) = if (k < 0) getString(R.string.wheel_alice_key_none)
+        else getString(R.string.wheel_alice_key, k, KeyEvent.keyCodeToString(k))
+        fun refresh() {
+            status.text = when {
+                WheelKeys.learning -> getString(R.string.wheel_alice_learning)
+                else -> keyText(key)
+            }
+            val warn = if (NaviAccessibilityService.instance == null) getString(R.string.wheel_alice_no_a11y) + "\n\n" else ""
+            val fmt = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
+            val lines = WheelKeys.journal().joinToString("\n") {
+                "${fmt.format(java.util.Date(it.at))}  ${if (it.action == KeyEvent.ACTION_DOWN) "↓" else "↑"} " +
+                    "${it.keyCode} ${KeyEvent.keyCodeToString(it.keyCode)}  scan=${it.scanCode}  ${it.handled}"
+            }
+            journal.text = warn + getString(R.string.wheel_alice_journal) + "\n" +
+                lines.ifEmpty { getString(R.string.wheel_alice_journal_empty) }
+        }
+        val learnButton = android.widget.Button(this).apply {
+            text = getString(R.string.wheel_alice_learn)
+            setOnClickListener {
+                WheelKeys.startLearning(this@MainActivity) { k ->
+                    key = k
+                    refresh()
+                    Toast.makeText(this@MainActivity, keyText(k), Toast.LENGTH_SHORT).show()
+                }
+                refresh()
+            }
+        }
+        val content = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            addView(list.view)
+            addView(status)
+            addView(learnButton, android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = dp(20) })
+            addView(journal)
+        }
+        WheelKeys.onChanged = { refresh() }
+        refresh()
+        DashDialog.Builder(this)
+            .setIcon(R.drawable.ic_alice)
+            .setTitle(R.string.wheel_alice_title)
+            .setWidthDp(1100)
+            .setView(content)
+            .setPositiveButton(R.string.edit_done) { _, _ ->
+                WheelKeys.onChanged = null
+                if (WheelKeys.learning) WheelKeys.stopLearning()
+            }
+            .showFullScreen()
     }
 
     /** Навигатор на весь экран; вернётся в блок, когда снова откроют дашборд. */

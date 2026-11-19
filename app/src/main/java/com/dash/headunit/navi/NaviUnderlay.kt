@@ -52,6 +52,11 @@ object NaviUnderlay {
 
     private val history = mutableListOf<String>()
 
+    /** Статус со стороны (Алиса по кнопке руля — [WheelKeys]). */
+    fun note(text: String) {
+        lastStatus = text
+    }
+
     /** Последние статусы (unix-время мс + текст) — для «Логи для Claude». */
     fun statusHistory(): List<String> = synchronized(history) { history.toList() }
 
@@ -604,7 +609,7 @@ object NaviUnderlay {
     private const val STACK_RETRY_MS = 300L
     private const val RESUME_KICK_MS = 2000L
     /** Алиса: навигатору стать RESUMED перед нажатием; опрос микрофона. */
-    private const val ALICE_RESUME_MS = 600L
+    const val ALICE_RESUME_MS = 600L
     private const val ALICE_POLL_MS = 500L
     private const val ALICE_QUIET_MS = 2500L
     private const val ALICE_START_MS = 5000L

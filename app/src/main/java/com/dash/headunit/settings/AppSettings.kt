@@ -164,6 +164,23 @@ object AppSettings {
     private const val KEY_GRID_ROWS = "grid_rows"
     private const val KEY_GRID_NO_GAP = "grid_no_gap"
 
+    /** Алиса навигатора по кнопке руля ([com.dash.headunit.navi.WheelKeys]). */
+    fun wheelAlice(context: Context): Boolean = prefs(context).getBoolean(KEY_WHEEL_ALICE, false)
+
+    fun setWheelAlice(context: Context, on: Boolean) {
+        prefs(context).edit().putBoolean(KEY_WHEEL_ALICE, on).apply()
+    }
+
+    /** Назначенная кнопка руля (keyCode), −1 — не назначена. */
+    fun wheelAliceKey(context: Context): Int = prefs(context).getInt(KEY_WHEEL_ALICE_KEY, -1)
+
+    fun setWheelAliceKey(context: Context, keyCode: Int) {
+        prefs(context).edit().putInt(KEY_WHEEL_ALICE_KEY, keyCode).apply()
+    }
+
+    private const val KEY_WHEEL_ALICE = "wheel_alice"
+    private const val KEY_WHEEL_ALICE_KEY = "wheel_alice_key"
+
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
 
