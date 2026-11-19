@@ -30,6 +30,7 @@ import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.dash.headunit.dashboard.DashboardGridLayout
+import com.dash.headunit.dashboard.GridSpec
 import com.dash.headunit.dashboard.DashboardStore
 import com.dash.headunit.dashboard.PickerGrid
 import com.dash.headunit.dashboard.WidgetFrame
@@ -147,6 +148,7 @@ class MainActivity : AppCompatActivity() {
         theme = themeStore.current()
         applyThemeChrome()
         dashboard = findViewById(R.id.dashboard)
+        dashboard.grid = AppSettings.grid(this)
         barNormal = findViewById(R.id.bar_normal)
         barEdit = findViewById(R.id.bar_edit)
         btnEdit = findViewById(R.id.btn_edit)
@@ -394,6 +396,9 @@ class MainActivity : AppCompatActivity() {
         var etm = AppSettings.etmCoolant(this)
         var shade = AppSettings.shadeResume(this)
         var radioOnStart = AppSettings.radioOnStart(this)
+        var gridMode = AppSettings.gridMode(this)
+        var gridCols = AppSettings.gridCols(this)
+        var gridRows = AppSettings.gridRows(this)
         var tank = CarHub.tankLiters(this)
         var tireMin = (AppSettings.tirePressureMin(this) * 10).toInt()
         val keepOptions = intArrayOf(7, 14, 30, 0)
@@ -430,6 +435,22 @@ class MainActivity : AppCompatActivity() {
                 R.drawable.ic_thermo, getString(R.string.settings_etm_coolant_t),
                 getString(R.string.settings_etm_coolant_s), etm
             ) { etm = it }
+            .section(getString(R.string.settings_sec_grid))
+            .segmented(
+                R.drawable.ic_grid, getString(R.string.settings_grid_t), null,
+                listOf(
+                    getString(R.string.settings_grid_free),
+                    getString(R.string.settings_grid_4x4),
+                    getString(R.string.settings_grid_custom)
+                ),
+                gridMode
+            ) { gridMode = it }
+            .stepperPair(
+                0, getString(R.string.settings_grid_custom_t),
+                getString(R.string.settings_grid_custom_s),
+                gridCols, GridSpec.COLS_RANGE, gridRows, GridSpec.ROWS_RANGE, "×",
+                { gridCols = it }, { gridRows = it }
+            )
             .column()
             .section(getString(R.string.settings_sec_car))
             .switch(
@@ -462,6 +483,7 @@ class MainActivity : AppCompatActivity() {
                 applyAutostart(autostart)
                 AppSettings.setBarSideLeft(this, barLeft)
                 applyBarSide()
+                applyGrid(gridMode, gridCols, gridRows)
                 // Выключили — выкл (Яндекс вернётся с приборки); включили — наша карточка.
                 if (!clusterNavi) setClusterMode(CLUSTER_OFF)
                 else if (clusterMode() == CLUSTER_OFF) setClusterMode(CLUSTER_OURS)
@@ -494,6 +516,23 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton(R.string.edit_done) { _, _ -> apply() }
             .setNegativeButton(R.string.dialog_cancel, null)
             .showFullScreen()
+    }
+
+    /**
+     * Сменить сетку дашборда: раскладка (в мелких клетках) пересчитывается
+     * под новую сетку при пересборке. Хранимая раскладка не меняется, пока
+     * не редактировали дашборд (выход из правки сохраняет её уже по клеткам
+     * новой сетки) — до этого прежняя сетка возвращается без потерь.
+     */
+    private fun applyGrid(mode: Int, cols: Int, rows: Int) {
+        val next = AppSettings.gridSpec(mode, cols, rows)
+        AppSettings.setGrid(this, mode, cols, rows)
+        if (next == dashboard.grid) return
+        // Из хранилища, а не с экрана: экранные клетки старой сетки
+        // округлены, хранимые — точнее.
+        val specs = store.load()
+        dashboard.grid = next
+        buildWidgets(specs)
     }
 
     /**
@@ -1035,7 +1074,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun buildWidgets(specs: List<WidgetSpec>) {
         dashboard.removeAllViews()
-        specs.forEach { spec ->
+        val grid = dashboard.grid
+        // Раскладка хранится в мелких клетках — на экран в клетках выбранной сетки.
+        specs.map { grid.fromFine(it) }.forEach { spec ->
             // Общий вид «Ретро» — у виджетов без своей ретро-отрисовки.
             val retro = spec.type !in OWN_RETRO && RetroLook.isOn(settingsStore, spec.widgetId)
             val wTheme = if (retro) RetroLook.THEME else theme
@@ -1159,7 +1200,7 @@ class MainActivity : AppCompatActivity() {
             )
             frame.setContent(content)
             if (retro) RetroLook.applyText(content)
-            val lp = DashboardGridLayout.LayoutParams(spec.x, spec.y, spec.w, spec.h, spec.type.minW)
+            val lp = DashboardGridLayout.LayoutParams(spec.x, spec.y, spec.w, spec.h, grid.minW(spec.type))
             dashboard.addView(frame, lp)
             if (spec.type == WidgetType.APP) {
                 // Блок переехал (раскладка, смена размера окна) — двигаем и навигатор.
@@ -1198,6 +1239,8 @@ class MainActivity : AppCompatActivity() {
         for (i in 0 until dashboard.childCount) {
             (dashboard.getChildAt(i) as? WidgetFrame)?.setEditMode(enabled)
         }
+        // Крупная сетка: контуры клеток — куда встанет блок.
+        dashboard.showGuides = enabled
         if (!enabled) persistLayout()
         // Блок навигатора мог переехать; в редактировании он — карточка.
         refreshNavi()
@@ -2290,10 +2333,12 @@ class MainActivity : AppCompatActivity() {
             val frame = dashboard.getChildAt(i) as? WidgetFrame ?: continue
             val lp = frame.layoutParams as? DashboardGridLayout.LayoutParams ?: continue
             specs.add(
-                WidgetSpec(
-                    widgetId = frame.widgetId,
-                    type = frame.widgetType,
-                    x = lp.cellX, y = lp.cellY, w = lp.cellW, h = lp.cellH
+                dashboard.grid.toFine(
+                    WidgetSpec(
+                        widgetId = frame.widgetId,
+                        type = frame.widgetType,
+                        x = lp.cellX, y = lp.cellY, w = lp.cellW, h = lp.cellH
+                    )
                 )
             )
         }

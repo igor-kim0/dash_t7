@@ -1,6 +1,7 @@
 package com.dash.headunit.settings
 
 import android.content.Context
+import com.dash.headunit.dashboard.GridSpec
 
 /** Настройки приложения (кнопка-шестерёнка в колонке справа). */
 object AppSettings {
@@ -105,6 +106,47 @@ object AppSettings {
         val tenths = (bar * 10).toInt().coerceIn(TIRE_MIN_MIN, TIRE_MIN_MAX)
         prefs(context).edit().putInt(KEY_TIRE_MIN, tenths).apply()
     }
+
+    /**
+     * Сетка дашборда: [GRID_FREE] — свободная 100 x 70 (как раньше),
+     * [GRID_4X4] — 4 x 4 блока, [GRID_CUSTOM] — колонки x строки пользователя.
+     */
+    fun gridMode(context: Context): Int =
+        prefs(context).getInt(KEY_GRID_MODE, GRID_FREE).takeIf { it in GRID_FREE..GRID_CUSTOM } ?: GRID_FREE
+
+    fun gridCols(context: Context): Int =
+        prefs(context).getInt(KEY_GRID_COLS, GRID_CUSTOM_DEFAULT_COLS).coerceIn(GridSpec.COLS_RANGE)
+
+    fun gridRows(context: Context): Int =
+        prefs(context).getInt(KEY_GRID_ROWS, GRID_CUSTOM_DEFAULT_ROWS).coerceIn(GridSpec.ROWS_RANGE)
+
+    fun setGrid(context: Context, mode: Int, cols: Int, rows: Int) {
+        prefs(context).edit()
+            .putInt(KEY_GRID_MODE, mode)
+            .putInt(KEY_GRID_COLS, cols.coerceIn(GridSpec.COLS_RANGE))
+            .putInt(KEY_GRID_ROWS, rows.coerceIn(GridSpec.ROWS_RANGE))
+            .apply()
+    }
+
+    /** Сетка для [mode] и своих размеров. */
+    fun gridSpec(mode: Int, cols: Int, rows: Int): GridSpec = when (mode) {
+        GRID_4X4 -> GridSpec.BLOCKS_4
+        GRID_CUSTOM -> GridSpec(cols.coerceIn(GridSpec.COLS_RANGE), rows.coerceIn(GridSpec.ROWS_RANGE))
+        else -> GridSpec.FINE
+    }
+
+    /** Текущая сетка дашборда. */
+    fun grid(context: Context): GridSpec =
+        gridSpec(gridMode(context), gridCols(context), gridRows(context))
+
+    const val GRID_FREE = 0
+    const val GRID_4X4 = 1
+    const val GRID_CUSTOM = 2
+    private const val GRID_CUSTOM_DEFAULT_COLS = 6
+    private const val GRID_CUSTOM_DEFAULT_ROWS = 4
+    private const val KEY_GRID_MODE = "grid_mode"
+    private const val KEY_GRID_COLS = "grid_cols"
+    private const val KEY_GRID_ROWS = "grid_rows"
 
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences("app_settings", Context.MODE_PRIVATE)

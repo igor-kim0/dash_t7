@@ -81,11 +81,16 @@ data class WidgetSpec(
     val w: Int,
     val h: Int
 ) {
-    fun clamped(): WidgetSpec = copy(
+    /**
+     * В границах свободной сетки. [minW]/[minH] — минимум размера: при
+     * загрузке 1 (раскладка из крупной сетки бывает мельче минимумов
+     * свободной; их применяет [GridSpec.clamp] при показе).
+     */
+    fun clamped(minW: Int = type.minW, minH: Int = DashboardGridLayout.MIN_H): WidgetSpec = copy(
         x = x.coerceIn(0, DashboardGridLayout.COLS - 1),
         y = y.coerceIn(0, DashboardGridLayout.ROWS - 1),
-        w = w.coerceIn(type.minW, DashboardGridLayout.COLS),
-        h = h.coerceIn(DashboardGridLayout.MIN_H, DashboardGridLayout.ROWS)
+        w = w.coerceIn(minW, DashboardGridLayout.COLS),
+        h = h.coerceIn(minH, DashboardGridLayout.ROWS)
     ).let {
         it.copy(
             x = it.x.coerceAtMost(DashboardGridLayout.COLS - it.w),

@@ -104,11 +104,49 @@ class SettingsList(private val context: Context, private val theme: DashTheme) {
         format: (Int) -> String,
         onChange: (Int) -> Unit
     ) = apply {
+        row(icon, title, subtitle, stepperBox(value, range, format, onChange, labelMinDp = 72))
+    }
+
+    /** Строка с двумя степперами «− a + × − b +» (например, колонки × строки). */
+    fun stepperPair(
+        icon: Int,
+        title: CharSequence,
+        subtitle: CharSequence?,
+        first: Int,
+        firstRange: IntRange,
+        second: Int,
+        secondRange: IntRange,
+        separator: String,
+        onFirst: (Int) -> Unit,
+        onSecond: (Int) -> Unit
+    ) = apply {
+        val box = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(stepperBox(first, firstRange, { it.toString() }, onFirst, labelMinDp = 40))
+            addView(TextView(context).apply {
+                text = separator
+                textSize = 18f
+                setTextColor(theme.secondaryText)
+                setPadding(dp(8), 0, dp(8), 0)
+            })
+            addView(stepperBox(second, secondRange, { it.toString() }, onSecond, labelMinDp = 40))
+        }
+        row(icon, title, subtitle, box)
+    }
+
+    private fun stepperBox(
+        value: Int,
+        range: IntRange,
+        format: (Int) -> String,
+        onChange: (Int) -> Unit,
+        labelMinDp: Int
+    ): LinearLayout {
         var current = value.coerceIn(range)
         val label = TextView(context).apply {
             textSize = 18f
             gravity = Gravity.CENTER
-            minWidth = dp(72)
+            minWidth = dp(labelMinDp)
             setTextColor(theme.primaryText)
             typeface = android.graphics.Typeface.DEFAULT_BOLD
         }
@@ -139,7 +177,7 @@ class SettingsList(private val context: Context, private val theme: DashTheme) {
             addView(plus, LinearLayout.LayoutParams(dp(48), dp(48)))
         }
         refresh()
-        row(icon, title, subtitle, box)
+        return box
     }
 
     /** Строка с сегментированным выбором под заголовком. */

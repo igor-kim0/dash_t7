@@ -30,7 +30,7 @@ class DashboardStore(context: Context) {
                     y = o.getInt("y"),
                     w = o.getInt("w"),
                     h = o.getInt("h")
-                ).clamped()
+                ).clamped(minW = 1, minH = 1)
             }
         } catch (e: Exception) {
             defaultLayout()
