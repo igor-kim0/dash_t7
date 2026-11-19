@@ -8,6 +8,8 @@
 
 ## [Unreleased]
 
+## [1.8.5] — 2026-11-19
+
 ### Добавлено
 - Настройки → «Алиса по кнопке руля»: назначенная кнопка на руле (например,
   кнопка голосового помощника) вызывает Алису Яндекс Навигатора — на
@@ -812,7 +814,10 @@
 - Wi-Fi, обучатель кнопок, маршрут на приборке.
 - Релизная сборка prod: подпись debug-ключом (обновление поверх установленной).
 
-[Unreleased]: https://github.com/igor-kim0/dash_t7/compare/v1.8.2...HEAD
+[Unreleased]: https://github.com/igor-kim0/dash_t7/compare/v1.8.5...HEAD
+[1.8.5]: https://github.com/igor-kim0/dash_t7/compare/v1.8.4...v1.8.5
+[1.8.4]: https://github.com/igor-kim0/dash_t7/compare/v1.8.3...v1.8.4
+[1.8.3]: https://github.com/igor-kim0/dash_t7/compare/v1.8.2...v1.8.3
 [1.8.2]: https://github.com/igor-kim0/dash_t7/compare/v1.8.1...v1.8.2
 [1.8.1]: https://github.com/igor-kim0/dash_t7/compare/v1.8...v1.8.1
 [1.8]: https://github.com/igor-kim0/dash_t7/compare/v1.7...v1.8
