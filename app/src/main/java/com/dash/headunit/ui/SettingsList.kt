@@ -84,10 +84,11 @@ class SettingsList(private val context: Context, private val theme: DashTheme) {
         title: CharSequence,
         subtitle: CharSequence?,
         checked: Boolean,
+        minHeight: Int = 72,
         onChange: (Boolean) -> Unit
     ) = apply {
         val sw = DashSwitch(context, theme).apply { setChecked(checked, animate = false) }
-        val row = row(icon, title, subtitle, sw)
+        val row = row(icon, title, subtitle, sw, minHeight)
         row.setOnClickListener {
             sw.setChecked(!sw.isOn, animate = true)
             onChange(sw.isOn)
@@ -118,7 +119,8 @@ class SettingsList(private val context: Context, private val theme: DashTheme) {
         secondRange: IntRange,
         separator: String,
         onFirst: (Int) -> Unit,
-        onSecond: (Int) -> Unit
+        onSecond: (Int) -> Unit,
+        minHeight: Int = 72
     ) = apply {
         val box = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -132,7 +134,7 @@ class SettingsList(private val context: Context, private val theme: DashTheme) {
             })
             addView(stepperBox(second, secondRange, { it.toString() }, onSecond, labelMinDp = 40))
         }
-        row(icon, title, subtitle, box)
+        row(icon, title, subtitle, box, minHeight)
     }
 
     private fun stepperBox(
@@ -180,10 +182,13 @@ class SettingsList(private val context: Context, private val theme: DashTheme) {
         return box
     }
 
-    /** Строка с сегментированным выбором под заголовком. */
+    /**
+     * Строка с сегментированным выбором под заголовком. [title] = null —
+     * без строки-заголовка (хватает подписи секции), только сам выбор.
+     */
     fun segmented(
         icon: Int,
-        title: CharSequence,
+        title: CharSequence?,
         subtitle: CharSequence?,
         options: List<CharSequence>,
         selected: Int,
@@ -213,11 +218,10 @@ class SettingsList(private val context: Context, private val theme: DashTheme) {
         }
         bar.tag = cells
         select(bar, selected)
-        val r = row(icon, title, subtitle, null)
-        compact(r)
+        if (title != null) compact(row(icon, title, subtitle, null))
         group!!.addView(bar, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply { setMargins(dp(16), 0, dp(16), dp(14)) })
+        ).apply { setMargins(dp(16), if (title != null) 0 else dp(14), dp(16), dp(14)) })
     }
 
     /**

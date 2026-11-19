@@ -128,6 +128,13 @@ object AppSettings {
             .apply()
     }
 
+    /** Крупная сетка без промежутков между блоками (блоки встык). */
+    fun gridNoGap(context: Context): Boolean = prefs(context).getBoolean(KEY_GRID_NO_GAP, false)
+
+    fun setGridNoGap(context: Context, noGap: Boolean) {
+        prefs(context).edit().putBoolean(KEY_GRID_NO_GAP, noGap).apply()
+    }
+
     /** Сетка для [mode] и своих размеров. */
     fun gridSpec(mode: Int, cols: Int, rows: Int): GridSpec = when (mode) {
         GRID_4X4 -> GridSpec.BLOCKS_4
@@ -147,6 +154,7 @@ object AppSettings {
     private const val KEY_GRID_MODE = "grid_mode"
     private const val KEY_GRID_COLS = "grid_cols"
     private const val KEY_GRID_ROWS = "grid_rows"
+    private const val KEY_GRID_NO_GAP = "grid_no_gap"
 
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences("app_settings", Context.MODE_PRIVATE)

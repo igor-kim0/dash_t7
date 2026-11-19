@@ -149,6 +149,7 @@ class MainActivity : AppCompatActivity() {
         applyThemeChrome()
         dashboard = findViewById(R.id.dashboard)
         dashboard.grid = AppSettings.grid(this)
+        dashboard.noGap = AppSettings.gridNoGap(this)
         barNormal = findViewById(R.id.bar_normal)
         barEdit = findViewById(R.id.bar_edit)
         btnEdit = findViewById(R.id.btn_edit)
@@ -399,6 +400,7 @@ class MainActivity : AppCompatActivity() {
         var gridMode = AppSettings.gridMode(this)
         var gridCols = AppSettings.gridCols(this)
         var gridRows = AppSettings.gridRows(this)
+        var gridNoGap = AppSettings.gridNoGap(this)
         var tank = CarHub.tankLiters(this)
         var tireMin = (AppSettings.tirePressureMin(this) * 10).toInt()
         val keepOptions = intArrayOf(7, 14, 30, 0)
@@ -437,7 +439,7 @@ class MainActivity : AppCompatActivity() {
             ) { etm = it }
             .section(getString(R.string.settings_sec_grid))
             .segmented(
-                R.drawable.ic_grid, getString(R.string.settings_grid_t), null,
+                R.drawable.ic_grid, null, null,
                 listOf(
                     getString(R.string.settings_grid_free),
                     getString(R.string.settings_grid_4x4),
@@ -446,11 +448,13 @@ class MainActivity : AppCompatActivity() {
                 gridMode
             ) { gridMode = it }
             .stepperPair(
-                0, getString(R.string.settings_grid_custom_t),
-                getString(R.string.settings_grid_custom_s),
+                0, getString(R.string.settings_grid_custom_t), null,
                 gridCols, GridSpec.COLS_RANGE, gridRows, GridSpec.ROWS_RANGE, "×",
-                { gridCols = it }, { gridRows = it }
+                { gridCols = it }, { gridRows = it }, minHeight = 56
             )
+            .switch(
+                0, getString(R.string.settings_grid_no_gap_t), null, gridNoGap, minHeight = 56
+            ) { gridNoGap = it }
             .column()
             .section(getString(R.string.settings_sec_car))
             .switch(
@@ -483,7 +487,7 @@ class MainActivity : AppCompatActivity() {
                 applyAutostart(autostart)
                 AppSettings.setBarSideLeft(this, barLeft)
                 applyBarSide()
-                applyGrid(gridMode, gridCols, gridRows)
+                applyGrid(gridMode, gridCols, gridRows, gridNoGap)
                 // Выключили — выкл (Яндекс вернётся с приборки); включили — наша карточка.
                 if (!clusterNavi) setClusterMode(CLUSTER_OFF)
                 else if (clusterMode() == CLUSTER_OFF) setClusterMode(CLUSTER_OURS)
@@ -524,9 +528,11 @@ class MainActivity : AppCompatActivity() {
      * не редактировали дашборд (выход из правки сохраняет её уже по клеткам
      * новой сетки) — до этого прежняя сетка возвращается без потерь.
      */
-    private fun applyGrid(mode: Int, cols: Int, rows: Int) {
+    private fun applyGrid(mode: Int, cols: Int, rows: Int, noGap: Boolean) {
         val next = AppSettings.gridSpec(mode, cols, rows)
         AppSettings.setGrid(this, mode, cols, rows)
+        AppSettings.setGridNoGap(this, noGap)
+        dashboard.noGap = noGap
         if (next == dashboard.grid) return
         // Из хранилища, а не с экрана: экранные клетки старой сетки
         // округлены, хранимые — точнее.

@@ -41,12 +41,21 @@ class DashboardGridLayout @JvmOverloads constructor(
             invalidate()
         }
 
+    /** Крупная сетка без промежутков: блоки встык (настройка «Без промежутков»). */
+    var noGap = false
+        set(value) {
+            if (field == value) return
+            field = value
+            requestLayout()
+            invalidate()
+        }
+
     private val cols get() = grid.cols
     private val rows get() = grid.rows
 
     /** Зазор между блоками крупной сетки; у свободной — 0. */
     private val gapPx: Float
-        get() = if (grid.fine) 0f else TypedValue.applyDimension(
+        get() = if (grid.fine || noGap) 0f else TypedValue.applyDimension(
             TypedValue.COMPLEX_UNIT_DIP, BLOCK_GAP_DP, resources.displayMetrics
         )
 
