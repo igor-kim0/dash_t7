@@ -442,11 +442,10 @@ class MainActivity : AppCompatActivity() {
                 R.drawable.ic_grid, null, null,
                 listOf(
                     getString(R.string.settings_grid_free),
-                    getString(R.string.settings_grid_4x4),
                     getString(R.string.settings_grid_custom)
                 ),
-                gridMode
-            ) { gridMode = it }
+                if (gridMode == AppSettings.GRID_CUSTOM) 1 else 0
+            ) { gridMode = if (it == 1) AppSettings.GRID_CUSTOM else AppSettings.GRID_FREE }
             .stepperPair(
                 0, getString(R.string.settings_grid_custom_t), null,
                 gridCols, GridSpec.COLS_RANGE, gridRows, GridSpec.ROWS_RANGE, "×",

@@ -84,7 +84,6 @@
     <string name="settings_sec_grid">Сетка виджетов</string>
     <string name="settings_grid_no_gap_t">Без промежутков между блоками</string>
     <string name="settings_grid_free">Свободная</string>
-    <string name="settings_grid_4x4">4 × 4</string>
     <string name="settings_grid_custom">Своя</string>
     <string name="settings_grid_custom_t">Колонки × строки</string>
     <string name="settings_bar_left_s">Вертикальная панель у левого края, иначе справа</string>

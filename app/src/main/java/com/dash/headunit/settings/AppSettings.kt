@@ -109,10 +109,18 @@ object AppSettings {
 
     /**
      * Сетка дашборда: [GRID_FREE] — свободная 100 x 70 (как раньше),
-     * [GRID_4X4] — 4 x 4 блока, [GRID_CUSTOM] — колонки x строки пользователя.
+     * [GRID_CUSTOM] — колонки x строки пользователя. Убранный режим «4 × 4»
+     * (значение 1, 2026-11-19) переезжает в «Свою» 4 x 4 — вид не меняется.
      */
-    fun gridMode(context: Context): Int =
-        prefs(context).getInt(KEY_GRID_MODE, GRID_FREE).takeIf { it in GRID_FREE..GRID_CUSTOM } ?: GRID_FREE
+    fun gridMode(context: Context): Int {
+        val p = prefs(context)
+        val mode = p.getInt(KEY_GRID_MODE, GRID_FREE)
+        if (mode == LEGACY_GRID_4X4) {
+            p.edit().putInt(KEY_GRID_MODE, GRID_CUSTOM).putInt(KEY_GRID_COLS, 4).putInt(KEY_GRID_ROWS, 4).apply()
+            return GRID_CUSTOM
+        }
+        return if (mode == GRID_CUSTOM) GRID_CUSTOM else GRID_FREE
+    }
 
     fun gridCols(context: Context): Int =
         prefs(context).getInt(KEY_GRID_COLS, GRID_CUSTOM_DEFAULT_COLS).coerceIn(GridSpec.COLS_RANGE)
@@ -137,19 +145,19 @@ object AppSettings {
 
     /** Сетка для [mode] и своих размеров. */
     fun gridSpec(mode: Int, cols: Int, rows: Int): GridSpec = when (mode) {
-        GRID_4X4 -> GridSpec.BLOCKS_4
         GRID_CUSTOM -> GridSpec(cols.coerceIn(GridSpec.COLS_RANGE), rows.coerceIn(GridSpec.ROWS_RANGE))
         else -> GridSpec.FINE
     }
 
     /** Текущая сетка дашборда. */
     fun grid(context: Context): GridSpec =
-        gridSpec(gridMode(context), gridCols(context), gridRows(context))
+        gridMode(context).let { mode -> gridSpec(mode, gridCols(context), gridRows(context)) }
 
     const val GRID_FREE = 0
-    const val GRID_4X4 = 1
+    /** Бывший режим «4 × 4» — только для переезда в [GRID_CUSTOM]. */
+    private const val LEGACY_GRID_4X4 = 1
     const val GRID_CUSTOM = 2
-    private const val GRID_CUSTOM_DEFAULT_COLS = 6
+    private const val GRID_CUSTOM_DEFAULT_COLS = 4
     private const val GRID_CUSTOM_DEFAULT_ROWS = 4
     private const val KEY_GRID_MODE = "grid_mode"
     private const val KEY_GRID_COLS = "grid_cols"

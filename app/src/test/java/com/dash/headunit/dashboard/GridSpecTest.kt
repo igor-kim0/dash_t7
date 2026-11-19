@@ -25,7 +25,7 @@ class GridSpecTest {
 
     @Test
     fun defaultLayoutTo4x4() {
-        val g = GridSpec.BLOCKS_4
+        val g = GridSpec(4, 4)
         // Комбо 4,6 60x24 → колонки 0..2, строки 0..2 (края 0.16→0, 2.56→3; 0.34→0, 1.71→2).
         assertEquals(spec(0, 0, 3, 2), g.fromFine(spec(4, 6, 60, 24)))
         // Прогноз 4,32 92x34 → вся ширина, строки 2..4.

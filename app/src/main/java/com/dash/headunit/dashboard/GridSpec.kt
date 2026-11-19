@@ -65,8 +65,6 @@ data class GridSpec(val cols: Int, val rows: Int) {
         const val FINE_COLS = 100
         const val FINE_ROWS = 70
         val FINE = GridSpec(FINE_COLS, FINE_ROWS)
-        /** Режим «4 × 4». */
-        val BLOCKS_4 = GridSpec(4, 4)
         /** Пределы своей сетки. */
         val COLS_RANGE = 2..20
         val ROWS_RANGE = 2..12
