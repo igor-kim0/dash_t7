@@ -92,6 +92,23 @@ object AdbShell {
         return null
     }
 
+    /**
+     * Запустить [script] в фоне так, чтобы он пережил конец adb-сессии
+     * (и смерть нашего процесса — например, при `pm install`). Просто
+     * `setsid … &` не работает: внешний sh сразу выходит, adbd гасит его
+     * группу раньше, чем потомок успевает отцепиться (эмулятор 2026-11-21:
+     * ни getevent пробы, ни pm install не запускались). Поэтому внешний sh
+     * ещё секунду ждёт, а внутренний игнорирует SIGHUP. В [script] нельзя
+     * одинарные кавычки. Возвращает false, если канала нет.
+     */
+    fun spawn(context: Context, script: String): Boolean {
+        require('\'' !in script) { "одинарные кавычки в фоновой команде" }
+        return exec(
+            context,
+            "setsid sh -c 'trap \"\" HUP; $script' < /dev/null > /dev/null 2>&1 & sleep 1; echo spawned"
+        )?.contains("spawned") == true
+    }
+
     /** Ключ RSA 2048 в filesDir: один на установку, его и разрешает пользователь. */
     private fun keys(context: Context): KeyPair {
         val priv = File(context.filesDir, "adb_key.der")

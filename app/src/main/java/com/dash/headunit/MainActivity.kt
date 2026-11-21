@@ -33,6 +33,7 @@ import androidx.core.content.ContextCompat
 import com.dash.headunit.dashboard.DashboardGridLayout
 import com.dash.headunit.dashboard.GridSpec
 import com.dash.headunit.navi.WheelKeys
+import com.dash.headunit.update.UpdateUi
 import com.dash.headunit.car.ClimateHub
 import com.dash.headunit.navi.WheelKeyProbe
 import com.dash.headunit.dashboard.DashboardStore
@@ -131,6 +132,8 @@ class MainActivity : AppCompatActivity() {
         ClusterOverlay.init(this)
         ClusterSetup.restoreOnStart(this)
         if (AppSettings.radioOnStart(this)) com.dash.headunit.radio.RadioHub.startOnLaunch(this)
+        // Обновления: после старта (сеть ГУ поднимается не сразу), не чаще раза в сутки.
+        window.decorView.postDelayed({ if (!isFinishing) UpdateUi(this).checkAuto() }, 30_000L)
 
         // Не гаснуть на ГУ + во весь экран.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -432,6 +435,7 @@ class MainActivity : AppCompatActivity() {
         var tank = CarHub.tankLiters(this)
         var seatSteps = AppSettings.seatHeatLevels(this)
         var tempStep = AppSettings.climateTempStep(this)
+        var otaAuto = AppSettings.otaAutoCheck(this)
         var tireMin = (AppSettings.tirePressureMin(this) * 10).toInt()
         val keepOptions = intArrayOf(7, 14, 30, 0)
         var keep = keepOptions.indexOf(AppSettings.journalKeepDays(this))
@@ -462,6 +466,18 @@ class MainActivity : AppCompatActivity() {
                 showWheelAliceDialog()
             }
             .section(getString(R.string.settings_sec_about))
+            .nav(
+                R.drawable.ic_cloud, getString(R.string.ota_check_now),
+                getString(R.string.ota_check_now_s), BuildConfig.VERSION_NAME
+            ) {
+                applyRef()
+                dialog?.dismiss()
+                UpdateUi(this).checkManual()
+            }
+            .switch(
+                R.drawable.ic_cloud, getString(R.string.ota_auto_check),
+                getString(R.string.ota_auto_check_s), otaAuto
+            ) { otaAuto = it }
             .nav(
                 R.drawable.ic_telegram, getString(R.string.contacts_telegram_t),
                 getString(R.string.contacts_telegram_s), getString(R.string.contacts_telegram_handle)
@@ -557,6 +573,7 @@ class MainActivity : AppCompatActivity() {
                     AppSettings.setSeatHeatLevels(this, seatSteps)
                     invalidateAll(dashboard)
                 }
+                AppSettings.setOtaAutoCheck(this, otaAuto)
                 if (tempStep != AppSettings.climateTempStep(this)) {
                     AppSettings.setClimateTempStep(this, tempStep)
                     // Ручной выбор сбрасывает выученное «Авто» — в «Авто» учится заново.

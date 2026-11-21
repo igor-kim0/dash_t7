@@ -41,6 +41,9 @@
          adb shell pm grant com.dash.headunit android.permission.RECORD_AUDIO -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- Обновление из GitHub Releases: запасной путь через системный установщик
+         (основной — pm install через свой adb-канал, update/Updater). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Видимость навигационных приложений для виджета карты (Android 11+). -->
     <queries>
@@ -142,5 +145,15 @@
             android:name=".car.CarDebugActivity"
             android:exported="false"
             android:screenOrientation="landscape" />
+        <!-- Отдаёт скачанный APK обновления системному установщику (update/Updater). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/ota_paths" />
+        </provider>
     </application>
 </manifest>

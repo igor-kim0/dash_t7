@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Скачанные APK обновления: <externalFilesDir>/ota (update/Updater). -->
+<paths>
+    <external-files-path name="ota" path="ota/" />
+    <files-path name="ota_int" path="ota/" />
+</paths>

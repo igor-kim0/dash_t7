@@ -128,12 +128,9 @@ object WheelKeyProbe {
             sb.append("adb: ").append(adb ?: "нет (${AdbShell.lastStatus})").append('\n')
             if (adb == "ok") {
                 // Сырые события — в фоне до конца пробы (сессия adb столько не живёт).
-                AdbShell.exec(
-                    app,
-                    "rm -f $GETEVENT_FILE; setsid sh -c 'timeout ${DURATION_MS / 1000 + 2} getevent -lt > $GETEVENT_FILE 2>&1' " +
-                        "< /dev/null > /dev/null 2>&1 &"
-                )
-                line("adb: getevent запущен")
+                AdbShell.exec(app, "rm -f $GETEVENT_FILE")
+                val spawned = AdbShell.spawn(app, "timeout ${DURATION_MS / 1000 + 2} getevent -lt > $GETEVENT_FILE 2>&1")
+                line(if (spawned) "adb: getevent запущен" else "adb: getevent не запустился")
             } else {
                 line("adb недоступен — будут только a11y / окно / key_policy")
             }

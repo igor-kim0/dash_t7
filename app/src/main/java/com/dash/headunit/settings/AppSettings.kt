@@ -218,6 +218,31 @@ object AppSettings {
     const val TEMP_STEP_HALF = 2
     private const val KEY_TEMP_STEP = "climate_temp_step"
     private const val KEY_TEMP_HALF_LEARNED = "climate_temp_half_learned"
+
+    /** Автопроверка обновлений при старте ([com.dash.headunit.update.UpdateUi]). */
+    fun otaAutoCheck(context: Context): Boolean = prefs(context).getBoolean(KEY_OTA_AUTO_CHECK, true)
+
+    fun setOtaAutoCheck(context: Context, on: Boolean) {
+        prefs(context).edit().putBoolean(KEY_OTA_AUTO_CHECK, on).apply()
+    }
+
+    /** Версия, которую пользователь пропустил (автопроверка её не предлагает). */
+    fun skippedUpdateVersion(context: Context): String? = prefs(context).getString(KEY_OTA_SKIPPED, null)
+
+    fun setSkippedUpdateVersion(context: Context, version: String?) {
+        prefs(context).edit().putString(KEY_OTA_SKIPPED, version).apply()
+    }
+
+    /** Время последней удачной проверки обновлений, мс. */
+    fun otaLastCheckTime(context: Context): Long = prefs(context).getLong(KEY_OTA_LAST_CHECK, 0L)
+
+    fun setOtaLastCheckTime(context: Context, time: Long) {
+        prefs(context).edit().putLong(KEY_OTA_LAST_CHECK, time).apply()
+    }
+
+    private const val KEY_OTA_AUTO_CHECK = "ota_auto_check"
+    private const val KEY_OTA_SKIPPED = "ota_skipped_version"
+    private const val KEY_OTA_LAST_CHECK = "ota_last_check"
     private const val KEY_WHEEL_ALICE_KEY = "wheel_alice_key"
 
     private fun prefs(context: Context) =
