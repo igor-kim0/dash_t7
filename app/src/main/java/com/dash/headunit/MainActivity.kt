@@ -1016,6 +1016,12 @@ class MainActivity : AppCompatActivity() {
      * Вызывается на onResume, после раскладки и смены режима.
      */
     private fun refreshNavi() {
+        // Идёт сдвиг при смене дашборда: координаты блока сейчас со сдвигом —
+        // навигатор встал бы не на место. Конец анимации позовёт ещё раз.
+        if (dashboard.translationX != 0f) {
+            if (pageAnimating) return
+            dashboard.translationX = 0f // анимацию прервали — вернуть на место
+        }
         val view = naviWidget()
         // Остальные блоки «Навигатор» (если их несколько) — просто карточки.
         for (i in 0 until dashboard.childCount) {
@@ -1569,6 +1575,7 @@ class MainActivity : AppCompatActivity() {
                 rebuild()
                 dashboard.translationX = dir * w * PAGE_SHIFT
                 dashboard.animate().translationX(0f).alpha(1f).setDuration(PAGE_ANIM_MS)
+                    .withEndAction { if (isResumedNow()) refreshNavi() }
                     .start()
             }
             .start()
@@ -1621,6 +1628,7 @@ class MainActivity : AppCompatActivity() {
             updatePageUi()
             dashboard.translationX = dir * w * PAGE_SHIFT
             dashboard.animate().translationX(0f).alpha(1f).setDuration(PAGE_ANIM_MS)
+                .withEndAction { if (isResumedNow()) refreshNavi() }
                 .start()
         }.start()
         Toast.makeText(this, R.string.page_removed, Toast.LENGTH_SHORT).show()
