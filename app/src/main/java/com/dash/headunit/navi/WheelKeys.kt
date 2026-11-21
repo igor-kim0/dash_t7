@@ -5,36 +5,39 @@ import android.content.Intent
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Log
 import android.view.KeyEvent
 import android.widget.Toast
 import com.dash.headunit.navi.cluster.NaviAccessibilityService
 import com.dash.headunit.navi.cluster.YANDEX_NAVI
 import com.dash.headunit.settings.AppSettings
+import java.util.concurrent.Executors
 
 /**
  * Алиса Яндекс Навигатора по кнопке на руле.
  *
- * Кнопки руля на ГУ Desay — обычные Android KeyEvent. Системная служба Desay
- * `key_policy` (KeyPolicyImpl: штатный голосовой помощник iFlytek и т.п.)
- * разбирает их в `PhoneWindowManager.interceptKeyBeforeDispatching` — уже
- * после фильтра клавиш служб спец. возможностей. Поэтому
- * [NaviAccessibilityService] с FLAG_REQUEST_FILTER_KEY_EVENTS видит кнопку
- * первым и, вернув true, забирает её: штатный помощник не запускается, а
- * мы зовём Алису ([trigger]). Фильтр включается только когда функция
- * включена или идёт назначение кнопки ([filterWanted]) — иначе через наш
- * процесс шли бы все клавиши ГУ.
+ * Кнопки руля на ГУ Desay — обычные Android KeyEvent (голос = 292
+ * KEYCODE_VR, scan 793), но фильтру клавиш службы спец. возможностей они
+ * не приходят вовсе (проба HU 2026-11-21). Слушаем их своим колбэком в
+ * системной службе Desay key_policy ([KeyPolicyTap]) — он видит все кнопки
+ * руля, но забрать клавишу не может: штатная реакция остаётся. Поэтому
+ * Алиса — по ДОЛГОМУ нажатию ([LONG_MS]): штатный помощник долгое нажатие
+ * VR пропускает («vr key is long pressed, so return»), короткое остаётся
+ * ему. Колбэк регистрируется только когда функция включена или идёт
+ * назначение ([wanted]).
  *
- * Вызовы [onKey] — в главном потоке службы; только быстрые проверки.
+ * Клавиши приходят в binder-потоке и переносятся в главный.
  */
 object WheelKeys {
 
     /** Что сделать с клавишей. Чистая часть — тестируется. */
-    enum class Action { PASS, CONSUME, CONSUME_LEARN, CONSUME_TRIGGER }
+    enum class Action { NONE, LEARN, TRIGGER }
 
     /**
-     * Решение по клавише [keyCode]/[action]/[repeat]: идёт назначение —
-     * забираем всё, отпускание назначает; функция включена и код совпал —
-     * забираем, первое нажатие зовёт Алису (не чаще [TRIGGER_GAP_MS]).
+     * Решение по клавише: идёт назначение — отпускание назначает; функция
+     * включена и код совпал — удержание [holdMs] ≥ [LONG_MS] зовёт Алису
+     * (один раз на нажатие: [downTime] ≠ [triggeredDown]). Срабатывает и
+     * на повторе удержания, и на отпускании — если повторов не было.
      */
     internal fun decide(
         learning: Boolean,
@@ -42,16 +45,14 @@ object WheelKeys {
         assigned: Int,
         keyCode: Int,
         action: Int,
-        repeat: Int,
-        now: Long,
-        lastTrigger: Long
+        holdMs: Long,
+        downTime: Long,
+        triggeredDown: Long
     ): Action {
-        if (learning) return if (action == KeyEvent.ACTION_UP) Action.CONSUME_LEARN else Action.CONSUME
-        if (!enabled || assigned < 0 || keyCode != assigned) return Action.PASS
-        if (action == KeyEvent.ACTION_DOWN && repeat == 0 && now - lastTrigger >= TRIGGER_GAP_MS) {
-            return Action.CONSUME_TRIGGER
-        }
-        return Action.CONSUME
+        if (learning) return if (action == KeyEvent.ACTION_UP) Action.LEARN else Action.NONE
+        if (!enabled || assigned < 0 || keyCode != assigned) return Action.NONE
+        if (downTime == triggeredDown || holdMs < LONG_MS) return Action.NONE
+        return Action.TRIGGER
     }
 
     /** Одна клавиша в журнале (для диалога настроек). */
@@ -59,15 +60,21 @@ object WheelKeys {
 
     // Лениво: чистая [decide] гоняется в юнит-тестах без Android.
     private val main by lazy { Handler(Looper.getMainLooper()) }
+    private val io by lazy { Executors.newSingleThreadExecutor { Thread(it, "WheelKeys") } }
     private val journal = ArrayDeque<Seen>()
+    private val tap by lazy { KeyPolicyTap(TAP_NAME) { e -> main.post { onKey(e) } } }
 
     @Volatile private var enabledCache = false
     @Volatile private var keyCache = -1
     private var appContext: Context? = null
-    private var lastTrigger = 0L
+    private var triggeredDown = -1L
 
     private var learnUntil = 0L
     private var onLearned: ((Int) -> Unit)? = null
+
+    /** Состояние колбэка key_policy — для диалога. */
+    @Volatile var tapStatus: String = "колбэк не зарегистрирован"
+        private set
 
     /** Изменения для открытого диалога (журнал, назначение). */
     var onChanged: (() -> Unit)? = null
@@ -79,28 +86,34 @@ object WheelKeys {
      */
     var onAliceRequest: (() -> Boolean)? = null
 
-    /** Прочитать настройки; вызывать при старте службы и при их смене. */
+    /** Прочитать настройки; вызывать при старте и при их смене. */
     fun init(context: Context) {
         val app = context.applicationContext
         appContext = app
         enabledCache = AppSettings.wheelAlice(app)
         keyCache = AppSettings.wheelAliceKey(app)
-        applyFilter()
+        applyTap()
     }
 
     val learning: Boolean get() = SystemClock.uptimeMillis() < learnUntil
 
-    /** Нужен ли фильтр клавиш службе сейчас. */
-    fun filterWanted(): Boolean = learning || WheelKeyProbe.running || (enabledCache && keyCache >= 0)
+    /** Нужен ли колбэк key_policy сейчас. */
+    private fun wanted(): Boolean = learning || (enabledCache && keyCache >= 0)
 
-    /** Включить/выключить фильтр клавиш у службы по [filterWanted]. */
-    fun applyFilter() {
-        NaviAccessibilityService.instance?.setKeyFilter(filterWanted())
-    }
-
-    /** [applyFilter] с любого потока. */
-    fun applyFilterAsync() {
-        main.post { applyFilter() }
+    /** Зарегистрировать/снять колбэк по [wanted] (binder — в своём потоке). */
+    private fun applyTap() {
+        val ctx = appContext ?: return
+        val want = wanted()
+        io.execute {
+            if (want && !tap.registered) {
+                tapStatus = tap.register(ctx)
+                Log.i(TAG, tapStatus)
+            } else if (!want && tap.registered) {
+                tap.unregister(ctx)
+                tapStatus = "колбэк снят"
+            }
+            onChanged?.let { main.post(it) }
+        }
     }
 
     /** Назначить кнопку: следующая отпущенная клавиша в течение [LEARN_MS]. */
@@ -108,29 +121,30 @@ object WheelKeys {
         appContext = context.applicationContext
         learnUntil = SystemClock.uptimeMillis() + LEARN_MS
         onLearned = done
-        applyFilter()
-        main.postDelayed({ if (!learning) stopLearning() }, LEARN_MS + 50)
+        applyTap()
+        main.postDelayed({ if (!learning && onLearned != null) stopLearning() }, LEARN_MS + 50)
     }
 
     fun stopLearning() {
         learnUntil = 0L
         onLearned = null
-        applyFilter()
+        applyTap()
         onChanged?.invoke()
     }
 
     /** Последние клавиши, свежие первыми. */
     fun journal(): List<Seen> = synchronized(journal) { journal.toList().asReversed() }
 
-    /** Клавиша от службы спец. возможностей. true — забрали. */
-    fun onKey(e: KeyEvent): Boolean {
-        val now = SystemClock.uptimeMillis()
-        val act = decide(learning, enabledCache, keyCache, e.keyCode, e.action, e.repeatCount, now, lastTrigger)
+    /** Клавиша из key_policy (главный поток). */
+    private fun onKey(e: KeyEvent) {
+        val act = decide(
+            learning, enabledCache, keyCache, e.keyCode, e.action,
+            e.eventTime - e.downTime, e.downTime, triggeredDown
+        )
         remember(e, act)
-        if (WheelKeyProbe.running) WheelKeyProbe.onA11yKey(e)
         when (act) {
-            Action.PASS, Action.CONSUME -> Unit
-            Action.CONSUME_LEARN -> {
+            Action.NONE -> Unit
+            Action.LEARN -> {
                 val ctx = appContext
                 val cb = onLearned
                 learnUntil = 0L
@@ -139,29 +153,26 @@ object WheelKeys {
                     AppSettings.setWheelAliceKey(ctx, e.keyCode)
                     keyCache = e.keyCode
                 }
-                main.post {
-                    applyFilter()
-                    cb?.invoke(e.keyCode)
-                }
+                applyTap()
+                cb?.invoke(e.keyCode)
             }
-            Action.CONSUME_TRIGGER -> {
-                lastTrigger = now
-                main.post { trigger() }
+            Action.TRIGGER -> {
+                triggeredDown = e.downTime
+                trigger()
             }
         }
-        return act != Action.PASS
     }
 
     private fun remember(e: KeyEvent, act: Action) {
         // Повторы удержания не пишем — журнал не забивается.
-        if (e.repeatCount > 0) return
+        if (e.repeatCount > 0 && act == Action.NONE) return
         synchronized(journal) {
             journal.addLast(
                 Seen(System.currentTimeMillis(), e.keyCode, e.scanCode, e.action, act.name)
             )
             while (journal.size > JOURNAL_SIZE) journal.removeFirst()
         }
-        onChanged?.let { main.post(it) }
+        onChanged?.invoke()
     }
 
     /**
@@ -201,7 +212,10 @@ object WheelKeys {
         if (error != null) Toast.makeText(ctx, "Алиса: $error", Toast.LENGTH_LONG).show()
     }
 
+    private const val TAG = "WheelKeys"
+    private const val TAP_NAME = "dash_wheel_alice"
     private const val LEARN_MS = 15_000L
-    private const val TRIGGER_GAP_MS = 2_000L
+    /** Удержание, после которого зовём Алису. */
+    internal const val LONG_MS = 800L
     private const val JOURNAL_SIZE = 20
 }

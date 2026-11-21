@@ -58,14 +58,15 @@ class NaviAccessibilityService : AccessibilityService() {
         com.dash.headunit.car.TripLog.init(this)
         com.dash.headunit.car.TripLog.write { "служба привязана (спец. возможности): ${com.dash.headunit.car.TripLog.processInfo(this)}" }
         bg.post(scan)
-        // Алиса по кнопке руля: фильтр клавиш — только если нужен.
+        // Алиса по кнопке руля (колбэк key_policy — в процессе, где бы он ни был поднят).
         com.dash.headunit.navi.WheelKeys.init(this)
     }
 
     /**
-     * Фильтр клавиш (кнопки руля, [com.dash.headunit.navi.WheelKeys]).
-     * Возможность объявлена в XML (canRequestFilterKeyEvents), а сам флаг
-     * ставим только по надобности: с ним каждая клавиша ГУ ждёт нашего ответа.
+     * Фильтр клавиш — только для пробы кнопок руля
+     * ([com.dash.headunit.navi.WheelKeyProbe]): на HU кнопки руля сюда не
+     * приходят, Алиса по кнопке слушает key_policy. Возможность объявлена
+     * в XML (canRequestFilterKeyEvents), флаг ставится только на время пробы.
      */
     fun setKeyFilter(on: Boolean) {
         val info = serviceInfo ?: return
@@ -87,7 +88,8 @@ class NaviAccessibilityService : AccessibilityService() {
 
     override fun onKeyEvent(event: android.view.KeyEvent): Boolean =
         try {
-            com.dash.headunit.navi.WheelKeys.onKey(event)
+            if (com.dash.headunit.navi.WheelKeyProbe.running) com.dash.headunit.navi.WheelKeyProbe.onA11yKey(event)
+            false
         } catch (e: Exception) {
             Log.w("NaviA11y", "onKeyEvent", e)
             false

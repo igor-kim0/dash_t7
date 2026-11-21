@@ -317,6 +317,8 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         WheelKeys.onAliceRequest = wheelAliceHook
+        // Колбэк key_policy (кнопка руля) — и без службы спец. возможностей.
+        WheelKeys.init(this)
         updateStatusIcons()
         refreshNavi()
         // Заставку могли не убрать (процесс убит при показанной) — вернуть подсветку ГУ.
@@ -1225,7 +1227,7 @@ class MainActivity : AppCompatActivity() {
                 "${fmt.format(java.util.Date(it.at))}  ${if (it.action == KeyEvent.ACTION_DOWN) "↓" else "↑"} " +
                     "${it.keyCode} ${KeyEvent.keyCodeToString(it.keyCode)}  scan=${it.scanCode}  ${it.handled}"
             }
-            val filter = NaviAccessibilityService.instance?.keyFilterState()?.let { "a11y: $it\n\n" }.orEmpty()
+            val filter = "key_policy: ${WheelKeys.tapStatus}\n\n"
             val probeLines = WheelKeyProbe.liveLines(14)
             journal.text = if (WheelKeyProbe.running || probeLines.isNotEmpty()) {
                 warn + WheelKeyProbe.status + "\n" + probeLines.joinToString("\n")

@@ -1,11 +1,8 @@
 package com.dash.headunit.navi
 
 import android.content.Context
-import android.os.Binder
 import android.os.Handler
-import android.os.IBinder
 import android.os.Looper
-import android.os.Parcel
 import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
@@ -70,9 +67,20 @@ object WheelKeyProbe {
         synchronized(live) { live.clear() }
         synchronized(hits) { hits.clear() }
         status = "идёт проверка: нажмите по очереди все кнопки на руле (каждую коротко, кнопку голоса — ещё и долго)"
-        WheelKeys.applyFilter()
+        setA11yFilter(true)
         Thread({ run(app) }, "WheelKeyProbe").start()
         changed()
+    }
+
+    private val tap by lazy { KeyPolicyTap("dash_wheel_probe") { e -> record("key_policy", e) } }
+
+    /**
+     * Фильтр клавиш службы спец. возможностей — только на время пробы
+     * (на HU 2026-11-21 он не получил ни одной кнопки руля; оставлен
+     * как источник для сравнения).
+     */
+    private fun setA11yFilter(on: Boolean) {
+        NaviAccessibilityService.instance?.setKeyFilter(on)
     }
 
     /** Клавиша от службы спец. возможностей (запись, не забираем). */
@@ -120,7 +128,7 @@ object WheelKeyProbe {
             sb.append("a11y: ").append(filter).append('\n')
             line("a11y: $filter")
 
-            val kp = KeyPolicyTap.register(app) { e, name -> record("key_policy", e, " cb=$name") }
+            val kp = tap.register(app)
             sb.append("key_policy: ").append(kp).append('\n')
             line("key_policy: $kp")
 
@@ -143,10 +151,10 @@ object WheelKeyProbe {
                 SystemClock.sleep(1000)
             }
             running = false
-            WheelKeys.applyFilterAsync()
+            main.post { setA11yFilter(false) }
             status = "собираю отчёт…"
             changed()
-            KeyPolicyTap.unregister(app)
+            tap.unregister(app)
 
             sb.append("\n== живой журнал (a11y / окно / key_policy)\n")
             synchronized(live) { live.forEach { sb.append(it).append('\n') } }
@@ -169,7 +177,7 @@ object WheelKeyProbe {
                 sb.append(
                     shell(
                         app,
-                        "logcat -d -v time -T '$since' | grep -i -E '$LOGCAT_FILTER' | grep -v -E '$LOGCAT_SKIP' | tail -n 600"
+                        "logcat -d -v time -T '$since' | grep -i -E '$LOGCAT_FILTER' | grep -v -E '$LOGCAT_SKIP' | tail -n 3000"
                     )
                 )
             }
@@ -183,8 +191,8 @@ object WheelKeyProbe {
             runCatching { save(app, sb.append("\nОШИБКА: ").append(Log.getStackTraceString(e))) }
         } finally {
             running = false
-            runCatching { KeyPolicyTap.unregister(app) }
-            WheelKeys.applyFilterAsync()
+            runCatching { tap.unregister(app) }
+            main.post { setA11yFilter(false) }
             changed()
         }
     }
@@ -204,95 +212,6 @@ object WheelKeyProbe {
         val file = File(dir, "keys_${FILE_STAMP.format(Date())}.txt")
         file.writeText(sb.toString())
         return file
-    }
-
-    /**
-     * Свой колбэк в Desay key_policy (android.view.IKeyPolicy, системная
-     * служба в system_server). Протокол — из boot-framework прошивки:
-     * registerKeyCallBack = txn 1 (callback, name, int, String),
-     * unRegisterKeyCallBack = txn 2 (name, String);
-     * IKeyPolicyCallBack.callbackEvent = txn 1 (KeyEvent, String) → boolean.
-     * Имя уникальное — штатные слоты (pre_handle*, power_key…) не трогаем;
-     * отвечаем false, ничего не забираем.
-     */
-    private object KeyPolicyTap {
-        private var service: IBinder? = null
-        @Volatile private var listener: ((KeyEvent, String) -> Unit)? = null
-
-        private val callback = object : Binder() {
-            init {
-                attachInterface(null, CB_DESCRIPTOR)
-            }
-
-            override fun onTransact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean {
-                if (code != 1) return super.onTransact(code, data, reply, flags)
-                data.enforceInterface(CB_DESCRIPTOR)
-                val e = if (data.readInt() != 0) KeyEvent.CREATOR.createFromParcel(data) else null
-                val name = data.readString().orEmpty()
-                try {
-                    if (e != null) listener?.invoke(e, name)
-                } catch (t: Throwable) {
-                    Log.w(TAG, "callbackEvent", t)
-                }
-                reply?.writeNoException()
-                reply?.writeInt(0)
-                return true
-            }
-        }
-
-        fun register(app: Context, l: (KeyEvent, String) -> Unit): String {
-            val b = try {
-                Class.forName("android.os.ServiceManager")
-                    .getMethod("getService", String::class.java)
-                    .invoke(null, "key_policy") as IBinder?
-            } catch (e: Throwable) {
-                return "нет доступа к ServiceManager: ${e.javaClass.simpleName}"
-            } ?: return "службы key_policy нет"
-            listener = l
-            val data = Parcel.obtain()
-            val reply = Parcel.obtain()
-            return try {
-                data.writeInterfaceToken(DESCRIPTOR)
-                data.writeStrongBinder(callback)
-                data.writeString(NAME)
-                data.writeInt(0)
-                data.writeString(app.packageName)
-                b.transact(1, data, reply, 0)
-                reply.readException()
-                service = b
-                "колбэк «$NAME» зарегистрирован"
-            } catch (e: Throwable) {
-                listener = null
-                "registerKeyCallBack: ${e.javaClass.simpleName}: ${e.message}"
-            } finally {
-                data.recycle()
-                reply.recycle()
-            }
-        }
-
-        fun unregister(app: Context) {
-            val b = service ?: return
-            service = null
-            listener = null
-            val data = Parcel.obtain()
-            val reply = Parcel.obtain()
-            try {
-                data.writeInterfaceToken(DESCRIPTOR)
-                data.writeString(NAME)
-                data.writeString(app.packageName)
-                b.transact(2, data, reply, 0)
-                reply.readException()
-            } catch (e: Throwable) {
-                Log.w(TAG, "unRegisterKeyCallBack", e)
-            } finally {
-                data.recycle()
-                reply.recycle()
-            }
-        }
-
-        private const val DESCRIPTOR = "android.view.IKeyPolicy"
-        private const val CB_DESCRIPTOR = "android.view.IKeyPolicyCallBack"
-        private const val NAME = "dash_wheel_probe"
     }
 
     private val STAMP = SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US)
