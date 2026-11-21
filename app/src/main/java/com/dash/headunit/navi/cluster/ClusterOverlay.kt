@@ -161,6 +161,14 @@ object ClusterOverlay {
         return display.displayId to Rect(0, 0, size.x, size.y)
     }
 
+    /** Сменилась тема приборки в настройках — перерисовать окно. */
+    fun applyTheme() {
+        main.post {
+            val ctx = app ?: return@post
+            view?.theme = ClusterTheme.create(AppSettings.clusterTheme(ctx))
+        }
+    }
+
     /** Настройку включили: окно на приборку и панель «Карты» — даже без маршрута. */
     fun show() {
         main.post {
@@ -408,6 +416,7 @@ object ClusterOverlay {
             val wm = dctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
             val v = ClusterGuidanceView(dctx).apply {
                 contentWidth = AppSettings.clusterWidth(ctx)
+                theme = ClusterTheme.create(AppSettings.clusterTheme(ctx))
                 guidance = GuidanceHub.current
                 calibration = this@ClusterOverlay.calibration
                 blank = covering

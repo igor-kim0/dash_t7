@@ -51,6 +51,18 @@ object AppSettings {
     }
 
     /**
+     * Своя тема приборки ([com.dash.headunit.navi.cluster.ClusterTheme]:
+     * OFF/NEON/CLASSIC/MINIMAL) — фон и шкалы под штатными слоями «Карт».
+     * Рисуется в окне маршрута на приборке, т. е. при [clusterNavi].
+     */
+    fun clusterTheme(context: Context): Int =
+        prefs(context).getInt(KEY_CLUSTER_THEME, 0)
+
+    fun setClusterTheme(context: Context, id: Int) {
+        prefs(context).edit().putInt(KEY_CLUSTER_THEME, id).apply()
+    }
+
+    /**
      * Сколько дней хранить журнал поездок ([TripTracker]):
      * записи старше срока удаляются. 0 — хранить без ограничения.
      * По умолчанию 7 дней (неделя).
@@ -277,6 +289,7 @@ object AppSettings {
     private const val KEY_BAR_LEFT = "bar_side_left"
     private const val KEY_CLUSTER_NAVI = "cluster_navi"
     private const val KEY_CLUSTER_WIDTH = "cluster_width"
+    private const val KEY_CLUSTER_THEME = "cluster_theme"
     private const val KEY_CLUSTER_YANDEX = "cluster_yandex"
     private const val KEY_JOURNAL_KEEP_DAYS = "journal_keep_days"
     private const val KEY_SHADE_RESUME = "shade_resume"
