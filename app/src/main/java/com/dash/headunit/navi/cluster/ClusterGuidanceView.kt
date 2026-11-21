@@ -82,72 +82,6 @@ class ClusterGuidanceView(context: Context) : View(context) {
             invalidate()
         }
 
-    /**
-     * Своя тема приборки ([ClusterTheme], настройка
-     * [com.dash.headunit.settings.AppSettings.clusterTheme]); null — чёрный фон.
-     */
-    var theme: ClusterTheme? = null
-        set(value) {
-            if (field === value) return
-            field?.release()
-            field = value
-            cardFill.color = value?.cardFill ?: CARD_FILL
-            cardStroke.color = value?.cardStroke ?: CARD_STROKE
-            removeCallbacks(themeTick)
-            sweepAt = 0L
-            if (value != null && isAttachedToWindow) post(themeTick)
-            invalidate()
-        }
-
-    /** Начало пробега шкал (0 — ещё не было). */
-    private var sweepAt = 0L
-
-    /** Сглаженные значения шкал темы (null — данных нет). */
-    private var shownSpeed: Float? = null
-    private var shownRpm: Float? = null
-
-    /**
-     * Шкалы темы: скорость и обороты — прямо из [ClusterPps] (подписчики
-     * [CarHub] без видимого дашборда засыпают, а приборка видна всегда).
-     * Пока стрелки догоняют значение — кадры чаще, в покое — опрос реже.
-     */
-    private val themeTick = object : Runnable {
-        override fun run() {
-            if (theme == null) return
-            // Пробег шкал 0 → максимум → 0 при включении темы, как у приборок на старте.
-            val now = android.os.SystemClock.uptimeMillis()
-            if (sweepAt == 0L) sweepAt = now
-            val t = now - sweepAt
-            if (t < SWEEP_MS) {
-                val f = Math.sin(Math.PI * t / SWEEP_MS).toFloat()
-                shownSpeed = f * ClusterTheme.SPEED_MAX
-                shownRpm = f * ClusterTheme.RPM_MAX
-                invalidate()
-                postDelayed(this, FRAME_MS)
-                return
-            }
-            val d = CarHub.data
-            val speed = ClusterPps.speedKmh()?.toFloat() ?: d?.speedKmh
-            val rpm = (ClusterPps.rpm() ?: d?.rpm)?.toFloat()
-            val ns = approach(shownSpeed, speed, ClusterTheme.SPEED_MAX)
-            val nr = approach(shownRpm, rpm, ClusterTheme.RPM_MAX)
-            val moving = ns != speed || nr != rpm
-            if (ns != shownSpeed || nr != shownRpm) {
-                shownSpeed = ns
-                shownRpm = nr
-                invalidate()
-            }
-            postDelayed(this, if (moving) FRAME_MS else POLL_MS)
-        }
-    }
-
-    /** Шаг сглаживания к [target]; близко — сразу в цель. */
-    private fun approach(cur: Float?, target: Float?, max: Float): Float? {
-        if (target == null || cur == null) return target
-        val next = cur + (target - cur) * 0.35f
-        return if (Math.abs(target - next) < max * 0.002f) target else next
-    }
-
     /** Строки состояния внизу рамки (только в [calibration]). */
     var info: List<String> = emptyList()
         set(value) {
@@ -166,9 +100,9 @@ class ClusterGuidanceView(context: Context) : View(context) {
     /** Обновление данных авто (топливо/ОЖ) — перерисовать строку внизу. */
     private val hubListener: () -> Unit = { invalidate() }
 
-    private val cardFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = CARD_FILL }
+    private val cardFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(0x16, 0x1B, 0x22) }
     private val cardStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = CARD_STROKE
+        color = Color.rgb(0x2A, 0x31, 0x3C)
         style = Paint.Style.STROKE
     }
     private val tileFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(0x26, 0x30, 0x40) }
@@ -223,9 +157,7 @@ class ClusterGuidanceView(context: Context) : View(context) {
     private val dst = RectF()
 
     override fun onDraw(canvas: Canvas) {
-        val th = theme
-        if (th != null && !calibration && !blank) th.draw(canvas, width, height, shownSpeed, shownRpm)
-        else canvas.drawColor(Color.BLACK)
+        canvas.drawColor(Color.BLACK)
         if (blank && !calibration) return
         if (calibration) drawCalibration(canvas)
         val g = guidance ?: ClusterOverlay.SAMPLE.takeIf { calibration } ?: Guidance()
@@ -334,12 +266,9 @@ class ClusterGuidanceView(context: Context) : View(context) {
         CarHub.init(context)
         CarHub.addListener(hubListener)
         CarHub.ensurePolling()
-        if (theme != null) post(themeTick)
     }
 
     override fun onDetachedFromWindow() {
-        removeCallbacks(themeTick)
-        theme?.release()
         CarHub.removeListener(hubListener)
         super.onDetachedFromWindow()
     }
@@ -637,12 +566,6 @@ class ClusterGuidanceView(context: Context) : View(context) {
         const val SIDE_BLOCK = 140f
         const val SIDE_SIGN_CX = 322f
         const val SIDE_SIGN_CY = 310f
-        val CARD_FILL = Color.rgb(0x16, 0x1B, 0x22)
-        val CARD_STROKE = Color.rgb(0x2A, 0x31, 0x3C)
-        /** Шкалы темы: кадр, пока догоняют значение, и опрос в покое, мс. */
-        const val FRAME_MS = 33L
-        const val POLL_MS = 150L
-        const val SWEEP_MS = 1600L
         /** Цвета полос A–H (приглушённые, как в grid.png). */
         val BANDS = intArrayOf(
             Color.rgb(0x50, 0x00, 0x00), Color.rgb(0x50, 0x28, 0x00),
