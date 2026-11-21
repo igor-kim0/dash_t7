@@ -18,8 +18,9 @@ import kotlinx.coroutines.withContext
 /**
  * Экран диагностики (кнопка в колонке дашборда). Сейчас на нём только
  * лог борткомпьютера ([TripLog]): поездки, моточасы, жизнь процесса —
- * разбор «иногда не считается». Прежние пробы (рамка приборки, шины,
- * яркость, радио) убраны — их классы в `diag/` и история в git.
+ * разбор «иногда не считается» — и проба вида приборки
+ * ([com.dash.headunit.diag.ClusterViewTest]: «Карты» → AR → «Карты»).
+ * Прежние пробы (шины, яркость, радио) убраны — их классы в `diag/` и история в git.
  */
 class CarDebugActivity : AppCompatActivity() {
 
@@ -59,6 +60,24 @@ class CarDebugActivity : AppCompatActivity() {
             setPadding(0, dp(12), 0, 0)
         }
         root.addView(logView)
+
+        root.addView(TextView(this).apply {
+            text = "Вид приборки"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+            setPadding(0, dp(24), 0, 0)
+        })
+        root.addView(TextView(this).apply {
+            text = "Рамка калибровки, затем область навигации 1 («Карты») → 2 (AR) → 1, " +
+                "по 15 с. На каждом шаге сфотографируйте приборку. " +
+                "Отчёт — files/cluster/view_*.txt."
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        })
+        root.addView(Button(this).apply {
+            text = "Проверить вид приборки"
+            setOnClickListener { com.dash.headunit.diag.ClusterViewTest.start(this@CarDebugActivity) }
+        }, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
         setContentView(android.widget.ScrollView(this).apply { addView(root) })
 
         fun toggleLabel() {
