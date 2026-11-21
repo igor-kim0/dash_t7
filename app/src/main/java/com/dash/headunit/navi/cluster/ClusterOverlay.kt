@@ -117,6 +117,7 @@ object ClusterOverlay {
             yandex = on
             covering = false
             view?.blank = false
+            syncGauges()
             // Карточки нет — чтение Навигатора ни к чему.
             if (on) GuidanceHub.setPaused(true) else updateReading()
             val ctx = app ?: return@post
@@ -141,6 +142,7 @@ object ClusterOverlay {
         main.post {
             covering = true
             view?.blank = true
+            syncGauges()
             val ctx = app ?: return@post
             if (view == null && !yandex && AppSettings.clusterNavi(ctx)) addView(ctx)
         }
@@ -161,6 +163,24 @@ object ClusterOverlay {
         return display.displayId to Rect(0, 0, size.x, size.y)
     }
 
+    /** Сменилась тема приборки в настройках — перерисовать окно и спрятать/вернуть штатные приборы. */
+    fun applyTheme() {
+        main.post {
+            val ctx = app ?: return@post
+            view?.modern = AppSettings.clusterTheme(ctx) == AppSettings.CLUSTER_THEME_MODERN
+            syncGauges()
+        }
+    }
+
+    /**
+     * Штатные скорость/обороты прячем, только пока на приборке видна наша
+     * тема «Современная»: окно есть, не занавес для Яндекса, не калибровка.
+     */
+    private fun syncGauges() {
+        val v = view
+        ClusterGauges.setWanted(v != null && v.modern && !v.blank && !calibration)
+    }
+
     /** Настройку включили: окно на приборку и панель «Карты» — даже без маршрута. */
     fun show() {
         main.post {
@@ -179,6 +199,7 @@ object ClusterOverlay {
         val ctx = app ?: return false
         calibration = !calibration
         view?.calibration = calibration
+        syncGauges()
         updateReading()
         main.removeCallbacks(calibrationInfo)
         if (calibration) {
@@ -212,6 +233,8 @@ object ClusterOverlay {
                     " · слушатель уведомлений: ${onOff(ClusterSetup.isListenerEnabled(ctx))}",
                 "настройка «маршрут на приборке»: ${onOff(AppSettings.clusterNavi(ctx))}" +
                     " · ${if (GuidanceHub.current != null) "на карточке маршрут" else "на карточке образец"}",
+                "тема «Современная»: ${onOff(AppSettings.clusterTheme(ctx) == AppSettings.CLUSTER_THEME_MODERN)}" +
+                    " · штатные приборы: ${ClusterGauges.state}",
             )
             main.postDelayed(this, 1000)
         }
@@ -411,6 +434,7 @@ object ClusterOverlay {
                 guidance = GuidanceHub.current
                 calibration = this@ClusterOverlay.calibration
                 blank = covering
+                modern = AppSettings.clusterTheme(ctx) == AppSettings.CLUSTER_THEME_MODERN
             }
             @Suppress("DEPRECATION")
             val lp = WindowManager.LayoutParams(
@@ -427,6 +451,7 @@ object ClusterOverlay {
             wm.addView(v, lp)
             view = v
             viewWm = wm
+            syncGauges()
             status("окно на дисплее ${display.displayId} (${display.name})")
             true
         } catch (e: Exception) {
@@ -445,6 +470,7 @@ object ClusterOverlay {
         }
         view = null
         viewWm = null
+        syncGauges()
         status("окно с приборки убрано")
     }
 

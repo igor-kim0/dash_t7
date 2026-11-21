@@ -429,6 +429,7 @@ class MainActivity : AppCompatActivity() {
         var autostart = AppSettings.autostart(this)
         var barLeft = AppSettings.barSideLeft(this)
         var clusterNavi = AppSettings.clusterNavi(this)
+        var clusterTheme = AppSettings.clusterTheme(this)
         var etm = AppSettings.etmCoolant(this)
         var shade = AppSettings.shadeResume(this)
         var radioOnStart = AppSettings.radioOnStart(this)
@@ -506,6 +507,15 @@ class MainActivity : AppCompatActivity() {
             .column()
             .section(getString(R.string.settings_sec_cluster))
             .switch(R.drawable.ic_nav, getString(R.string.settings_cluster_navi), null, clusterNavi) { clusterNavi = it }
+            .segmented(
+                R.drawable.ic_grid, getString(R.string.settings_cluster_theme_t),
+                getString(R.string.settings_cluster_theme_s),
+                listOf(
+                    getString(R.string.settings_cluster_theme_stock),
+                    getString(R.string.settings_cluster_theme_modern)
+                ),
+                clusterTheme
+            ) { clusterTheme = it }
             .switch(
                 R.drawable.ic_thermo, getString(R.string.settings_etm_coolant_t),
                 getString(R.string.settings_etm_coolant_s), etm
@@ -575,6 +585,10 @@ class MainActivity : AppCompatActivity() {
                 // Выключили — выкл (Яндекс вернётся с приборки); включили — наша карточка.
                 if (!clusterNavi) setClusterMode(CLUSTER_OFF)
                 else if (clusterMode() == CLUSTER_OFF) setClusterMode(CLUSTER_OURS)
+                if (clusterTheme != AppSettings.clusterTheme(this)) {
+                    AppSettings.setClusterTheme(this, clusterTheme)
+                    ClusterOverlay.applyTheme()
+                }
                 // Шторка: настройка проверяется при следующем старте.
                 AppSettings.setShadeResume(this, shade)
                 // Радио: проверяется при следующем запуске приложения.

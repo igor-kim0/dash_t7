@@ -51,6 +51,23 @@ object AppSettings {
     }
 
     /**
+     * Тема приборки: [CLUSTER_THEME_STOCK] — карточка маршрута поверх
+     * штатных приборов; [CLUSTER_THEME_MODERN] — свой тахометр со скоростью
+     * по центру, штатные скорость/обороты спрятаны
+     * ([com.dash.headunit.navi.cluster.ClusterGauges]). Рисуется в окне
+     * маршрута на приборке, т. е. при [clusterNavi].
+     */
+    fun clusterTheme(context: Context): Int =
+        prefs(context).getInt(KEY_CLUSTER_THEME, CLUSTER_THEME_STOCK)
+
+    fun setClusterTheme(context: Context, id: Int) {
+        prefs(context).edit().putInt(KEY_CLUSTER_THEME, id).apply()
+    }
+
+    const val CLUSTER_THEME_STOCK = 0
+    const val CLUSTER_THEME_MODERN = 1
+
+    /**
      * Сколько дней хранить журнал поездок ([TripTracker]):
      * записи старше срока удаляются. 0 — хранить без ограничения.
      * По умолчанию 7 дней (неделя).
@@ -277,6 +294,7 @@ object AppSettings {
     private const val KEY_BAR_LEFT = "bar_side_left"
     private const val KEY_CLUSTER_NAVI = "cluster_navi"
     private const val KEY_CLUSTER_WIDTH = "cluster_width"
+    private const val KEY_CLUSTER_THEME = "cluster_theme_v2"
     private const val KEY_CLUSTER_YANDEX = "cluster_yandex"
     private const val KEY_JOURNAL_KEEP_DAYS = "journal_keep_days"
     private const val KEY_SHADE_RESUME = "shade_resume"

@@ -89,7 +89,70 @@ class ClusterGuidanceView(context: Context) : View(context) {
             invalidate()
         }
 
-    private val progress = ManeuverProgress()
+    internal val progress = ManeuverProgress()
+
+    /**
+     * Тема «Современная» ([ModernCluster]): свой тахометр со скоростью по
+     * центру вместо карточки; штатные приборы при этом прячет [ClusterGauges].
+     */
+    var modern = false
+        set(value) {
+            if (field == value) return
+            field = value
+            removeCallbacks(dialTick)
+            sweepAt = 0L
+            if (value && isAttachedToWindow) post(dialTick)
+            invalidate()
+        }
+
+    private val modernPainter by lazy { ModernCluster(this) }
+
+    /** Начало пробега стрелки при включении темы (0 — ещё не было). */
+    private var sweepAt = 0L
+    /** Сглаженные обороты для стрелки и текущая скорость (null — нет данных). */
+    private var shownRpm: Float? = null
+    private var speedNow: Float? = null
+    private var sweepSpeed: Int? = null
+
+    /**
+     * Данные темы — прямо из [ClusterPps] (подписчики [CarHub] без видимого
+     * дашборда засыпают, а приборка видна всегда). Пока стрелка догоняет
+     * обороты — кадры чаще, в покое — опрос реже.
+     */
+    private val dialTick = object : Runnable {
+        override fun run() {
+            if (!modern) return
+            val now = android.os.SystemClock.uptimeMillis()
+            if (sweepAt == 0L) sweepAt = now
+            val t = now - sweepAt
+            if (t < SWEEP_MS) {
+                // Пробег 0 → максимум → 0, как у приборок на старте.
+                val f = Math.sin(Math.PI * t / SWEEP_MS).toFloat()
+                shownRpm = f * ModernCluster.RPM_MAX
+                sweepSpeed = Math.round(f * ModernCluster.SPEED_MAX)
+                invalidate()
+                postDelayed(this, FRAME_MS)
+                return
+            }
+            sweepSpeed = null
+            val d = CarHub.data
+            val speed = ClusterPps.speedKmh()?.toFloat() ?: d?.speedKmh
+            val rpm = (ClusterPps.rpm() ?: d?.rpm)?.toFloat()
+            val nr = approach(shownRpm, rpm, ModernCluster.RPM_MAX)
+            val changed = nr != shownRpm || speed?.let { Math.round(it) } != speedNow?.let { Math.round(it) }
+            shownRpm = nr
+            speedNow = speed
+            if (changed) invalidate()
+            postDelayed(this, if (nr != rpm) FRAME_MS else POLL_MS)
+        }
+    }
+
+    /** Шаг сглаживания к [target]; близко — сразу в цель. */
+    private fun approach(cur: Float?, target: Float?, max: Float): Float? {
+        if (target == null || cur == null) return target
+        val next = cur + (target - cur) * 0.35f
+        return if (Math.abs(target - next) < max * 0.002f) target else next
+    }
 
     private val white = Color.rgb(0xF2, 0xF4, 0xF7)
     private val grey = Color.rgb(0x9A, 0xA3, 0xAE)
@@ -157,6 +220,10 @@ class ClusterGuidanceView(context: Context) : View(context) {
     private val dst = RectF()
 
     override fun onDraw(canvas: Canvas) {
+        if (modern && !calibration && !blank) {
+            modernPainter.draw(canvas, guidance ?: Guidance(), speedNow, shownRpm, sweepSpeed)
+            return
+        }
         canvas.drawColor(Color.BLACK)
         if (blank && !calibration) return
         if (calibration) drawCalibration(canvas)
@@ -266,9 +333,11 @@ class ClusterGuidanceView(context: Context) : View(context) {
         CarHub.init(context)
         CarHub.addListener(hubListener)
         CarHub.ensurePolling()
+        if (modern) post(dialTick)
     }
 
     override fun onDetachedFromWindow() {
+        removeCallbacks(dialTick)
         CarHub.removeListener(hubListener)
         super.onDetachedFromWindow()
     }
@@ -368,7 +437,7 @@ class ClusterGuidanceView(context: Context) : View(context) {
      * 2026-11-02) на приборке не видна — пустая плитка во всех положениях
      * Яндекса, хотя по ней же тип узнаётся.
      */
-    private fun drawManeuver(canvas: Canvas, g: Guidance, x: Float, y: Float, size: Float) {
+    internal fun drawManeuver(canvas: Canvas, g: Guidance, x: Float, y: Float, size: Float) {
         val icon = g.maneuverIcon
         if (g.maneuver != null) {
             drawArrow(canvas, g.maneuver, x, y, size)
@@ -432,7 +501,7 @@ class ClusterGuidanceView(context: Context) : View(context) {
         }
     }
 
-    private fun fit(text: String, paint: TextPaint, width: Float): String =
+    internal fun fit(text: String, paint: TextPaint, width: Float): String =
         if (width <= 0) "" else TextUtils.ellipsize(text, paint, width, TextUtils.TruncateAt.END).toString()
 
     /**
@@ -454,7 +523,7 @@ class ClusterGuidanceView(context: Context) : View(context) {
     }
 
     /** Знак ограничения; при превышении — красный с белыми цифрами. */
-    private fun drawSign(canvas: Canvas, limit: Int, over: Boolean, cx: Float, cy: Float, r: Float) {
+    internal fun drawSign(canvas: Canvas, limit: Int, over: Boolean, cx: Float, cy: Float, r: Float) {
         signFill.color = if (over) red else Color.WHITE
         canvas.drawCircle(cx, cy, r, signFill)
         signRing.strokeWidth = r * 0.2f
@@ -566,6 +635,10 @@ class ClusterGuidanceView(context: Context) : View(context) {
         const val SIDE_BLOCK = 140f
         const val SIDE_SIGN_CX = 322f
         const val SIDE_SIGN_CY = 310f
+        /** Тема «Современная»: кадр, пока стрелка догоняет, опрос в покое, пробег при включении, мс. */
+        const val FRAME_MS = 33L
+        const val POLL_MS = 150L
+        const val SWEEP_MS = 1600L
         /** Цвета полос A–H (приглушённые, как в grid.png). */
         val BANDS = intArrayOf(
             Color.rgb(0x50, 0x00, 0x00), Color.rgb(0x50, 0x28, 0x00),

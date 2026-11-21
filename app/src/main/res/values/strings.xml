@@ -80,6 +80,10 @@
     <string name="settings_cluster_navi">Маршрут навигатора на приборке</string>
     <string name="settings_sec_general">Общее</string>
     <string name="settings_sec_cluster">Приборка</string>
+    <string name="settings_cluster_theme_t">Тема приборки</string>
+    <string name="settings_cluster_theme_s">«Современная» — свой тахометр и скорость по центру, штатные цифры спрятаны; работает с маршрутом на приборке</string>
+    <string name="settings_cluster_theme_stock">Штатная</string>
+    <string name="settings_cluster_theme_modern">Современная</string>
     <string name="settings_sec_car">Автомобиль</string>
     <string name="settings_bar_left_t">Панель слева</string>
     <string name="settings_sec_grid">Сетка виджетов</string>
