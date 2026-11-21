@@ -91,11 +91,16 @@ object WheelKeys {
     val learning: Boolean get() = SystemClock.uptimeMillis() < learnUntil
 
     /** Нужен ли фильтр клавиш службе сейчас. */
-    fun filterWanted(): Boolean = learning || (enabledCache && keyCache >= 0)
+    fun filterWanted(): Boolean = learning || WheelKeyProbe.running || (enabledCache && keyCache >= 0)
 
     /** Включить/выключить фильтр клавиш у службы по [filterWanted]. */
     fun applyFilter() {
         NaviAccessibilityService.instance?.setKeyFilter(filterWanted())
+    }
+
+    /** [applyFilter] с любого потока. */
+    fun applyFilterAsync() {
+        main.post { applyFilter() }
     }
 
     /** Назначить кнопку: следующая отпущенная клавиша в течение [LEARN_MS]. */
@@ -122,6 +127,7 @@ object WheelKeys {
         val now = SystemClock.uptimeMillis()
         val act = decide(learning, enabledCache, keyCache, e.keyCode, e.action, e.repeatCount, now, lastTrigger)
         remember(e, act)
+        if (WheelKeyProbe.running) WheelKeyProbe.onA11yKey(e)
         when (act) {
             Action.PASS, Action.CONSUME -> Unit
             Action.CONSUME_LEARN -> {

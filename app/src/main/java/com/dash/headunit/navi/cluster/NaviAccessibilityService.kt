@@ -76,6 +76,15 @@ class NaviAccessibilityService : AccessibilityService() {
         serviceInfo = info
     }
 
+    /** Для пробы кнопок руля: включён ли фильтр клавиш на самом деле. */
+    fun keyFilterState(): String {
+        val info = serviceInfo ?: return "serviceInfo нет"
+        val flag = (info.flags and android.accessibilityservice.AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS) != 0
+        val cap = (info.capabilities and android.accessibilityservice.AccessibilityServiceInfo.CAPABILITY_CAN_REQUEST_FILTER_KEY_EVENTS) != 0
+        return "служба привязана, флаг фильтра клавиш=${if (flag) "да" else "НЕТ"}, " +
+            "право фильтра (canRequestFilterKeyEvents)=${if (cap) "да" else "НЕТ"}, flags=0x${Integer.toHexString(info.flags)}"
+    }
+
     override fun onKeyEvent(event: android.view.KeyEvent): Boolean =
         try {
             com.dash.headunit.navi.WheelKeys.onKey(event)

@@ -194,7 +194,7 @@ def disasm(dx, insns):
         w = insns[pc]; op = w & 0xff
         if op == 0 and w != 0:  # payloads
             ident = w
-            if ident == 0x100: size = insns[pc + 1]; out.append(f'{pc:04x}: packed-switch-payload n={size}'); pc += size * 2 + 4; continue
+            if ident == 0x100: size = insns[pc + 1]; first = insns[pc+2] | insns[pc+3] << 16; first -= (1 << 32) if first >= 1 << 31 else 0; out.append(f'{pc:04x}: packed-switch-payload n={size} first={first} (keys {first}..{first+size-1})'); pc += size * 2 + 4; continue
             if ident == 0x200: size = insns[pc + 1]; keys = [insns[pc+2+2*i] | insns[pc+3+2*i] << 16 for i in range(size)]
             if ident == 0x200: out.append(f'{pc:04x}: sparse-switch-payload keys={keys}'); pc += size * 4 + 2; continue
             if ident == 0x300: width = insns[pc + 1]; size = insns[pc + 2] | insns[pc + 3] << 16; pc += (size * width + 1) // 2 + 4; out.append(f'{pc:04x}: array-payload'); continue

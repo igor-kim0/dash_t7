@@ -33,6 +33,7 @@ import androidx.core.content.ContextCompat
 import com.dash.headunit.dashboard.DashboardGridLayout
 import com.dash.headunit.dashboard.GridSpec
 import com.dash.headunit.navi.WheelKeys
+import com.dash.headunit.navi.WheelKeyProbe
 import com.dash.headunit.dashboard.DashboardStore
 import com.dash.headunit.dashboard.PickerGrid
 import com.dash.headunit.dashboard.WidgetFrame
@@ -1153,6 +1154,14 @@ class MainActivity : AppCompatActivity() {
             typeface = android.graphics.Typeface.MONOSPACE
             setPadding(dp(20), dp(8), dp(20), dp(8))
         }
+        // Проба «все кнопки руля» (navi/WheelKeyProbe): где видно каждое нажатие.
+        val probeButton = android.widget.Button(this).apply {
+            text = getString(R.string.wheel_alice_probe)
+            setOnClickListener {
+                if (WheelKeys.learning) WheelKeys.stopLearning()
+                WheelKeyProbe.start(this@MainActivity)
+            }
+        }
         fun keyText(k: Int) = if (k < 0) getString(R.string.wheel_alice_key_none)
         else getString(R.string.wheel_alice_key, k, KeyEvent.keyCodeToString(k))
         fun refresh() {
@@ -1166,8 +1175,15 @@ class MainActivity : AppCompatActivity() {
                 "${fmt.format(java.util.Date(it.at))}  ${if (it.action == KeyEvent.ACTION_DOWN) "↓" else "↑"} " +
                     "${it.keyCode} ${KeyEvent.keyCodeToString(it.keyCode)}  scan=${it.scanCode}  ${it.handled}"
             }
-            journal.text = warn + getString(R.string.wheel_alice_journal) + "\n" +
-                lines.ifEmpty { getString(R.string.wheel_alice_journal_empty) }
+            val filter = NaviAccessibilityService.instance?.keyFilterState()?.let { "a11y: $it\n\n" }.orEmpty()
+            val probeLines = WheelKeyProbe.liveLines(14)
+            journal.text = if (WheelKeyProbe.running || probeLines.isNotEmpty()) {
+                warn + WheelKeyProbe.status + "\n" + probeLines.joinToString("\n")
+            } else {
+                warn + filter + getString(R.string.wheel_alice_journal) + "\n" +
+                    lines.ifEmpty { getString(R.string.wheel_alice_journal_empty) }
+            }
+            probeButton.isEnabled = !WheelKeyProbe.running
         }
         val learnButton = android.widget.Button(this).apply {
             text = getString(R.string.wheel_alice_learn)
@@ -1188,20 +1204,31 @@ class MainActivity : AppCompatActivity() {
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { marginStart = dp(20) })
+            addView(probeButton, android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = dp(20) })
             addView(journal)
         }
         WheelKeys.onChanged = { refresh() }
+        WheelKeyProbe.onChanged = { refresh() }
         refresh()
-        DashDialog.Builder(this)
+        val shown = DashDialog.Builder(this)
             .setIcon(R.drawable.ic_alice)
             .setTitle(R.string.wheel_alice_title)
             .setWidthDp(1100)
             .setView(content)
             .setPositiveButton(R.string.edit_done) { _, _ ->
                 WheelKeys.onChanged = null
+                WheelKeyProbe.onChanged = null
                 if (WheelKeys.learning) WheelKeys.stopLearning()
             }
             .showFullScreen()
+        // Клавиши, дошедшие до окна диалога, — один из источников пробы.
+        shown.setOnKeyListener { _, _, e ->
+            WheelKeyProbe.onWindowKey(e)
+            false
+        }
     }
 
     /** Навигатор на весь экран; вернётся в блок, когда снова откроют дашборд. */

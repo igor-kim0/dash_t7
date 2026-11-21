@@ -127,6 +127,7 @@
     <string name="wheel_alice_key_none">Кнопка не назначена</string>
     <string name="wheel_alice_learning">Нажмите кнопку на руле… (15 с)</string>
     <string name="wheel_alice_learn">Назначить кнопку</string>
+    <string name="wheel_alice_probe">Проверить все кнопки (60 с)</string>
     <string name="wheel_alice_no_a11y">Служба спец. возможностей навигатора выключена — кнопки руля не видны. Она включается вместе с «Маршрутом навигатора на приборке» (или через adb).</string>
     <string name="wheel_alice_journal">Последние кнопки (↓ нажата, ↑ отпущена):</string>
     <string name="wheel_alice_journal_empty">— пока ничего (видны, когда функция включена или идёт назначение)</string>
