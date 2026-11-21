@@ -78,6 +78,24 @@ class CarDebugActivity : AppCompatActivity() {
         }, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
         ))
+        root.addView(TextView(this).apply {
+            text = "Только на стоянке: прячет штатные скорость и обороты (модель данных приборки " +
+                "через qconn, без записи в MCU), через 30 с возвращает сами. Сфотографируйте приборку. " +
+                "Если что-то пошло не так — шкалы вернутся при следующем включении зажигания. " +
+                "Отчёт — files/cluster/gauges_*.txt."
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setPadding(0, dp(12), 0, 0)
+        })
+        val gaugesRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        gaugesRow.addView(Button(this).apply {
+            text = "Спрятать шкалы на 30 с"
+            setOnClickListener { com.dash.headunit.diag.ClusterGaugesTest.start(this@CarDebugActivity) }
+        })
+        gaugesRow.addView(Button(this).apply {
+            text = "Вернуть сейчас"
+            setOnClickListener { com.dash.headunit.diag.ClusterGaugesTest.restoreNow() }
+        })
+        root.addView(gaugesRow)
 
         root.addView(TextView(this).apply {
             text = "GPS"
