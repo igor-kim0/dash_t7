@@ -109,6 +109,35 @@ object AdbShell {
         )?.contains("spawned") == true
     }
 
+    /**
+     * Долгая команда с потоковым выводом (например, `cat` устройства):
+     * отдельное соединение, чтобы не держать [exec]. Блокирует до конца
+     * команды; [onData] на каждый кусок вывода, вернёт false — прервать.
+     * [onOpen] получает функцию остановки (можно звать с любого потока).
+     * Возвращает null, если канала нет, иначе причину конца.
+     */
+    fun stream(
+        context: Context,
+        cmd: String,
+        onOpen: (stop: () -> Unit) -> Unit = {},
+        onData: (String) -> Boolean
+    ): String? {
+        val c = try {
+            Connection.open(keys(context), AUTH_WAIT_MS)
+        } catch (e: Exception) {
+            Log.w(TAG, "stream connect", e)
+            return null
+        }
+        onOpen { c.close() }
+        return try {
+            c.shellStream(cmd, onData)
+        } catch (e: Exception) {
+            "${e.javaClass.simpleName}: ${e.message}"
+        } finally {
+            c.close()
+        }
+    }
+
     /** Ключ RSA 2048 в filesDir: один на установку, его и разрешает пользователь. */
     private fun keys(context: Context): KeyPair {
         val priv = File(context.filesDir, "adb_key.der")
@@ -157,6 +186,31 @@ object AdbShell {
                         // Без OPEN-ответа (remoteId == 0) это отказ сервиса.
                         if (remoteId != 0) send(A_CLSE, localId, remoteId, ByteArray(0))
                         return out.toString()
+                    }
+                }
+            }
+        }
+
+        /** Как [shell], но вывод — кусками в [onData]; false — закрыть поток. */
+        fun shellStream(cmd: String, onData: (String) -> Boolean): String {
+            val localId = nextLocalId++
+            send(A_OPEN, localId, 0, "shell:$cmd\u0000".toByteArray())
+            var remoteId = 0
+            while (true) {
+                val m = read()
+                if (m.arg1 != localId) continue
+                when (m.cmd) {
+                    A_OKAY -> remoteId = m.arg0
+                    A_WRTE -> {
+                        send(A_OKAY, localId, m.arg0, ByteArray(0))
+                        if (!onData(String(m.data, Charsets.ISO_8859_1))) {
+                            send(A_CLSE, localId, m.arg0, ByteArray(0))
+                            return "остановлено"
+                        }
+                    }
+                    A_CLSE -> {
+                        if (remoteId != 0) send(A_CLSE, localId, remoteId, ByteArray(0))
+                        return if (remoteId == 0) "сервис отказал" else "команда завершилась"
                     }
                 }
             }

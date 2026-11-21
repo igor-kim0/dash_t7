@@ -180,6 +180,31 @@ object AppSettings {
 
     private const val KEY_WHEEL_ALICE = "wheel_alice"
 
+    /** Источник координат навигатора ([com.dash.headunit.location.GpsInject]). */
+    const val GPS_STOCK = 0
+    const val GPS_INTERNAL = 1
+    const val GPS_BT = 2
+
+    fun gpsMode(context: Context): Int = prefs(context).getInt(KEY_GPS_MODE, GPS_STOCK)
+
+    /** Опережение метки, мс (0 — без поправки). */
+    fun gpsLeadMs(context: Context): Int = prefs(context).getInt(KEY_GPS_LEAD, 0)
+
+    /** Адрес Bluetooth-устройства с NMEA (внешний GPS), "" — не выбрано. */
+    fun gpsBtAddress(context: Context): String = prefs(context).getString(KEY_GPS_BT, "").orEmpty()
+
+    fun setGps(context: Context, mode: Int, leadMs: Int, btAddress: String) {
+        prefs(context).edit()
+            .putInt(KEY_GPS_MODE, mode)
+            .putInt(KEY_GPS_LEAD, leadMs)
+            .putString(KEY_GPS_BT, btAddress)
+            .apply()
+    }
+
+    private const val KEY_GPS_MODE = "gps_mode"
+    private const val KEY_GPS_LEAD = "gps_lead_ms"
+    private const val KEY_GPS_BT = "gps_bt_address"
+
     /**
      * Ступеней подогрева сидений у машины: 3 (по умолчанию) или 2. У
      * двухступенчатых команда «ступень 3» игнорируется — первое нажатие

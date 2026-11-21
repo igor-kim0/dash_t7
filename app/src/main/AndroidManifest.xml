@@ -6,6 +6,10 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- Подмена gps своими точками (location/GpsInject: внешний GPS, опережение
+         метки навигатора). Само разрешение — appops android:mock_location через adb. -->
+    <uses-permission android:name="android.permission.ACCESS_MOCK_LOCATION"
+        tools:ignore="MockLocation,ProtectedPermissions" />
     <!-- Только чтение состояния для иконок-индикаторов (normal, без запроса). -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <!-- Управление Wi-Fi из виджета: вкл/выкл, выбор сети, добавление сети.

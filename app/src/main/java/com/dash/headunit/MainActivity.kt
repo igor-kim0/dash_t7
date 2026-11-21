@@ -131,6 +131,8 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
         ClusterOverlay.init(this)
         ClusterSetup.restoreOnStart(this)
+        // Координаты навигатора: внешний GPS / опережение (по настройке; старую подмену снимает).
+        com.dash.headunit.location.GpsInject.init(this)
         if (AppSettings.radioOnStart(this)) com.dash.headunit.radio.RadioHub.startOnLaunch(this)
         // Обновления: после старта (сеть ГУ поднимается не сразу), не чаще раза в сутки.
         window.decorView.postDelayed({ if (!isFinishing) UpdateUi(this).checkAuto() }, 30_000L)
@@ -466,6 +468,18 @@ class MainActivity : AppCompatActivity() {
                 applyRef()
                 dialog?.dismiss()
                 showWheelAliceDialog()
+            }
+            .nav(
+                R.drawable.ic_nav, getString(R.string.gps_title), null,
+                when (AppSettings.gpsMode(this)) {
+                    AppSettings.GPS_INTERNAL -> getString(R.string.gps_mode_internal)
+                    AppSettings.GPS_BT -> getString(R.string.gps_mode_bt)
+                    else -> getString(R.string.gps_mode_stock)
+                }
+            ) {
+                applyRef()
+                dialog?.dismiss()
+                showGpsDialog()
             }
             .section(getString(R.string.settings_sec_about))
             .nav(
@@ -1287,6 +1301,86 @@ class MainActivity : AppCompatActivity() {
             WheelKeyProbe.onWindowKey(e)
             false
         }
+    }
+
+    /**
+     * «GPS для навигатора»: источник координат (штатный / встроенный модуль
+     * напрямую / внешний по Bluetooth) и опережение метки
+     * ([com.dash.headunit.location.GpsInject]). Применяется по «Готово».
+     */
+    @android.annotation.SuppressLint("MissingPermission")
+    private fun showGpsDialog() {
+        val inject = com.dash.headunit.location.GpsInject
+        var mode = AppSettings.gpsMode(this)
+        var lead = AppSettings.gpsLeadMs(this) / 100
+        var bt = AppSettings.gpsBtAddress(this)
+        val paired = runCatching {
+            android.bluetooth.BluetoothAdapter.getDefaultAdapter()?.bondedDevices?.toList().orEmpty()
+        }.getOrDefault(emptyList()).sortedBy { it.name ?: it.address }
+        val list = SettingsList(this, theme)
+            .section(getString(R.string.gps_title))
+            .segmented(
+                R.drawable.ic_nav, getString(R.string.gps_source), null,
+                listOf(
+                    getString(R.string.gps_mode_stock),
+                    getString(R.string.gps_mode_internal),
+                    getString(R.string.gps_mode_bt)
+                ),
+                mode.coerceIn(0, 2)
+            ) { mode = it }
+            .stepper(
+                R.drawable.ic_nav, getString(R.string.gps_lead_t), getString(R.string.gps_lead_s),
+                lead, 0..20,
+                { v ->
+                    if (v == 0) getString(R.string.gps_lead_off)
+                    else getString(R.string.gps_lead_value, v / 10f, Math.round(v * 0.1f * 60 / 3.6f))
+                }
+            ) { lead = it }
+            .hint(getString(R.string.gps_hint))
+            .column()
+            .section(getString(R.string.gps_bt_device))
+        if (paired.isEmpty()) {
+            list.hint(getString(R.string.gps_bt_none))
+        } else {
+            list.choices(
+                paired.map { "${it.name ?: "?"}  ${it.address}" },
+                paired.indexOfFirst { it.address == bt },
+                R.drawable.ic_bluetooth
+            ) { bt = paired[it].address }
+        }
+        val status = TextView(this).apply {
+            textSize = 15f
+            setTextColor(theme.secondaryText)
+            val d = resources.displayMetrics.density
+            setPadding((20 * d).toInt(), (8 * d).toInt(), (20 * d).toInt(), (8 * d).toInt())
+        }
+        fun refresh() {
+            val fix = inject.lastFix()
+            status.text = getString(R.string.gps_status, inject.status) + (
+                fix?.let {
+                    "\n" + String.format(java.util.Locale.US, "%.6f, %.6f", it.lat, it.lon) +
+                        (it.speedMps?.let { v -> String.format(java.util.Locale.US, "  %.0f км/ч", v * 3.6f) } ?: "")
+                } ?: ""
+            )
+        }
+        val content = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            addView(list.view)
+            addView(status)
+        }
+        inject.onChanged = { refresh() }
+        refresh()
+        DashDialog.Builder(this)
+            .setIcon(R.drawable.ic_nav)
+            .setTitle(R.string.gps_title)
+            .setWidthDp(1100)
+            .setView(content)
+            .setPositiveButton(R.string.edit_done) { _, _ ->
+                inject.onChanged = null
+                AppSettings.setGps(this, mode, lead * 100, bt)
+                inject.init(this)
+            }
+            .showFullScreen()
     }
 
     /** Навигатор на весь экран; вернётся в блок, когда снова откроют дашборд. */

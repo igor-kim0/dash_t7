@@ -60,6 +60,7 @@ class NaviAccessibilityService : AccessibilityService() {
         bg.post(scan)
         // Алиса по кнопке руля (колбэк key_policy — в процессе, где бы он ни был поднят).
         com.dash.headunit.navi.WheelKeys.init(this)
+        com.dash.headunit.location.GpsInject.init(this)
     }
 
     /**

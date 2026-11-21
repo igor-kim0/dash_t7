@@ -78,6 +78,34 @@ class CarDebugActivity : AppCompatActivity() {
         }, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
         ))
+
+        root.addView(TextView(this).apply {
+            text = "GPS"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+            setPadding(0, dp(24), 0, 0)
+        })
+        root.addView(TextView(this).apply {
+            text = "Можно ли поправлять встроенный GPS и на сколько он отстаёт. Сначала ~15 с " +
+                "проверок (на это время подмена GPS снимается), затем ${com.dash.headunit.location.GpsProbe.RECORD_MS / 1000} с " +
+                "записи — едьте с разгонами и торможениями. Отчёт — files/gps_probe/gps_*.txt."
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        })
+        val gpsStatus = TextView(this).apply { setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f) }
+        val gpsButton = Button(this).apply {
+            text = "Проверить GPS"
+            setOnClickListener {
+                com.dash.headunit.location.GpsProbe.start(this@CarDebugActivity)
+                isEnabled = false
+            }
+        }
+        root.addView(gpsButton, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+        root.addView(gpsStatus)
+        gpsRefresh = {
+            gpsButton.isEnabled = !com.dash.headunit.location.GpsProbe.running
+            gpsStatus.text = com.dash.headunit.location.GpsProbe.status
+        }
         setContentView(android.widget.ScrollView(this).apply { addView(root) })
 
         fun toggleLabel() {
@@ -90,6 +118,7 @@ class CarDebugActivity : AppCompatActivity() {
                     TripLog.summary(this@CarDebugActivity) to TripLog.tail(this@CarDebugActivity, TAIL_LINES)
                 }
                 info.text = (if (TripLog.enabled) "Пишется. " else "Выключен. ") + sum
+                gpsRefresh()
                 logView.text = lines.asReversed().joinToString("\n")
             }
         }
@@ -113,6 +142,8 @@ class CarDebugActivity : AppCompatActivity() {
             }
         }
     }
+
+    private var gpsRefresh: () -> Unit = {}
 
     override fun onDestroy() {
         scope.cancel()
