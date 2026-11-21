@@ -193,6 +193,31 @@ object AppSettings {
     }
 
     private const val KEY_SEAT_HEAT_LEVELS = "seat_heat_levels"
+
+    /**
+     * Шаг уставки климата: [TEMP_STEP_AUTO] (1°, пока шина не покажет
+     * шкалу 0,5°, см. [com.dash.headunit.car.ClimateHub.halfStep]),
+     * [TEMP_STEP_ONE] или [TEMP_STEP_HALF].
+     */
+    fun climateTempStep(context: Context): Int =
+        prefs(context).getInt(KEY_TEMP_STEP, TEMP_STEP_AUTO).takeIf { it in TEMP_STEP_AUTO..TEMP_STEP_HALF } ?: TEMP_STEP_AUTO
+
+    fun setClimateTempStep(context: Context, step: Int) {
+        prefs(context).edit().putInt(KEY_TEMP_STEP, step).apply()
+    }
+
+    /** «Авто» уже увидело на шине шкалу 0,5°. */
+    fun climateHalfLearned(context: Context): Boolean = prefs(context).getBoolean(KEY_TEMP_HALF_LEARNED, false)
+
+    fun setClimateHalfLearned(context: Context, on: Boolean) {
+        prefs(context).edit().putBoolean(KEY_TEMP_HALF_LEARNED, on).apply()
+    }
+
+    const val TEMP_STEP_AUTO = 0
+    const val TEMP_STEP_ONE = 1
+    const val TEMP_STEP_HALF = 2
+    private const val KEY_TEMP_STEP = "climate_temp_step"
+    private const val KEY_TEMP_HALF_LEARNED = "climate_temp_half_learned"
     private const val KEY_WHEEL_ALICE_KEY = "wheel_alice_key"
 
     private fun prefs(context: Context) =

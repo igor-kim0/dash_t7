@@ -1,6 +1,8 @@
 package com.dash.headunit.car
 
 import android.content.Context
+import android.util.Log
+import com.dash.headunit.settings.AppSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -136,6 +138,39 @@ object ClimateHub {
             desay = DesayCarReader(app)
             vhal = VhalReader(app)
         }
+        applyTempStep(context)
+    }
+
+    /**
+     * Шаг уставки 0,5° — шкала штатного климата части машин (G6SH, как
+     * вариант Jarvis «0,5°»): raw 0 = LO, 1..29 = (raw + 35) / 2 °C
+     * (18,0..32,0), 30 = HI. Иначе шкала «1°» ([scaleTemp]). Выбор —
+     * [AppSettings.climateTempStep]; «Авто» — 1°, пока шина не отдаст
+     * уставку вне шкалы 1° ([learnScale]), дальше 0,5° запоминается.
+     */
+    @Volatile
+    var halfStep = false
+        private set
+
+    /** Перечитать настройку шага уставки (при старте и смене в настройках). */
+    fun applyTempStep(context: Context) {
+        halfStep = when (AppSettings.climateTempStep(context)) {
+            AppSettings.TEMP_STEP_ONE -> false
+            AppSettings.TEMP_STEP_HALF -> true
+            else -> AppSettings.climateHalfLearned(context)
+        }
+    }
+
+    /** «Авто»: raw 17..30 бывает только на шкале 0,5° — переключиться на неё. */
+    private fun learnScale(vararg raws: Int) {
+        if (halfStep) return
+        val app = appContext ?: return
+        if (AppSettings.climateTempStep(app) != AppSettings.TEMP_STEP_AUTO) return
+        val raw = raws.firstOrNull { it in 17..30 } ?: return
+        AppSettings.setClimateHalfLearned(app, true)
+        halfStep = true
+        Log.i(TAG, "уставка raw $raw (> 16) — шкала 0,5°, переключаюсь на неё")
+        ClimateLog.write(app, "уставка raw $raw (> 16) — шкала 0,5°")
     }
 
     fun addListener(listener: () -> Unit) {
@@ -197,8 +232,11 @@ object ClimateHub {
         val engineOn = boolOr(desay.readInt(0, 27))
         // Температура: сначала Desay raw со шкалой [scaleTemp] (сверена с
         // панелью), при недоступности — VHAL (float °C).
-        val desayDriver = scaleTemp(desay.readInt(G, 10))
-        val desayPass = scaleTemp(desay.readInt(G, 13))
+        val rawDriver = desay.readInt(G, 10)
+        val rawPass = desay.readInt(G, 13)
+        learnScale(rawDriver, rawPass)
+        val desayDriver = scaleTemp(rawDriver)
+        val desayPass = scaleTemp(rawPass)
         val desayOk = desayDriver != null || desayPass != null
         val tempDriver = if (desayOk) desayDriver else vhalTemp(AREA_DRIVER)
         val tempPass = if (desayOk) desayPass else vhalTemp(AREA_PASSENGER)
@@ -245,17 +283,23 @@ object ClimateHub {
      * 16..30, HI)»): raw 0 = LO, raw 1..15 = 16..30 °C, raw ≥ 16 = HI.
      * Сверено на машине: панель 25° при raw 10, шаг панели 1° = шаг raw 1.
      * LO/HI возвращаются как [TEMP_LO]/[TEMP_HI] (вне 16..30).
+     * [half] — шкала 0,5° (см. [halfStep]).
      */
-    internal fun scaleTemp(raw: Int): Float? = when {
+    internal fun scaleTemp(raw: Int, half: Boolean = halfStep): Float? = when {
         raw < 0 -> null
+        half -> when {
+            raw == 0 -> TEMP_LO
+            raw >= 30 -> TEMP_HI
+            else -> (raw + 35) / 2f
+        }
         raw == 0 -> TEMP_LO
         raw >= 16 -> TEMP_HI
         else -> raw + 15f
     }
 
-    /** Уставка «LO» / «HI» (виджет рисует текстом). */
+    /** Уставка «LO» / «HI» (виджет рисует текстом); HI — выше 32° шкалы 0,5°. */
     const val TEMP_LO = 15f
-    const val TEMP_HI = 31f
+    const val TEMP_HI = 33f
 
     /** Уставка зоны из VHAL: float °C или null (нет свойства/статуса). */
     private fun vhalTemp(areaId: Int): Float? =

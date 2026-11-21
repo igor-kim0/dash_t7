@@ -468,7 +468,8 @@ class ClimateControlView(
         val next = when (item) {
             Item.TEMP_DRIVER, Item.TEMP_PASS -> {
                 if (cur == null || zone == 0) return
-                (cur + zone).coerceIn(0, 16)
+                // Шаг — одно сырое деление: 1° или 0,5° (настройка «Шаг температуры»).
+                (cur + zone).coerceIn(0, ClimateControl.tempRawMax())
             }
             Item.FAN -> {
                 if (zone == 0) return

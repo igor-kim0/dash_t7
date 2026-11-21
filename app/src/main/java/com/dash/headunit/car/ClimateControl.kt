@@ -232,13 +232,21 @@ object ClimateControl {
      */
     private fun temp(id: Int) = listOf(
         Variant(16, id) { it },
-        Variant(16, id) { (2 * it - 5).coerceIn(0, 30) }
+        // На шкале 0,5° ([ClimateHub.halfStep]) значение уже в ней — запасной не нужен.
+        Variant(16, id) { if (ClimateHub.halfStep) it else (2 * it - 5).coerceIn(0, 30) }
     )
 
-    /** Сырое «1°» уставки из °C ([ClimateHub.TEMP_LO]/[ClimateHub.TEMP_HI] → 0/16). */
-    fun tempRaw(c: Float): Int = when {
+    /** Наибольшее сырое значение уставки (HI) на текущей шкале. */
+    fun tempRawMax(): Int = if (ClimateHub.halfStep) 30 else 16
+
+    /**
+     * Сырое значение уставки из °C на текущей шкале: «1°» — 0 LO, 1..15,
+     * 16 HI; «0,5°» — 0 LO, 1..29 = 2·°C − 35, 30 HI.
+     */
+    fun tempRaw(c: Float, half: Boolean = ClimateHub.halfStep): Int = when {
         c <= ClimateHub.TEMP_LO -> 0
-        c >= ClimateHub.TEMP_HI -> 16
+        c >= ClimateHub.TEMP_HI -> if (half) 30 else 16
+        half -> Math.round(2 * c - 35).coerceIn(1, 29)
         else -> (c - 15f).toInt().coerceIn(1, 15)
     }
 }

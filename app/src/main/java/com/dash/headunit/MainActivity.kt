@@ -33,6 +33,7 @@ import androidx.core.content.ContextCompat
 import com.dash.headunit.dashboard.DashboardGridLayout
 import com.dash.headunit.dashboard.GridSpec
 import com.dash.headunit.navi.WheelKeys
+import com.dash.headunit.car.ClimateHub
 import com.dash.headunit.navi.WheelKeyProbe
 import com.dash.headunit.dashboard.DashboardStore
 import com.dash.headunit.dashboard.PickerGrid
@@ -430,6 +431,7 @@ class MainActivity : AppCompatActivity() {
         var gridNoGap = AppSettings.gridNoGap(this)
         var tank = CarHub.tankLiters(this)
         var seatSteps = AppSettings.seatHeatLevels(this)
+        var tempStep = AppSettings.climateTempStep(this)
         var tireMin = (AppSettings.tirePressureMin(this) * 10).toInt()
         val keepOptions = intArrayOf(7, 14, 30, 0)
         var keep = keepOptions.indexOf(AppSettings.journalKeepDays(this))
@@ -510,6 +512,12 @@ class MainActivity : AppCompatActivity() {
                 listOf(getString(R.string.seat_heat_levels_3), getString(R.string.seat_heat_levels_2)),
                 if (seatSteps == 2) 1 else 0
             ) { seatSteps = if (it == 1) 2 else 3 }
+            .segmented(
+                R.drawable.ic_thermo, getString(R.string.temp_step_t),
+                getString(R.string.temp_step_s),
+                listOf(getString(R.string.temp_step_auto), getString(R.string.temp_step_one), getString(R.string.temp_step_half)),
+                tempStep
+            ) { tempStep = it }
             .stepper(
                 R.drawable.ic_tire, getString(R.string.tire_min_title),
                 getString(R.string.tire_min_sub), tireMin, AppSettings.TIRE_MIN_RANGE,
@@ -547,6 +555,14 @@ class MainActivity : AppCompatActivity() {
                 if (tank != CarHub.tankLiters(this)) CarHub.setTankLiters(this, tank)
                 if (seatSteps != AppSettings.seatHeatLevels(this)) {
                     AppSettings.setSeatHeatLevels(this, seatSteps)
+                    invalidateAll(dashboard)
+                }
+                if (tempStep != AppSettings.climateTempStep(this)) {
+                    AppSettings.setClimateTempStep(this, tempStep)
+                    // Ручной выбор сбрасывает выученное «Авто» — в «Авто» учится заново.
+                    AppSettings.setClimateHalfLearned(this, false)
+                    ClimateHub.applyTempStep(this)
+                    ClimateHub.refresh()
                     invalidateAll(dashboard)
                 }
                 if (tireMin != (AppSettings.tirePressureMin(this) * 10).toInt()) {
