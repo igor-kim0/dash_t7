@@ -10,6 +10,7 @@
     <string name="msg_no_cluster">Приборка не найдена</string>
     <string name="msg_no_nav">Нет навигационного приложения</string>
     <string name="cd_bluetooth">Bluetooth</string>
+    <string name="phone_battery_percent">%1$d%%</string>
     <string name="cd_night">Тема оформления</string>
     <string name="cd_debug">Диагностика</string>
     <string name="cd_cluster_navi">Приборка: выкл → Яндекс Навигатор → наш маршрут</string>

@@ -144,14 +144,33 @@
                     android:padding="15dp"
                     android:src="@drawable/ic_wifi" />
 
-                <ImageView
-                    android:id="@+id/icon_bluetooth"
+                <!-- Bluetooth; под значком — заряд телефона (bt/PhoneBattery). -->
+                <FrameLayout
+                    android:id="@+id/box_bluetooth"
                     android:layout_width="68dp"
                     android:layout_height="68dp"
-                    android:background="@drawable/widget_card"
-                    android:contentDescription="@string/cd_bluetooth"
-                    android:padding="15dp"
-                    android:src="@drawable/ic_bluetooth" />
+                    android:background="@drawable/widget_card">
+
+                    <ImageView
+                        android:id="@+id/icon_bluetooth"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:contentDescription="@string/cd_bluetooth"
+                        android:padding="15dp"
+                        android:src="@drawable/ic_bluetooth" />
+
+                    <TextView
+                        android:id="@+id/text_phone_battery"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="bottom"
+                        android:layout_marginBottom="4dp"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:visibility="gone" />
+                </FrameLayout>
             </LinearLayout>
 
             <!-- Режим редактирования: добавить блок / сбросить / готово. -->

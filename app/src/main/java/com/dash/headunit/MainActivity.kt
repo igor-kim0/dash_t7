@@ -111,6 +111,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnEdit: ImageButton
     private lateinit var iconWifi: ImageView
     private lateinit var iconBluetooth: ImageView
+    private lateinit var textPhoneBattery: TextView
+    private val phoneBatteryListener: () -> Unit = { updatePhoneBattery() }
     private lateinit var store: DashboardStore
     private lateinit var settingsStore: WidgetSettingsStore
     private lateinit var themeStore: ThemeStore
@@ -158,6 +160,10 @@ class MainActivity : AppCompatActivity() {
         btnEdit = findViewById(R.id.btn_edit)
         iconWifi = findViewById(R.id.icon_wifi)
         iconBluetooth = findViewById(R.id.icon_bluetooth)
+        textPhoneBattery = findViewById(R.id.text_phone_battery)
+        // Заряд телефона под значком Bluetooth (HFP-индикатор телефона).
+        com.dash.headunit.bt.PhoneBattery.onChange = phoneBatteryListener
+        com.dash.headunit.bt.PhoneBattery.start(this)
         // Диалог управления Wi-Fi: сохранённые/видимые сети, добавление сети.
         findViewById<View>(R.id.icon_wifi).setOnClickListener {
             com.dash.headunit.ui.WifiConnectionDialog.show(this)
@@ -281,6 +287,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         CarHub.removeListener(engineListener)
+        if (com.dash.headunit.bt.PhoneBattery.onChange === phoneBatteryListener) {
+            com.dash.headunit.bt.PhoneBattery.onChange = null
+        }
         super.onDestroy()
     }
 
@@ -355,7 +364,7 @@ class MainActivity : AppCompatActivity() {
     private fun applyThemeChrome() {
         val card = ThemeCard.card(this, theme)
         findViewById<View>(R.id.icon_wifi).background = card
-        findViewById<View>(R.id.icon_bluetooth).background = ThemeCard.card(this, theme)
+        findViewById<View>(R.id.box_bluetooth).background = ThemeCard.card(this, theme)
         findViewById<View>(R.id.btn_night).background = ThemeCard.card(this, theme)
         findViewById<View>(R.id.btn_home).background = ThemeCard.card(this, theme)
         findViewById<View>(R.id.btn_settings).background = ThemeCard.card(this, theme)
@@ -893,6 +902,23 @@ class MainActivity : AppCompatActivity() {
             iconBluetooth.setColorFilter(theme.secondaryText)
             iconBluetooth.alpha = 0.35f
         }
+        com.dash.headunit.bt.PhoneBattery.refresh()
+        updatePhoneBattery()
+    }
+
+    /** Процент заряда телефона внизу карточки Bluetooth; значок чуть выше. */
+    private fun updatePhoneBattery() {
+        val pct = com.dash.headunit.bt.PhoneBattery.percent
+        val d = resources.displayMetrics.density
+        if (pct < 0) {
+            textPhoneBattery.visibility = View.GONE
+            iconBluetooth.setPadding((15 * d).toInt(), (15 * d).toInt(), (15 * d).toInt(), (15 * d).toInt())
+            return
+        }
+        textPhoneBattery.text = getString(R.string.phone_battery_percent, pct)
+        textPhoneBattery.setTextColor(if (pct <= 20) PHONE_BATTERY_LOW else theme.primaryText)
+        textPhoneBattery.visibility = View.VISIBLE
+        iconBluetooth.setPadding((17 * d).toInt(), (8 * d).toInt(), (17 * d).toInt(), (24 * d).toInt())
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -2654,6 +2680,8 @@ class MainActivity : AppCompatActivity() {
     companion object {
         /** Смена дашборда: сдвиг (доля ширины) и длительность половины анимации. */
         private const val PAGE_SHIFT = 0.25f
+        /** Цвет заряда телефона ≤ 20 %. */
+        private const val PHONE_BATTERY_LOW = 0xFFE5484D.toInt()
         private const val PAGE_ANIM_MS = 140L
 
         /** onStop в этот срок после запуска навигатора под себя — не уход с экрана. */
