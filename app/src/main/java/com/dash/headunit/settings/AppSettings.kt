@@ -179,6 +179,20 @@ object AppSettings {
     }
 
     private const val KEY_WHEEL_ALICE = "wheel_alice"
+
+    /**
+     * Ступеней подогрева сидений у машины: 3 (по умолчанию) или 2. У
+     * двухступенчатых команда «ступень 3» игнорируется — первое нажатие
+     * кнопки сиденья ничего не включало.
+     */
+    fun seatHeatLevels(context: Context): Int =
+        if (prefs(context).getInt(KEY_SEAT_HEAT_LEVELS, 3) == 2) 2 else 3
+
+    fun setSeatHeatLevels(context: Context, levels: Int) {
+        prefs(context).edit().putInt(KEY_SEAT_HEAT_LEVELS, if (levels == 2) 2 else 3).apply()
+    }
+
+    private const val KEY_SEAT_HEAT_LEVELS = "seat_heat_levels"
     private const val KEY_WHEEL_ALICE_KEY = "wheel_alice_key"
 
     private fun prefs(context: Context) =

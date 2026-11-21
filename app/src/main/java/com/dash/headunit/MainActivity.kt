@@ -429,6 +429,7 @@ class MainActivity : AppCompatActivity() {
         var gridRows = AppSettings.gridRows(this)
         var gridNoGap = AppSettings.gridNoGap(this)
         var tank = CarHub.tankLiters(this)
+        var seatSteps = AppSettings.seatHeatLevels(this)
         var tireMin = (AppSettings.tirePressureMin(this) * 10).toInt()
         val keepOptions = intArrayOf(7, 14, 30, 0)
         var keep = keepOptions.indexOf(AppSettings.journalKeepDays(this))
@@ -503,6 +504,12 @@ class MainActivity : AppCompatActivity() {
                 getString(R.string.tank_sub), tank, CarHub.TANK_RANGE_L,
                 { getString(R.string.tank_value, it) }
             ) { tank = it }
+            .segmented(
+                R.drawable.ic_seat_heat, getString(R.string.seat_heat_levels_t),
+                getString(R.string.seat_heat_levels_s),
+                listOf(getString(R.string.seat_heat_levels_3), getString(R.string.seat_heat_levels_2)),
+                if (seatSteps == 2) 1 else 0
+            ) { seatSteps = if (it == 1) 2 else 3 }
             .stepper(
                 R.drawable.ic_tire, getString(R.string.tire_min_title),
                 getString(R.string.tire_min_sub), tireMin, AppSettings.TIRE_MIN_RANGE,
@@ -538,6 +545,10 @@ class MainActivity : AppCompatActivity() {
                 AppSettings.setEtmCoolant(this, etm)
                 if (!etm) Thread { runCatching { CoolantEtm.send(0) } }.start()
                 if (tank != CarHub.tankLiters(this)) CarHub.setTankLiters(this, tank)
+                if (seatSteps != AppSettings.seatHeatLevels(this)) {
+                    AppSettings.setSeatHeatLevels(this, seatSteps)
+                    invalidateAll(dashboard)
+                }
                 if (tireMin != (AppSettings.tirePressureMin(this) * 10).toInt()) {
                     AppSettings.setTirePressureMin(this, tireMin / 10f)
                 }
@@ -565,6 +576,12 @@ class MainActivity : AppCompatActivity() {
      * не редактировали дашборд (выход из правки сохраняет её уже по клеткам
      * новой сетки) — до этого прежняя сетка возвращается без потерь.
      */
+    /** Перерисовать дерево виджетов (настройка, читаемая при отрисовке). */
+    private fun invalidateAll(v: View) {
+        v.invalidate()
+        if (v is android.view.ViewGroup) for (i in 0 until v.childCount) invalidateAll(v.getChildAt(i))
+    }
+
     private fun applyGrid(mode: Int, cols: Int, rows: Int, noGap: Boolean) {
         val next = AppSettings.gridSpec(mode, cols, rows)
         AppSettings.setGrid(this, mode, cols, rows)

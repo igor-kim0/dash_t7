@@ -229,7 +229,8 @@ class RetroClimateIcons(private val hole: Paint) {
      * Сиденье с тремя волнами подогрева: горят первые [level] волн цветом
      * текущей лампы, остальные — [offColor]. Контур — цветом текущей лампы.
      */
-    fun seat(c: Canvas, cx: Float, cy: Float, level: Int) {
+    /** Сиденье с [steps] волнами (ступени подогрева), горят первые [level]. */
+    fun seat(c: Canvas, cx: Float, cy: Float, level: Int, steps: Int = 3) {
         icon.strokeWidth = 2.5f
         path.reset()
         // Спинка (откинута назад) и подушка, сиденье смотрит влево.
@@ -244,13 +245,15 @@ class RetroClimateIcons(private val hole: Paint) {
         path.close()
         c.drawPath(path, icon)
         val litColor = icon.color
-        for (i in 1..3) {
+        // Волны по центру над подушкой: 3 → x = cx−14, −9, −4; 2 → cx−11.5, −6.5.
+        val first = cx - 9f - (steps - 1) * 2.5f
+        for (i in 1..steps) {
             if (i > level) {
                 icon.color = offColor
                 icon.clearShadowLayer()
             }
             // Волны над подушкой левее спинки (её край — cx + 2), с зазором от обеих.
-            val x = cx - 19f + i * 5f
+            val x = first + (i - 1) * 5f
             path.reset()
             path.moveTo(x, cy - 1f)
             path.cubicTo(x - 3f, cy - 4f, x + 3f, cy - 7f, x, cy - 10f)

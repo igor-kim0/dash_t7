@@ -96,6 +96,10 @@
     <string name="settings_radio_on_start_s">Включать штатное радио при запуске приложения</string>
     <string name="tank_title_short">Объём бака</string>
     <string name="tank_sub">Для литров остатка и расхода по проценту топлива</string>
+    <string name="seat_heat_levels_t">Подогрев сидений</string>
+    <string name="seat_heat_levels_s">Сколько ступеней у машины. Если первое нажатие кнопки сиденья ничего не включает — выберите 2</string>
+    <string name="seat_heat_levels_3">3 ступени</string>
+    <string name="seat_heat_levels_2">2 ступени</string>
     <string name="tank_value">%d л</string>
     <string name="tire_min_title">Мин. давление в шинах</string>
     <string name="tire_min_sub">Ниже этого давления колесо в виджете «Автомобиль» красное</string>

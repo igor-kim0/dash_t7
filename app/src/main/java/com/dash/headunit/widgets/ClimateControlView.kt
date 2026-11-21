@@ -17,6 +17,7 @@ import com.dash.headunit.car.ClimateControl
 import com.dash.headunit.car.ClimateControl.Cmd
 import com.dash.headunit.car.ClimateHub
 import com.dash.headunit.dashboard.WidgetSettingsStore
+import com.dash.headunit.settings.AppSettings
 import com.dash.headunit.theme.DashTheme
 
 /**
@@ -296,11 +297,12 @@ class ClimateControlView(
                 scaled(c, cx, cy, k) { icons.windshieldHeat(c, cx, cy) }
             }
             Item.SEAT_DRIVER, Item.SEAT_PASS, Item.SEAT_REAR_LEFT, Item.SEAT_REAR_RIGHT -> {
-                val level = v ?: 0
+                val steps = AppSettings.seatHeatLevels(context)
+                val level = (v ?: 0).coerceIn(0, steps)
                 lamp(level > 0, RetroClimateIcons.LAMP_AMBER, HEAT_ON)
                 // Сиденья одинаковые — подпись снизу, иконка чуть выше центра.
                 val iy = cy - unit * 0.08f
-                scaled(c, cx, iy, k * 0.9f) { icons.seat(c, cx, iy, level) }
+                scaled(c, cx, iy, k * 0.9f) { icons.seat(c, cx, iy, level, steps) }
                 caption.textSize = unit * 0.13f
                 val label = SEAT_CAPTIONS.getValue(cell.item)
                 val tw = caption.measureText(label)
@@ -450,9 +452,11 @@ class ClimateControlView(
     private fun tap(item: Item, zone: Int) {
         val cur = value(item, ClimateHub.data)
         if (item.isSeat) {
-            // Как штатно: из «выкл» сразу на максимум, дальше 3 → 2 → 1 → выкл.
-            val next = when (val c = (cur ?: 0).coerceIn(0, 3)) {
-                0 -> 3
+            // Как штатно: из «выкл» сразу на максимум, дальше 3 → 2 → 1 → выкл
+            // (у двухступенчатых машин — 2 → 1 → выкл: «3» они игнорируют).
+            val steps = AppSettings.seatHeatLevels(context)
+            val next = when (val c = (cur ?: 0).coerceIn(0, steps)) {
+                0 -> steps
                 else -> c - 1
             }
             seatLevel[item] = next
