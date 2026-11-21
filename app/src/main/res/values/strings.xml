@@ -478,6 +478,23 @@
     <string name="wifi_forget_title">Забыть сеть?</string>
     <string name="wifi_forget_text">%1$s будет удалена из сохранённых.</string>
     <string name="wifi_forget">Забыть</string>
+    <string name="bt_title">Bluetooth</string>
+    <string name="bt_toggle_row">Bluetooth</string>
+    <string name="bt_turning">…</string>
+    <string name="bt_name_note">Имя ГУ: %1$s</string>
+    <string name="bt_note_off">Bluetooth выключен — коснитесь, чтобы включить</string>
+    <string name="bt_note_none">Bluetooth недоступен</string>
+    <string name="bt_paired_title">Сопряжённые устройства (%1$d)</string>
+    <string name="bt_note_no_paired">Нет сопряжённых устройств — сопрягите телефон в штатных настройках</string>
+    <string name="bt_paired_note">сопряжено</string>
+    <string name="bt_elm_note">OBD-адаптер</string>
+    <string name="bt_note_hint">Коснитесь устройства, чтобы подключить; долгое нажатие на подключённом — отключить</string>
+    <string name="bt_connecting">Подключаюсь к %1$s…</string>
+    <string name="bt_connect_fail">Не удалось подключить — система не разрешает</string>
+    <string name="bt_disconnect_title">Отключить устройство?</string>
+    <string name="bt_disconnect_text">%1$s будет отключён от ГУ (звонки и музыка).</string>
+    <string name="bt_disconnect">Отключить</string>
+    <string name="bt_disconnect_fail">Не удалось отключить — система не разрешает</string>
     <!-- Диалоги настроек виджетов (SettingsList) -->
     <string name="tile_section">Плитка</string>
     <string name="weather_sec_forecast">Прогноз</string>

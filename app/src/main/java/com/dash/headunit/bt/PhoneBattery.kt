@@ -43,8 +43,11 @@ object PhoneBattery {
     var percent: Int = -1
         private set
 
-    /** Вызывается на главном потоке при смене [percent]. */
-    var onChange: (() -> Unit)? = null
+    // Вызываются на главном потоке при смене [percent].
+    private val listeners = LinkedHashSet<() -> Unit>()
+
+    fun addListener(l: () -> Unit) { listeners.add(l) }
+    fun removeListener(l: () -> Unit) { listeners.remove(l) }
 
     private val main = Handler(Looper.getMainLooper())
     private var started = false
@@ -149,7 +152,11 @@ object PhoneBattery {
         if (value == percent) return
         percent = value
         Log.i(TAG, "phone battery $value% (exact=$exact hfp=$hfp)")
-        if (Looper.myLooper() == Looper.getMainLooper()) onChange?.invoke()
-        else main.post { onChange?.invoke() }
+        if (Looper.myLooper() == Looper.getMainLooper()) notifyListeners()
+        else main.post { notifyListeners() }
+    }
+
+    private fun notifyListeners() {
+        listeners.toList().forEach { it() }
     }
 }

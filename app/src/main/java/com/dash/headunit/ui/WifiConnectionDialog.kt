@@ -170,7 +170,7 @@ object WifiConnectionDialog {
     }
 
     /** Строка сети: название, сноска справа, тап и долгий тап. */
-    private fun row(
+    internal fun row(
         context: Context,
         theme: DashTheme,
         title: String,
@@ -212,7 +212,7 @@ object WifiConnectionDialog {
         onLongClick?.let { long -> setOnLongClickListener { long(); true } }
     }
 
-    private fun section(context: Context, theme: DashTheme, text: String): TextView =
+    internal fun section(context: Context, theme: DashTheme, text: String): TextView =
         TextView(context).apply {
             this.text = text
             textSize = 13f
@@ -221,7 +221,7 @@ object WifiConnectionDialog {
             setPadding(dp(context, 12), dp(context, 14), dp(context, 12), dp(context, 4))
         }
 
-    private fun note(context: Context, theme: DashTheme, text: String): TextView =
+    internal fun note(context: Context, theme: DashTheme, text: String): TextView =
         TextView(context).apply {
             this.text = text
             textSize = 15f

@@ -162,11 +162,15 @@ class MainActivity : AppCompatActivity() {
         iconBluetooth = findViewById(R.id.icon_bluetooth)
         textPhoneBattery = findViewById(R.id.text_phone_battery)
         // Заряд телефона под значком Bluetooth (HFP-индикатор телефона).
-        com.dash.headunit.bt.PhoneBattery.onChange = phoneBatteryListener
+        com.dash.headunit.bt.PhoneBattery.addListener(phoneBatteryListener)
         com.dash.headunit.bt.PhoneBattery.start(this)
         // Диалог управления Wi-Fi: сохранённые/видимые сети, добавление сети.
         findViewById<View>(R.id.icon_wifi).setOnClickListener {
             com.dash.headunit.ui.WifiConnectionDialog.show(this)
+        }
+        // Диалог Bluetooth: вкл/выкл, сопряжённые устройства, заряд телефона.
+        findViewById<View>(R.id.box_bluetooth).setOnClickListener {
+            com.dash.headunit.ui.BluetoothDialog.show(this)
         }
         applyBarSide()
 
@@ -287,9 +291,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         CarHub.removeListener(engineListener)
-        if (com.dash.headunit.bt.PhoneBattery.onChange === phoneBatteryListener) {
-            com.dash.headunit.bt.PhoneBattery.onChange = null
-        }
+        com.dash.headunit.bt.PhoneBattery.removeListener(phoneBatteryListener)
         super.onDestroy()
     }
 
