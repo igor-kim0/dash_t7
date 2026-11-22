@@ -167,18 +167,22 @@ object ClusterOverlay {
     fun applyTheme() {
         main.post {
             val ctx = app ?: return@post
-            view?.modern = AppSettings.clusterTheme(ctx) == AppSettings.CLUSTER_THEME_MODERN
+            view?.theme = AppSettings.clusterTheme(ctx)
             syncGauges()
         }
     }
 
     /**
      * Штатные скорость/обороты прячем, только пока на приборке видна наша
-     * тема «Современная»: окно есть, не занавес для Яндекса, не калибровка.
+     * своя тема («Современная» или «Audi R8»): окно есть, не занавес для
+     * Яндекса, не калибровка.
      */
     private fun syncGauges() {
         val v = view
-        ClusterGauges.setWanted(v != null && v.modern && !v.blank && !calibration)
+        ClusterGauges.setWanted(
+            v != null && v.custom && !v.blank && !calibration,
+            all = v?.theme == AppSettings.CLUSTER_THEME_TEST
+        )
     }
 
     /** Настройку включили: окно на приборку и панель «Карты» — даже без маршрута. */
@@ -233,7 +237,7 @@ object ClusterOverlay {
                     " · слушатель уведомлений: ${onOff(ClusterSetup.isListenerEnabled(ctx))}",
                 "настройка «маршрут на приборке»: ${onOff(AppSettings.clusterNavi(ctx))}" +
                     " · ${if (GuidanceHub.current != null) "на карточке маршрут" else "на карточке образец"}",
-                "тема «Современная»: ${onOff(AppSettings.clusterTheme(ctx) == AppSettings.CLUSTER_THEME_MODERN)}" +
+                "тема приборки: ${themeName(ctx)}" +
                     " · штатные приборы: ${ClusterGauges.state}",
             )
             main.postDelayed(this, 1000)
@@ -241,6 +245,14 @@ object ClusterOverlay {
     }
 
     private fun onOff(b: Boolean) = if (b) "вкл" else "выкл"
+
+    /** Название темы приборки — для строки состояния в калибровке. */
+    private fun themeName(ctx: Context): String = when (AppSettings.clusterTheme(ctx)) {
+        AppSettings.CLUSTER_THEME_MODERN -> "«Современная»"
+        AppSettings.CLUSTER_THEME_R8 -> "«Audi R8»"
+        AppSettings.CLUSTER_THEME_TEST -> "«Тест»"
+        else -> "«Штатная»"
+    }
 
     /** Состояние одной строкой — для диагностики ([com.dash.headunit.diag.ClusterNaviProbe]). */
     fun debugState(): String =
@@ -434,7 +446,7 @@ object ClusterOverlay {
                 guidance = GuidanceHub.current
                 calibration = this@ClusterOverlay.calibration
                 blank = covering
-                modern = AppSettings.clusterTheme(ctx) == AppSettings.CLUSTER_THEME_MODERN
+                theme = AppSettings.clusterTheme(ctx)
             }
             @Suppress("DEPRECATION")
             val lp = WindowManager.LayoutParams(

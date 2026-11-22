@@ -15,6 +15,7 @@ import android.view.View
 import com.dash.headunit.car.CarHub
 import com.dash.headunit.car.ClusterPps
 import com.dash.headunit.car.CoolantCalibration
+import com.dash.headunit.settings.AppSettings
 import com.dash.headunit.widgets.engineTempColor
 import com.dash.headunit.widgets.fuelLevelColor
 import java.util.Locale
@@ -92,20 +93,28 @@ class ClusterGuidanceView(context: Context) : View(context) {
     internal val progress = ManeuverProgress()
 
     /**
-     * Тема «Современная» ([ModernCluster]): свой тахометр со скоростью по
-     * центру вместо карточки; штатные приборы при этом прячет [ClusterGauges].
+     * Тема приборки ([AppSettings.clusterTheme]): [AppSettings.CLUSTER_THEME_STOCK] —
+     * карточка маршрута поверх штатных приборов; своя тема
+     * ([ModernCluster] или [R8Cluster]) — свой тахометр вместо карточки;
+     * штатные приборы при этом прячет [ClusterGauges].
      */
-    var modern = false
+    var theme: Int = AppSettings.CLUSTER_THEME_STOCK
         set(value) {
             if (field == value) return
             field = value
             removeCallbacks(dialTick)
             sweepAt = 0L
-            if (value && isAttachedToWindow) post(dialTick)
+            if (custom && isAttachedToWindow) post(dialTick)
             invalidate()
         }
 
+    /** Своя тема (не «Штатная») — рисуем свой тахометр. */
+    val custom: Boolean
+        get() = theme != AppSettings.CLUSTER_THEME_STOCK
+
     private val modernPainter by lazy { ModernCluster(this) }
+    private val r8Painter by lazy { R8Cluster(this) }
+    private val testPainter by lazy { ModernCluster(this, full = true) }
 
     /** Начало пробега стрелки при включении темы (0 — ещё не было). */
     private var sweepAt = 0L
@@ -113,6 +122,7 @@ class ClusterGuidanceView(context: Context) : View(context) {
     private var shownRpm: Float? = null
     private var speedNow: Float? = null
     private var sweepSpeed: Int? = null
+    private var lastMinute = 0L
 
     /**
      * Данные темы — прямо из [ClusterPps] (подписчики [CarHub] без видимого
@@ -121,15 +131,15 @@ class ClusterGuidanceView(context: Context) : View(context) {
      */
     private val dialTick = object : Runnable {
         override fun run() {
-            if (!modern) return
+            if (!custom) return
             val now = android.os.SystemClock.uptimeMillis()
             if (sweepAt == 0L) sweepAt = now
             val t = now - sweepAt
             if (t < SWEEP_MS) {
                 // Пробег 0 → максимум → 0, как у приборок на старте.
                 val f = Math.sin(Math.PI * t / SWEEP_MS).toFloat()
-                shownRpm = f * ModernCluster.RPM_MAX
-                sweepSpeed = Math.round(f * ModernCluster.SPEED_MAX)
+                shownRpm = f * RPM_MAX
+                sweepSpeed = Math.round(f * SPEED_MAX)
                 invalidate()
                 postDelayed(this, FRAME_MS)
                 return
@@ -138,8 +148,12 @@ class ClusterGuidanceView(context: Context) : View(context) {
             val d = CarHub.data
             val speed = ClusterPps.speedKmh()?.toFloat() ?: d?.speedKmh
             val rpm = (ClusterPps.rpm() ?: d?.rpm)?.toFloat()
-            val nr = approach(shownRpm, rpm, ModernCluster.RPM_MAX)
-            val changed = nr != shownRpm || speed?.let { Math.round(it) } != speedNow?.let { Math.round(it) }
+            val nr = approach(shownRpm, rpm, RPM_MAX)
+            // «Тест» рисует часы — перерисовать и со сменой минуты.
+            val minute = System.currentTimeMillis() / 60_000
+            val changed = nr != shownRpm || speed?.let { Math.round(it) } != speedNow?.let { Math.round(it) } ||
+                (theme == AppSettings.CLUSTER_THEME_TEST && minute != lastMinute)
+            lastMinute = minute
             shownRpm = nr
             speedNow = speed
             if (changed) invalidate()
@@ -220,8 +234,15 @@ class ClusterGuidanceView(context: Context) : View(context) {
     private val dst = RectF()
 
     override fun onDraw(canvas: Canvas) {
-        if (modern && !calibration && !blank) {
-            modernPainter.draw(canvas, guidance ?: Guidance(), speedNow, shownRpm, sweepSpeed)
+        if (custom && !calibration && !blank) {
+            val g = guidance ?: Guidance()
+            if (theme == AppSettings.CLUSTER_THEME_R8) {
+                r8Painter.draw(canvas, g, speedNow, shownRpm, sweepSpeed)
+            } else if (theme == AppSettings.CLUSTER_THEME_TEST) {
+                testPainter.draw(canvas, g, speedNow, shownRpm, sweepSpeed)
+            } else {
+                modernPainter.draw(canvas, g, speedNow, shownRpm, sweepSpeed)
+            }
             return
         }
         canvas.drawColor(Color.BLACK)
@@ -333,7 +354,7 @@ class ClusterGuidanceView(context: Context) : View(context) {
         CarHub.init(context)
         CarHub.addListener(hubListener)
         CarHub.ensurePolling()
-        if (modern) post(dialTick)
+        if (custom) post(dialTick)
     }
 
     override fun onDetachedFromWindow() {
@@ -635,10 +656,13 @@ class ClusterGuidanceView(context: Context) : View(context) {
         const val SIDE_BLOCK = 140f
         const val SIDE_SIGN_CX = 322f
         const val SIDE_SIGN_CY = 310f
-        /** Тема «Современная»: кадр, пока стрелка догоняет, опрос в покое, пробег при включении, мс. */
+        /** Своя тема: кадр, пока стрелка догоняет, опрос в покое, пробег при включении, мс. */
         const val FRAME_MS = 33L
         const val POLL_MS = 150L
         const val SWEEP_MS = 1600L
+        /** Шкала для пробега стрелки; у обеих своих тем 0–8 тыс. и 220 км/ч. */
+        const val RPM_MAX = ModernCluster.RPM_MAX
+        const val SPEED_MAX = ModernCluster.SPEED_MAX
         /** Цвета полос A–H (приглушённые, как в grid.png). */
         val BANDS = intArrayOf(
             Color.rgb(0x50, 0x00, 0x00), Color.rgb(0x50, 0x28, 0x00),

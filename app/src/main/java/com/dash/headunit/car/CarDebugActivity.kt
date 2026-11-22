@@ -96,6 +96,28 @@ class CarDebugActivity : AppCompatActivity() {
             setOnClickListener { com.dash.headunit.diag.ClusterGaugesTest.restoreNow() }
         })
         root.addView(gaugesRow)
+        root.addView(TextView(this).apply {
+            text = "Только на стоянке, зажигание включено, тема приборки «Штатная»: прячет ВСЁ " +
+                "штатное на приборке, кроме ламп, — затемнения по краям, верхнюю и нижнюю строки, " +
+                "приборы и текстовые предупреждения. Через 30 с возвращает. Если что-то пошло не так — " +
+                "вернётся при следующем включении зажигания. Отчёт — files/cluster/gauges_all_*.txt."
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setPadding(0, dp(12), 0, 0)
+        })
+        val allRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        allRow.addView(Button(this).apply {
+            text = "Спрятать всё на 30 с"
+            setOnClickListener {
+                com.dash.headunit.diag.ClusterGaugesTest.start(
+                    this@CarDebugActivity, com.dash.headunit.diag.ClusterGaugesTest.Mode.ALL
+                )
+            }
+        })
+        allRow.addView(Button(this).apply {
+            text = "Вернуть сейчас"
+            setOnClickListener { com.dash.headunit.diag.ClusterGaugesTest.restoreNow() }
+        })
+        root.addView(allRow)
 
         root.addView(TextView(this).apply {
             text = "GPS"

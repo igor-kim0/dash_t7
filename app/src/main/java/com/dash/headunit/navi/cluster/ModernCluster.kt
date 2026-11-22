@@ -32,8 +32,21 @@ import java.util.Locale
  * знак ограничения слева внизу, запас хода и расход справа внизу. Слева
  * от круга по дуге вдоль обода — температура двигателя (сверху), топливо
  * (снизу) и температура за бортом между ними.
+ *
+ * [full] — тема «Тест»: штатный слой приборки спрятан целиком
+ * ([ClusterGauges] режим «всё»), экран 1920×720 наш весь. Круг крупнее и
+ * по центру высоты; в разрыве шкалы — запас хода и расход; в правом
+ * верхнем углу — дата и крупные часы; снизу слева — одометр и поездка;
+ * справа от круга — широкая карточка навигации со знаком ограничения
+ * (видна всегда: манёвр, расстояние, улица, остаток, прибытие, камера;
+ * без маршрута — «маршрут не задан» и текущая улица).
  */
-class ModernCluster(private val view: ClusterGuidanceView) {
+class ModernCluster(private val view: ClusterGuidanceView, private val full: Boolean = false) {
+
+    private val dialCy = if (full) FULL_DIAL_CY else DIAL_CY
+    private val dialR = if (full) FULL_DIAL_R else DIAL_R
+    private val clock = java.text.SimpleDateFormat("HH:mm", RU)
+    private val date = java.text.SimpleDateFormat("EE, d MMMM", RU)
 
     private val white = Color.rgb(0xF2, 0xF4, 0xF7)
     private val grey = Color.rgb(0x9C, 0xA8, 0xB6)
@@ -70,18 +83,174 @@ class ModernCluster(private val view: ClusterGuidanceView) {
         canvas.drawColor(Color.BLACK)
         val s = view.height / 720f
         val cx = view.width / 2f
-        val cy = DIAL_CY * s
-        val r = DIAL_R * s
+        val cy = dialCy * s
+        val r = dialR * s
         if (shaderKey != cx * 10_000 + r) makeShaders(cx, cy, r)
         drawSide(canvas, cx, cy, r, s)
         drawFace(canvas, cx, cy, r, s)
-        drawScale(canvas, cx, cy, s)
-        drawNeedle(canvas, cx, cy, r, s, rpm)
+        if (full) {
+            // «Тест»: стрелка проходит под цифрами и рисками шкалы.
+            drawNeedle(canvas, cx, cy, r, s, rpm)
+            drawScale(canvas, cx, cy, s)
+        } else {
+            drawScale(canvas, cx, cy, s)
+            drawNeedle(canvas, cx, cy, r, s, rpm)
+        }
         drawCenter(canvas, cx, cy, s, shownSpeed ?: speed?.let { Math.round(it) })
         drawInfo(canvas, cx, cy, r, s)
-        g.speedLimit?.let {
-            view.drawSign(canvas, it, g.overspeed, cx + r + SIGN_GAP * s + SIGN_R * s, cy, SIGN_R * s)
+        if (full) {
+            drawTopBar(canvas, s)
+            drawBottomBar(canvas, s)
+            // Знак ограничения — внутри карточки, поэтому она от самого круга.
+            drawRoute(canvas, g, cx + r + CARD_GAP * s, s)
+        } else {
+            g.speedLimit?.let {
+                view.drawSign(canvas, it, g.overspeed, cx + r + SIGN_GAP * s + SIGN_R * s, cy, SIGN_R * s)
+            }
         }
+    }
+
+    // ── «Тест»: весь экран ───────────────────────────────────────────
+
+    /** Правый верхний угол: дата и крупные часы (улица — в карточке навигации). */
+    private fun drawTopBar(c: Canvas, s: Float) {
+        val now = java.util.Date()
+        val y = BAR_TOP_Y * s
+        val right = view.width - EDGE_RIGHT * s
+        bold.color = white
+        bold.textSize = 60f * s
+        bold.textAlign = Paint.Align.RIGHT
+        val time = clock.format(now)
+        c.drawText(time, right, y, bold)
+        val tw = bold.measureText(time)
+        bold.textAlign = Paint.Align.CENTER
+        text.color = grey
+        text.textSize = 32f * s
+        text.textAlign = Paint.Align.RIGHT
+        c.drawText(date.format(now), right - tw - 24f * s, y, text)
+        text.textAlign = Paint.Align.CENTER
+    }
+
+    /** Снизу слева: одометр и поездка (запас хода и расход — внутри круга). */
+    private fun drawBottomBar(c: Canvas, s: Float) {
+        val t = ClusterPps.trip()
+        val d = CarHub.data
+        val odo = t?.odometerKm ?: d?.odoKm?.toLong()
+        val trip = t?.tripKm
+        val y = BAR_BOTTOM_Y * s
+        var x = EDGE * s
+        for ((label, value) in listOf(
+            "ОДОМЕТР" to (odo?.let { "%,d км".format(RU, it) } ?: "--"),
+            "ПОЕЗДКА" to (trip?.let { "%.1f км".format(RU, it) } ?: "--"),
+        )) x = pair(c, label, value, x, y, s, left = true) + 40f * s
+    }
+
+    /**
+     * «ПОДПИСЬ  значение» от [x] вправо ([left]) или влево до [x];
+     * возвращает дальний край.
+     */
+    private fun pair(c: Canvas, label: String, value: String, x: Float, y: Float, s: Float, left: Boolean): Float {
+        text.textSize = 20f * s
+        val lw = text.measureText(label)
+        text.textSize = 30f * s
+        val vw = text.measureText(value)
+        val gap = 12f * s
+        val x0 = if (left) x else x - lw - gap - vw
+        text.textAlign = Paint.Align.LEFT
+        text.color = grey
+        text.textSize = 20f * s
+        c.drawText(label, x0, y, text)
+        text.color = white
+        text.textSize = 30f * s
+        c.drawText(value, x0 + lw + gap, y, text)
+        text.textAlign = Paint.Align.CENTER
+        return if (left) x0 + lw + gap + vw else x0
+    }
+
+    /**
+     * Справа — карточка навигации, видна всегда: на маршруте манёвр,
+     * расстояние, улица, остаток пути и прибытие; без маршрута — «маршрут
+     * не задан» и улица, по которой едем. Камера — в обоих случаях.
+     */
+    private fun drawRoute(c: Canvas, g: Guidance, cardLeft: Float, s: Float) {
+        val cardRight = view.width - EDGE_RIGHT * s
+        if (cardRight - cardLeft < 240f * s) return
+        oval.set(cardLeft, CARD_TOP * s, cardRight, CARD_BOTTOM * s)
+        fill.color = Color.rgb(0x10, 0x15, 0x1C)
+        c.drawRoundRect(oval, 18f * s, 18f * s, fill)
+        stroke.color = Color.rgb(0x2A, 0x32, 0x3C)
+        stroke.strokeWidth = 2f * s
+        c.drawRoundRect(oval, 18f * s, 18f * s, stroke)
+
+        val left = cardLeft + CARD_PAD * s
+        val right = cardRight - CARD_PAD * s
+        val w = right - left
+        text.textAlign = Paint.Align.LEFT
+        bold.textAlign = Paint.Align.LEFT
+        var y = (CARD_TOP + CARD_PAD) * s
+        // Знак ограничения — в правом верхнем углу карточки.
+        val signW = g.speedLimit?.let {
+            val sr = SIGN_R * s
+            view.drawSign(c, it, g.overspeed, right - sr, y + sr, sr)
+            sr * 2 + 20f * s
+        } ?: 0f
+        if (g.hasManeuver) {
+            val icon = 130f * s
+            view.drawManeuver(c, g, left, y, icon)
+            g.distance?.let {
+                bold.color = white
+                bold.textSize = 60f * s
+                c.drawText(view.fit(it, bold, w - icon - 20f * s - signW), left + icon + 20f * s, y + icon * 0.62f, bold)
+            }
+            y += icon + 50f * s
+        } else if (!g.onRoute) {
+            y += 40f * s
+            text.color = grey
+            text.textSize = 30f * s
+            c.drawText(view.fit("Маршрут не задан", text, w - signW), left, y, text)
+            y += 60f * s
+            g.currentStreet?.let {
+                text.color = white
+                text.textSize = 32f * s
+                c.drawText(view.fit(it, text, w), left, y, text)
+                y += 30f * s
+            }
+        }
+        g.street?.takeIf { g.onRoute }?.let {
+            text.color = white
+            text.textSize = 32f * s
+            c.drawText(view.fit(it, text, w), left, y, text)
+            y += 30f * s
+        }
+        if (g.onRoute) {
+            stroke.color = Color.rgb(0x2A, 0x32, 0x3C)
+            stroke.strokeWidth = 2f * s
+            c.drawLine(left, y, right, y, stroke)
+            y += 50f * s
+            val rest = listOfNotNull(g.remainingDistance, g.remainingTime).joinToString(" · ")
+            if (rest.isNotEmpty()) {
+                pair(c, "ОСТАЛОСЬ", rest, left, y, s, left = true)
+                y += 46f * s
+            }
+            g.arrival?.let {
+                pair(c, "ПРИБЫТИЕ", it, left, y, s, left = true)
+                y += 46f * s
+            }
+        } else {
+            y += 30f * s
+        }
+        g.cameraDistance?.let {
+            text.textSize = 20f * s
+            text.color = amber
+            text.textAlign = Paint.Align.LEFT
+            val lw = text.measureText("КАМЕРА")
+            c.drawText("КАМЕРА", left, y, text)
+            text.textSize = 30f * s
+            val lim = g.cameraLimit?.let { l -> " · $l" } ?: ""
+            c.drawText(view.fit("$it$lim", text, w - lw - 12f * s), left + lw + 12f * s, y, text)
+        }
+        text.textAlign = Paint.Align.CENTER
+        bold.textAlign = Paint.Align.CENTER
     }
 
     private fun makeShaders(cx: Float, cy: Float, r: Float) {
@@ -132,7 +301,7 @@ class ModernCluster(private val view: ClusterGuidanceView) {
 
     /** Красная зона по внутренней кромке обода, риски и цифры оборотов. */
     private fun drawScale(c: Canvas, cx: Float, cy: Float, s: Float) {
-        val face = DIAL_R * s - (BEZEL + 4f) * s
+        val face = dialR * s - (BEZEL + 4f) * s
         val zr = face - 7f * s
         oval.set(cx - zr, cy - zr, cx + zr, cy + zr)
         stroke.color = red
@@ -158,17 +327,20 @@ class ModernCluster(private val view: ClusterGuidanceView) {
             }
             v += 250f
         }
-        // Подпись шкалы — в нижнем разрыве, между 0 и 8.
-        text.color = grey
-        text.textSize = 20f * s
-        c.drawText("×1000 об/мин", cx, cy + 150f * s, text)
+        // Подпись шкалы — в нижнем разрыве, между 0 и 8 («Тест» — без неё).
+        if (!full) {
+            text.color = grey
+            text.textSize = 20f * s
+            c.drawText("×1000 об/мин", cx, cy + 150f * s, text)
+        }
     }
 
     private fun drawNeedle(c: Canvas, cx: Float, cy: Float, r: Float, s: Float, rpm: Float?) {
         if (rpm == null) return
         val (cos, sin) = dir(rpm.coerceIn(0f, RPM_MAX))
-        val r0 = r * NEEDLE_FROM
         val r1 = r - (BEZEL + 14f) * s
+        // «Тест»: стрелка на треть короче — кончик у обода, начало дальше от центра.
+        val r0 = if (full) r1 - (r1 - r * NEEDLE_FROM) * 2f / 3f else r * NEEDLE_FROM
         round.color = needle
         round.alpha = 70
         round.strokeWidth = 22f * s
@@ -186,10 +358,13 @@ class ModernCluster(private val view: ClusterGuidanceView) {
         bold.color = white
         bold.textSize = 120f * s
         val top = cy - 40f * s
-        c.drawText(speed?.toString() ?: "--", cx, top, bold)
-        text.color = white
-        text.textSize = 28f * s
-        c.drawText("км/ч", cx, top + 34f * s, text)
+        // «Тест»: без «км/ч», скорость чуть ниже — ближе к черте.
+        c.drawText(speed?.toString() ?: "--", cx, top + if (full) SPEED_DROP * s else 0f, bold)
+        if (!full) {
+            text.color = white
+            text.textSize = 28f * s
+            c.drawText("км/ч", cx, top + 34f * s, text)
+        }
         stroke.color = Color.argb(150, 255, 255, 255)
         stroke.strokeWidth = 2f * s
         c.drawLine(cx - 90f * s, top + 50f * s, cx + 90f * s, top + 50f * s, stroke)
@@ -230,13 +405,13 @@ class ModernCluster(private val view: ClusterGuidanceView) {
         val t = ClusterPps.trip()
         val range = t?.rangeKm ?: CarHub.data?.rangeKm
         val avg = CarHub.tripView?.avgCons ?: t?.avgFuelL100
-        val rows = listOfNotNull(
-            range?.let { "ЗАПАС" to "$it км" },
-            avg?.let { "РАСХОД" to "%.1f л".format(RU, it) },
-        )
+        val rangeRow = range?.let { "ЗАПАС" to "$it км" }
+        val avgRow = avg?.let { "РАСХОД" to "%.1f л".format(RU, it) }
+        // «Тест»: сверху расход, под ним запас.
+        val rows = if (full) listOfNotNull(avgRow, rangeRow) else listOfNotNull(rangeRow, avgRow)
         if (rows.isEmpty()) return
         // Строки «ЗАПАС  364 км» по центру, ниже цифр 0 и 8.
-        var y = cy + INFO_Y * s
+        var y = cy + (if (full) INFO_Y_FULL else INFO_Y) * s
         val gap = 12f * s
         for ((label, value) in rows) {
             text.textSize = 20f * s
@@ -275,7 +450,8 @@ class ModernCluster(private val view: ClusterGuidanceView) {
             c, cx, cy, ar, s, ENG_FROM,
             eng?.let { ((it - TEMP_MIN) / (TEMP_MAX - TEMP_MIN)).coerceIn(0f, 1f) },
             eng?.let { if (it >= 115f) red else if (it < 60f) blue else white } ?: grey,
-            listOf("40", "70", "100", "130°C"), thermo
+            listOf("40", "70", "100", "130°C"), thermo,
+            eng?.let { "${Math.round(it)}°" }
         )
         // Топливо: снизу вверх E → 1/1.
         val pct = d?.fuelPct
@@ -283,7 +459,8 @@ class ModernCluster(private val view: ClusterGuidanceView) {
             c, cx, cy, ar, s, FUEL_FROM,
             pct?.let { (it / 100f).coerceIn(0f, 1f) },
             pct?.let { if (it < 10f) red else if (it < 20f) amber else white } ?: grey,
-            listOf("E", "1/2", "1/1"), fuel
+            listOf("E", "1/2", "1/1"), fuel,
+            d?.fuelLiters?.let { "${Math.round(it)} л" }
         )
         // За бортом — в разрыве между дугами.
         val out = ClusterPps.outsideTempC() ?: d?.outsideTempC
@@ -302,7 +479,8 @@ class ModernCluster(private val view: ClusterGuidanceView) {
      */
     private fun sideArc(
         c: Canvas, cx: Float, cy: Float, ar: Float, s: Float, from: Float,
-        frac: Float?, color: Int, labels: List<String>, icon: Drawable?
+        frac: Float?, color: Int, labels: List<String>, icon: Drawable?,
+        value: String? = null
     ) {
         oval.set(cx - ar, cy - ar, cx + ar, cy + ar)
         stroke.strokeWidth = 12f * s
@@ -327,13 +505,22 @@ class ModernCluster(private val view: ClusterGuidanceView) {
         }
         icon?.let {
             val a = Math.toRadians((from + ARC_SWEEP / 2).toDouble())
-            val ir = ar + 110f * s
+            // «Тест»: значок дальше от дуги — справа от него значение цифрами.
+            val ir = ar + (if (full) ICON_OUT_FULL else 110f) * s
             val ix = cx + Math.cos(a).toFloat() * ir
             val iy = cy + Math.sin(a).toFloat() * ir
             val half = 18f * s
             it.colorFilter = PorterDuffColorFilter(color, PorterDuff.Mode.SRC_IN)
             it.setBounds((ix - half).toInt(), (iy - half).toInt(), (ix + half).toInt(), (iy + half).toInt())
             it.draw(c)
+            if (full) {
+                bold.color = white
+                bold.textSize = 30f * s
+                bold.textAlign = Paint.Align.LEFT
+                val fm = bold.fontMetrics
+                c.drawText(value ?: "--", ix + half + 10f * s, iy - (fm.ascent + fm.descent) / 2, bold)
+                bold.textAlign = Paint.Align.CENTER
+            }
         }
     }
 
@@ -360,6 +547,25 @@ class ModernCluster(private val view: ClusterGuidanceView) {
         const val SIGN_GAP = 60f
         const val SIGN_R = 52f
         const val INFO_Y = 186f
+        /** «Тест»: круг по центру высоты, строки у краёв экрана. */
+        const val FULL_DIAL_CY = 360f
+        const val FULL_DIAL_R = 292f
+        const val EDGE = 48f
+        const val BAR_TOP_Y = 76f
+        const val BAR_BOTTOM_Y = 696f
+        /** «Тест»: карточка навигации справа — по высоте круга. */
+        const val CARD_TOP = 120f
+        const val CARD_BOTTOM = 610f
+        const val CARD_PAD = 28f
+        /** Карточка — от обода круга, до правого края. */
+        const val CARD_GAP = 40f
+        const val EDGE_RIGHT = 32f
+        /** Запас/расход в нижнем разрыве шкалы — ниже цифр 0 и 8 крупного круга. */
+        const val INFO_Y_FULL = 212f
+        /** «Тест»: насколько ниже скорость (на месте «км/ч»). */
+        const val SPEED_DROP = 28f
+        /** «Тест»: значки двигателя/топлива от дуги (место под цифры справа). */
+        const val ICON_OUT_FULL = 150f
         const val INFO_STEP = 34f
         /** Левые дуги: отступ от обода, угол; начало (по часовой = вверх). */
         const val ARC_GAP = 34f

@@ -53,7 +53,11 @@ object AppSettings {
     /**
      * Тема приборки: [CLUSTER_THEME_STOCK] — карточка маршрута поверх
      * штатных приборов; [CLUSTER_THEME_MODERN] — свой тахометр со скоростью
-     * по центру, штатные скорость/обороты спрятаны
+     * по центру; [CLUSTER_THEME_R8] — «Audi R8»: слева карточка маршрута,
+     * по центру тахометр, справа два малых индикатора (ОЖ и топливо);
+     * [CLUSTER_THEME_TEST] — «Тест»: «Современная» на весь экран, штатный
+     * слой приборки (виньетка, верх/низ, предупреждения) спрятан целиком.
+     * Во всех своих темах штатные скорость/обороты спрятаны
      * ([com.dash.headunit.navi.cluster.ClusterGauges]). Рисуется в окне
      * маршрута на приборке, т. е. при [clusterNavi].
      */
@@ -66,6 +70,8 @@ object AppSettings {
 
     const val CLUSTER_THEME_STOCK = 0
     const val CLUSTER_THEME_MODERN = 1
+    const val CLUSTER_THEME_R8 = 2
+    const val CLUSTER_THEME_TEST = 3
 
     /**
      * Сколько дней хранить журнал поездок ([TripTracker]):

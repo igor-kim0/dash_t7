@@ -35,6 +35,14 @@ import java.util.concurrent.TimeUnit
  * приборки sva.cluster пишет 1 после самотеста стрелок. Поэтому прячем
  * всегда парой 1 → 0 — при подключении и через [REHIDE_DELAY_MS] после
  * пуска двигателя (обороты появились).
+ *
+ * Режим «всё» ([setWanted] full, тема «Тест»): ключ `System.IGNState`
+ * (Global.MarkEnum Default/OFF/ON) = 0 прячет весь штатный слой Root/IGNON —
+ * ещё и виньетку по краям, верхнюю и нижнюю строки и ТЕКСТОВЫЕ
+ * ПРЕДУПРЕЖДЕНИЯ; лампы остаются (docs/research/cluster_theme.md, разбор
+ * 2026-11-22, на ГУ не проверено). Вернуть — ON. sva.cluster пишет ключ
+ * только при смене питания, поэтому после пуска двигателя прячем снова.
+ * Синтаксис enum у утилиты неизвестен — пишем все варианты разом.
  */
 object ClusterGauges {
 
@@ -51,11 +59,26 @@ object ClusterGauges {
 
     private val commands = LinkedBlockingQueue<String>()
 
-    /** Нужно ли прятать штатные приборы (тема «Современная» и наше окно видно). */
-    fun setWanted(on: Boolean) {
+    /** Прятать всё штатное (IGNState), а не только приборы. */
+    @Volatile
+    private var full = false
+
+    /**
+     * Нужно ли прятать штатные приборы (своя тема и наше окно видно);
+     * [all] — прятать весь штатный слой (тема «Тест»).
+     */
+    fun setWanted(on: Boolean, all: Boolean = false) {
+        if (on && wanted && full != all) {
+            // Сменился режим: текущая сессия вернёт штатное и выйдет, цикл поднимет новую.
+            Log.i(TAG, "режим: ${if (all) "всё" else "приборы"}")
+            full = all
+            commands.offer(CMD_RESTART)
+            return
+        }
+        if (on) full = all
         if (wanted == on) return
         wanted = on
-        Log.i(TAG, "нужно прятать: $on")
+        Log.i(TAG, "нужно прятать: $on${if (all) " (всё)" else ""}")
         if (on) {
             if (worker == null) {
                 worker = Thread(::loop, "ClusterGauges").apply {
@@ -76,13 +99,14 @@ object ClusterGauges {
                     sleepQuietly(RETRY_MS)
                     continue
                 }
-                try {
+                val restart = try {
                     session()
                 } catch (e: Exception) {
                     Log.w(TAG, "сессия", e)
                     state = "обрыв: ${e.javaClass.simpleName}"
+                    false
                 }
-                if (wanted) sleepQuietly(RETRY_MS)
+                if (wanted && !restart) sleepQuietly(RETRY_MS)
             }
         } finally {
             worker = null
@@ -97,12 +121,16 @@ object ClusterGauges {
         setWanted(true)
     }
 
-    /** Одна sh-сессия на приборке: живёт, пока нужно прятать и сокет цел. */
-    private fun session() {
+    /**
+     * Одна sh-сессия на приборке: живёт, пока нужно прятать и сокет цел.
+     * true — закрыта для смены режима (новую поднять сразу).
+     */
+    private fun session(): Boolean {
         val sh = QnxLauncher.find("sh") ?: run {
             state = "нет sh на приборке"
-            return
+            return false
         }
+        val all = full
         commands.clear()
         Socket().use { socket ->
             val out = QnxLauncher.start(socket, sh, listOf("sh"))
@@ -128,8 +156,8 @@ object ClusterGauges {
                 out.flush()
             }
             Thread.sleep(STDIN_DELAY_MS)
-            send(SCRIPT)
-            state = "прячу штатные приборы"
+            send(script(all))
+            state = if (all) "прячу всё штатное" else "прячу штатные приборы"
 
             var hidden = true
             var lastPing = SystemClock.uptimeMillis()
@@ -139,7 +167,7 @@ object ClusterGauges {
             while (true) {
                 val cmd = commands.poll(TICK_MS, TimeUnit.MILLISECONDS)
                 drain()
-                if (cmd == CMD_STOP || !wanted) {
+                if (cmd == CMD_STOP || cmd == CMD_RESTART || !wanted) {
                     send("s")
                     // Дать sh дописать 1 до закрытия сокета.
                     val until = SystemClock.uptimeMillis() + RUN_S * 1000 + 1500
@@ -151,7 +179,7 @@ object ClusterGauges {
                         }
                         if (state.endsWith("возвращены")) break
                     }
-                    return
+                    return cmd == CMD_RESTART && wanted
                 }
                 val now = SystemClock.uptimeMillis()
 
@@ -166,7 +194,7 @@ object ClusterGauges {
                 } else {
                     if (noSpeedSince == 0L) noSpeedSince = now
                     if (hidden && now - noSpeedSince > NO_SPEED_MS) {
-                        send("w 1")
+                        send("v")
                         hidden = false
                         state = "нет скорости — штатные приборы видны"
                     }
@@ -200,11 +228,12 @@ object ClusterGauges {
 
     private fun sleepQuietly(ms: Long) {
         val cmd = commands.poll(ms, TimeUnit.MILLISECONDS)
-        if (cmd != null && cmd != CMD_STOP) commands.offer(cmd)
+        if (cmd != null && cmd != CMD_STOP && cmd != CMD_RESTART) commands.offer(cmd)
     }
 
     private const val UIT = "/emmc/uit"
     private const val KEY = "System.InitialStartUpInt"
+    private const val IGN = "System.IGNState"
     /** Утилита может не завершаться сама — снимаем через RUN_S с. */
     private const val RUN_S = 3
     private const val MARK_HIDDEN = "DASH_HIDDEN"
@@ -213,26 +242,44 @@ object ClusterGauges {
     /**
      * Весь скрипт — одна группа `{ … }`: sh разбирает её целиком до
      * выполнения, и `read` дальше читает из сокета только наши команды:
-     * t — спрятать (1 → 0), w 1 — показать, p — пинг, s — показать и выйти.
+     * t — спрятать, v — показать, p — пинг, s — показать и выйти.
      * Конец потока (сокет закрыт) — показать и выйти.
+     * r — запустить утилиту с аргументами разом и снять через [RUN_S] с;
+     * h — спрятать (приборы: 1 → 0, всё: IGNState 0), v — показать.
      */
-    private val SCRIPT = """
-        { export LD_LIBRARY_PATH=$UIT/lib:${'$'}LD_LIBRARY_PATH
-        cd $UIT/etc
-        w() { $UIT/bin/uit.test.data-controller "--setint=$KEY#${'$'}1" >/dev/null 2>&1 & P=${'$'}!; sleep $RUN_S; kill ${'$'}P 2>/dev/null; }
-        trap 'w 1; echo $MARK_SHOWN; exit' HUP TERM INT
-        w 1; sleep 1; w 0; echo $MARK_HIDDEN
-        while read C; do
-          case "${'$'}C" in
-            t) w 1; sleep 1; w 0; echo $MARK_HIDDEN ;;
-            "w 1") w 1 ;;
-            s) break ;;
-          esac
-        done
-        w 1; echo $MARK_SHOWN; exit; }
-    """.trimIndent()
+    private fun script(all: Boolean): String {
+        val d = '$'
+        val hv = if (all) {
+            """
+            h() { r "--setenum=$IGN#Default" "--setenum=$IGN#0" "--setint=$IGN#0"; }
+            v() { r "--setenum=$IGN#ON" "--setenum=$IGN#2" "--setint=$IGN#2"; }
+            """
+        } else {
+            """
+            h() { r "--setint=$KEY#1"; sleep 1; r "--setint=$KEY#0"; }
+            v() { r "--setint=$KEY#1"; }
+            """
+        }.trimIndent()
+        return """
+            { export LD_LIBRARY_PATH=$UIT/lib:${d}LD_LIBRARY_PATH
+            cd $UIT/etc
+            r() { P=""; for A in "${d}@"; do $UIT/bin/uit.test.data-controller "${d}A" >/dev/null 2>&1 & P="${d}P ${d}!"; done; sleep $RUN_S; kill ${d}P 2>/dev/null; }
+            $hv
+            trap 'v; echo $MARK_SHOWN; exit' HUP TERM INT
+            h; echo $MARK_HIDDEN
+            while read C; do
+              case "${d}C" in
+                t) h; echo $MARK_HIDDEN ;;
+                v) v ;;
+                s) break ;;
+              esac
+            done
+            v; echo $MARK_SHOWN; exit; }
+        """.trimIndent()
+    }
 
     private const val CMD_STOP = "stop"
+    private const val CMD_RESTART = "restart"
     private const val TICK_MS = 1000L
     private const val PING_MS = 5000L
     private const val RETRY_MS = 10_000L
