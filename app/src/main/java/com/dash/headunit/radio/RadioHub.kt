@@ -14,6 +14,8 @@ import android.os.Parcel
 import android.util.Log
 import org.json.JSONObject
 import java.io.File
+import java.util.Locale
+import kotlin.math.roundToLong
 
 /**
  * Штатное FM/AM-радио ГУ (com.desaysv.mediaapp, модуль moduleradio).
@@ -38,6 +40,9 @@ import java.io.File
  *
  * Сделать радио источником / переключить диапазон — startService
  * OutSideControlService с action startSource, key_start_source = fm|am.
+ *
+ * Настроиться на частоту — голосовой командой через com.desaysv.vrservice
+ * ([directTune]); перебор next/pre — запасной путь.
  *
  * Транзакции — в своём потоке, слушатели зовутся в главном.
  */
@@ -186,11 +191,27 @@ object RadioHub {
     }
 
     /**
-     * Настроиться на частоту: перебором списка тюнера (вперёд или назад — к
-     * ближайшей по частоте). Станции нет в списке тюнера — [done] вернёт false.
+     * Настроиться на частоту. Сначала — сразу, голосовой командой
+     * ([directTune]); не вышло — перебором списка тюнера (вперёд или назад —
+     * к ближайшей по частоте). Станции нет в списке тюнера — [done] вернёт false.
      */
     fun tuneTo(band: String, freq: Double, done: (Boolean) -> Unit) {
         startWalk(RadioStations.Station(band, freq)) { gen ->
+            val now = currentFrequency()
+            if (state.band == band && now != null && RadioStations.sameFreq(band, now, freq)) {
+                main.post { done(true) }
+                return@startWalk
+            }
+            if (directWorks != false) {
+                if (directTune(gen, band, freq)) {
+                    directWorks = true
+                    main.post { done(true) }
+                    return@startWalk
+                }
+                if (walkGen != gen) return@startWalk
+                // Один раз не сработало — дальше сразу перебор, без ожидания.
+                directWorks = false
+            }
             if (state.band != band) {
                 app?.let { startSource(it, band) }
                 Thread.sleep(BAND_SWITCH_MS)
@@ -211,6 +232,68 @@ object RadioHub {
             )
         }
     }
+
+    /**
+     * Прямая настройка на частоту — через голосовое управление ГУ.
+     *
+     * `com.desaysv.vrservice` принимает разобранные iFlytek команды
+     * явным broadcast'ом в экспортированный `IfytekMessageReceiver`
+     * (extra `value` — JSON). Команда радио PLAY с `waveband` и `code` уходит
+     * в SVMedia `RadioVRControl.playRadioByBand` → OPEN_RADIO на частоту
+     * (docs/research/radio-aidl.md). Перебора станций нет, диапазон
+     * переключается сам.
+     *
+     * Ждём, пока служба радио сообщит нужную частоту; true — настроились.
+     */
+    private fun directTune(gen: Int, band: String, freq: Double): Boolean {
+        val ctx = app ?: return false
+        val code = if (band == AM) freq.roundToLong().toString()
+        else String.format(Locale.US, "%.1f", freq)
+        val json = JSONObject()
+            .put("focus", "radio")
+            .put(
+                "outdata", JSONObject()
+                    .put("operation", "PLAY")
+                    .put(
+                        "semantic", JSONObject()
+                            .put("slots", JSONObject().put("waveband", band).put("code", code))
+                    )
+            )
+            .toString()
+        try {
+            ctx.sendBroadcast(
+                Intent(ACTION_VR_MESSAGE)
+                    .setComponent(ComponentName(VR_PACKAGE, VR_RECEIVER))
+                    .putExtra("value", json)
+            )
+            note("direct tune $band $code")
+        } catch (e: Exception) {
+            note("direct tune: ${e.javaClass.simpleName}: ${e.message}")
+            return false
+        }
+        val deadline = System.currentTimeMillis() + DIRECT_TIMEOUT_MS
+        var polls = 0
+        while (System.currentTimeMillis() < deadline) {
+            Thread.sleep(STEP_POLL_MS)
+            if (walkGen != gen) return false
+            val f = currentFrequency()
+            if (state.band == band && f != null && RadioStations.sameFreq(band, f, freq)) {
+                note("direct tune $band $code: готово")
+                return true
+            }
+            // Колбэк мог не прийти — раз в ~0,6 с читаем сами.
+            if (++polls % 3 == 0) worker.post { service?.let { pull(it) } }
+        }
+        note("direct tune $band $code: нет ответа, перебор")
+        return false
+    }
+
+    /**
+     * Прямая настройка сработала (true) / не сработала (false) / не пробовали.
+     * Не сработала — до конца процесса настраиваемся перебором.
+     */
+    @Volatile
+    private var directWorks: Boolean? = null
 
     /** Остановить перебор диапазона. */
     fun cancelWalk() {
@@ -617,6 +700,12 @@ object RadioHub {
     private const val RADIO_SERVICE = "com.desaysv.moduleradio.service.RadioAidlService"
     private const val OUTSIDE_SERVICE = "com.desaysv.mediaapp.service.OutSideControlService"
     private const val ACTION_START_SOURCE = "com.desaysv.mediaapp.action.startSource"
+    private const val VR_PACKAGE = "com.desaysv.vrservice"
+    private const val VR_RECEIVER =
+        "com.desaysv.vrservice.vendor.iflytek_international.receiver.IfytekMessageReceiver"
+    private const val ACTION_VR_MESSAGE = "com.iflytek.autofly.handMessage"
+    /** Сколько ждать частоту после прямой настройки. */
+    private const val DIRECT_TIMEOUT_MS = 2500L
     private const val IMANAGER = "com.desaysv.localmediasdk.IAIDLMediaManager"
     private const val ICALLBACK = "com.desaysv.localmediasdk.IAIDLMediaInfoCallback"
     private const val TX_SEND_COMMAND = IBinder.FIRST_CALL_TRANSACTION
