@@ -289,8 +289,12 @@ class ClimateControlView(
                 scaled(c, cx, cy, k) { icons.direction(c, cx, cy, v) }
             }
             Item.MAX_DEFROST -> {
-                lamp(on && v == 1, RetroClimateIcons.LAMP_AMBER, HEAT_ON)
-                scaled(c, cx, cy, k) { icons.defrost(c, cx, cy) }
+                val lit = on && v == 1
+                lamp(lit, RetroClimateIcons.LAMP_AMBER, HEAT_ON)
+                // Значок стекла сам по себе путают с режимом обдува — подпись «MAX» снизу.
+                val iy = cy - unit * 0.08f
+                scaled(c, cx, iy, k * 0.9f) { icons.defrost(c, cx, iy) }
+                drawCaption(c, "MAX", r, unit, if (lit) (if (retro) RetroClimateIcons.LAMP_AMBER else HEAT_ON) else null)
             }
             Item.WINDSHIELD_HEAT -> {
                 lamp(v == 1, RetroClimateIcons.LAMP_AMBER, HEAT_ON)
@@ -303,14 +307,21 @@ class ClimateControlView(
                 // Сиденья одинаковые — подпись снизу, иконка чуть выше центра.
                 val iy = cy - unit * 0.08f
                 scaled(c, cx, iy, k * 0.9f) { icons.seat(c, cx, iy, level, steps) }
-                caption.textSize = unit * 0.13f
-                val label = SEAT_CAPTIONS.getValue(cell.item)
-                val tw = caption.measureText(label)
-                val maxW = r.width() * 0.9f
-                if (tw > maxW) caption.textSize *= maxW / tw
-                c.drawText(label, cx, r.bottom - unit * 0.1f, caption)
+                drawCaption(c, SEAT_CAPTIONS.getValue(cell.item), r, unit, null)
             }
         }
+    }
+
+    /** Подпись внизу кнопки [r]; [litColor] — цвет «горящей» подписи, null — обычная. */
+    private fun drawCaption(c: Canvas, label: String, r: RectF, unit: Float, litColor: Int?) {
+        caption.textSize = unit * 0.13f
+        val tw = caption.measureText(label)
+        val maxW = r.width() * 0.9f
+        if (tw > maxW) caption.textSize *= maxW / tw
+        val normal = caption.color
+        if (litColor != null) caption.color = litColor
+        c.drawText(label, r.centerX(), r.bottom - unit * 0.1f, caption)
+        caption.color = normal
     }
 
     /** «−» и «+» по краям широкой кнопки. */

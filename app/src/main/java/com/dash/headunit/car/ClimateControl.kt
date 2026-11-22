@@ -55,6 +55,7 @@ object ClimateControl {
     private const val TAG = "ClimateControl"
     private const val PREFS = "climate_control"
     private const val VERIFY_MS = 1500L
+    private const val FAN_MAX = 7
 
     /** Как записать логическое значение: ячейка + кодировка. */
     class Variant(val group: Int, val id: Int, val encode: (Int) -> Int)
@@ -114,7 +115,11 @@ object ClimateControl {
             try {
                 val r = reader ?: DesayCarReader(app).also { reader = it }
                 if (r.isAvailable()) {
-                    if (cmd.absolute && v == 0) sendOff(app, r, cmd) else sendVerified(app, r, cmd, v)
+                    if (cmd.absolute && v == 0) {
+                        sendOff(app, r, cmd)
+                    } else if (sendVerified(app, r, cmd, v) && cmd == Cmd.MAX_DEFROST && v != 0) {
+                        checkMax(app, r)
+                    }
                 } else {
                     Log.w(TAG, "${cmd.title}: CarInfoService недоступен")
                     ClimateLog.write(app, "${cmd.title} → $v: CarInfoService недоступен")
@@ -127,13 +132,15 @@ object ClimateControl {
         }
     }
 
-    private fun sendVerified(app: Context, r: DesayCarReader, cmd: Cmd, value: Int) {
+    /** Записать с проверкой; true — ячейка чтения в нужном состоянии. */
+    private fun sendVerified(app: Context, r: DesayCarReader, cmd: Cmd, value: Int): Boolean {
         val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val learned = prefs.getInt(cmd.name, 0).coerceIn(0, cmd.variants.lastIndex)
         val order = listOf(learned) + cmd.variants.indices.filter { it != learned }
         val expected = cmd.expect(value)
         val (rg, rid) = cmd.read
         val log = StringBuilder("${cmd.title} → $value:")
+        var ok = false
         for (i in order) {
             val variant = cmd.variants[i]
             val raw = variant.encode(value)
@@ -141,6 +148,7 @@ object ClimateControl {
             if (!cmd.absolute && before == expected) {
                 // Уже в нужном состоянии: если ячейка — «нажатие», запись бы его сбросила.
                 log.append(" уже $before")
+                ok = true
                 break
             }
             HvacShade.beforeWrite(app)
@@ -152,11 +160,32 @@ object ClimateControl {
             if (after == expected) {
                 if (i != learned) prefs.edit().putInt(cmd.name, i).apply()
                 log.append(" ок")
+                ok = true
                 break
             }
         }
         Log.i(TAG, log.toString())
         ClimateLog.write(app, "$log (learned=$learned)")
+        return ok
+    }
+
+    /**
+     * MAX обдув включён: штатно блок сам ставит вентилятор на максимум и обдув
+     * на стекло (16,6 = 5) — на ГУ не проверено. Журналим, что вышло; вентилятор
+     * ниже 7 — дописываем 7. Режим не трогаем: запись 16,2 умеет только 0..3,
+     * «стекло» включается только через MAX.
+     */
+    private fun checkMax(app: Context, r: DesayCarReader) {
+        SystemClock.sleep(VERIFY_MS)
+        val fan = runCatching { r.readInt(Cmd.FAN.read.first, Cmd.FAN.read.second) }.getOrNull()
+        val mode = runCatching { r.readInt(Cmd.MODE.read.first, Cmd.MODE.read.second) }.getOrNull()
+        val line = "MAX: вентилятор=$fan обдув=$mode (ждём $FAN_MAX и 5)"
+        Log.i(TAG, line)
+        ClimateLog.write(app, line)
+        if (fan != null && fan < FAN_MAX) {
+            ClimateLog.write(app, "MAX: дожимаем вентилятор до $FAN_MAX")
+            sendVerified(app, r, Cmd.FAN, FAN_MAX)
+        }
     }
 
     /** Сиденье «выкл»: во все ячейки, проверка и отложенный дожим. */
