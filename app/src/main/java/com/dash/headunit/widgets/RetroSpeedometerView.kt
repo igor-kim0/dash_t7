@@ -393,9 +393,10 @@ class RetroSpeedometerView(context: Context) : View(context) {
         val gap = 3f
         val total = ODO_TOTAL
         val left = PIVOT_X - total / 2f
-        val top = ROW_Y + 8f
-        // Козырёк над осью: под ним прячется основание стрелки.
-        rect.set(left - 14f, LEDGE_Y - 2f, left + total + 14f, top + 46f)
+        // Ячейки — вровень с цифрами строки ([ROW_Y]); подложка от козырька
+        // (под ней прячется основание стрелки) с одинаковыми полями сверху и снизу.
+        val top = LEDGE_Y + 8f
+        rect.set(left - 14f, LEDGE_Y - 2f, left + total + 14f, top + 48f)
         c.drawRoundRect(rect, 8f, 8f, hood)
         digit.textSize = 30f
         val fm = digit.fontMetrics
