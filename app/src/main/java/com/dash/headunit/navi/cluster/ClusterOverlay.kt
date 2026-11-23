@@ -169,20 +169,19 @@ object ClusterOverlay {
             val ctx = app ?: return@post
             view?.theme = AppSettings.clusterTheme(ctx)
             syncGauges()
+            // Смена темы — штатное прячем заново (с прошлого раза могло вернуться).
+            ClusterGauges.rehide()
         }
     }
 
     /**
-     * Штатные скорость/обороты прячем, только пока на приборке видна наша
-     * своя тема («Современная» или «Audi R8»): окно есть, не занавес для
-     * Яндекса, не калибровка.
+     * Всё штатное на приборке (приборы, виньетка, строки, текстовые
+     * предупреждения; лампы остаются) прячем, только пока видна наша своя
+     * тема: окно есть, не занавес для Яндекса, не калибровка.
      */
     private fun syncGauges() {
         val v = view
-        ClusterGauges.setWanted(
-            v != null && v.custom && !v.blank && !calibration,
-            all = v?.theme == AppSettings.CLUSTER_THEME_TEST
-        )
+        ClusterGauges.setWanted(v != null && v.custom && !v.blank && !calibration, all = true)
     }
 
     /** Настройку включили: окно на приборку и панель «Карты» — даже без маршрута. */

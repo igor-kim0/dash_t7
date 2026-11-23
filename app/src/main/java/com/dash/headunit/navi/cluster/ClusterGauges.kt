@@ -36,7 +36,7 @@ import java.util.concurrent.TimeUnit
  * всегда парой 1 → 0 — при подключении и через [REHIDE_DELAY_MS] после
  * пуска двигателя (обороты появились).
  *
- * Режим «всё» ([setWanted] full, тема «Тест»): ключ `System.IGNState`
+ * Режим «всё» ([setWanted] all — любая своя тема): ключ `System.IGNState`
  * (Global.MarkEnum Default/OFF/ON) = 0 прячет весь штатный слой Root/IGNON —
  * ещё и виньетку по краям, верхнюю и нижнюю строки и ТЕКСТОВЫЕ
  * ПРЕДУПРЕЖДЕНИЯ; лампы остаются (docs/research/cluster_theme.md, разбор
@@ -65,7 +65,7 @@ object ClusterGauges {
 
     /**
      * Нужно ли прятать штатные приборы (своя тема и наше окно видно);
-     * [all] — прятать весь штатный слой (тема «Тест»).
+     * [all] — прятать весь штатный слой.
      */
     fun setWanted(on: Boolean, all: Boolean = false) {
         if (on && wanted && full != all) {
@@ -118,7 +118,12 @@ object ClusterGauges {
 
     private fun setWantedAgain() {
         wanted = false
-        setWanted(true)
+        setWanted(true, full)
+    }
+
+    /** Отправить «спрятать» ещё раз (сменили тему) — если сейчас прячем. */
+    fun rehide() {
+        if (wanted) commands.offer(CMD_HIDE)
     }
 
     /**
@@ -182,6 +187,11 @@ object ClusterGauges {
                     return cmd == CMD_RESTART && wanted
                 }
                 val now = SystemClock.uptimeMillis()
+
+                if (cmd == CMD_HIDE && hidden) {
+                    send("t")
+                    state = if (all) "прячу всё штатное (смена темы)" else "прячу штатные приборы (смена темы)"
+                }
 
                 // Скорости нет — штатный спидометр обратно, пока не появится.
                 if (speedKnown()) {
@@ -280,6 +290,7 @@ object ClusterGauges {
 
     private const val CMD_STOP = "stop"
     private const val CMD_RESTART = "restart"
+    private const val CMD_HIDE = "hide"
     private const val TICK_MS = 1000L
     private const val PING_MS = 5000L
     private const val RETRY_MS = 10_000L
