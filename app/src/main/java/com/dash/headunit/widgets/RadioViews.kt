@@ -270,8 +270,14 @@ class BandScaleView(context: Context, private val theme: DashTheme) : View(conte
                 val dx = e.x - downX
                 when {
                     walking -> onCancel()
-                    abs(dx) > SWIPE_DP * density -> onSeek(if (dx < 0) 1 else -1)
-                    else -> nearest(e.x)?.let { onTune(it) }
+                    abs(dx) > SWIPE_DP * density -> {
+                        click()
+                        onSeek(if (dx < 0) 1 else -1)
+                    }
+                    else -> nearest(e.x)?.let {
+                        click()
+                        onTune(it)
+                    }
                 }
                 performClick()
                 return true
@@ -282,6 +288,9 @@ class BandScaleView(context: Context, private val theme: DashTheme) : View(conte
     }
 
     override fun performClick(): Boolean = super.performClick()
+
+    /** performClick без OnClickListener не щёлкает — системный щелчок сами. */
+    private fun click() = playSoundEffect(android.view.SoundEffectConstants.CLICK)
 
     /** Ближайшая к точке касания станция, не дальше [HIT_DP]. */
     private fun nearest(x: Float): RadioStations.Station? =

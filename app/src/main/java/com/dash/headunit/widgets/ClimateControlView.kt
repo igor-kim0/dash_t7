@@ -437,6 +437,8 @@ class ClimateControlView(
                 invalidate()
                 if (cell != null && cell.rect.contains(event.x, event.y)) {
                     performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    // Свой onTouchEvent без OnClickListener — системный щелчок сами.
+                    playSoundEffect(android.view.SoundEffectConstants.CLICK)
                     tap(cell.item, pressedZone)
                 }
                 return true

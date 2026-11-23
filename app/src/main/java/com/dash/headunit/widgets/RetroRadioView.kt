@@ -508,6 +508,8 @@ class RetroRadioView(context: Context) : View(context) {
                 pressed = null
                 if (h != null && hit(e.x, e.y) == h) {
                     performClick()
+                    // performClick без OnClickListener не щёлкает — звук сами.
+                    playSoundEffect(android.view.SoundEffectConstants.CLICK)
                     act(h)
                 }
                 invalidate()
