@@ -17,6 +17,7 @@ import com.dash.headunit.R
 import com.dash.headunit.car.CarHub
 import com.dash.headunit.car.ClusterPps
 import com.dash.headunit.car.CoolantCalibration
+import com.dash.headunit.car.TripTracker
 import com.dash.headunit.widgets.gearIndex
 import java.util.Locale
 
@@ -101,7 +102,7 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         if (full) {
             drawOdometer(canvas, cx, cy, r, s)
             drawTopBar(canvas, s, cx, cy, r)
-            drawBottomBar(canvas, s)
+            drawTripCard(canvas, cx, r, s)
             // Знак ограничения — внутри карточки, поэтому она от самого круга.
             drawRoute(canvas, g, cx + r + CARD_GAP * s, s)
         } else {
@@ -142,10 +143,59 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         bold.textAlign = Paint.Align.CENTER
     }
 
-    /** Снизу слева: поездка (одометр — внизу круга, запас хода и расход — внутри). */
-    private fun drawBottomBar(c: Canvas, s: Float) {
-        val trip = ClusterPps.trip()?.tripKm
-        pair(c, "ПОЕЗДКА", trip?.let { "%.1f км".format(RU, it) } ?: "--", EDGE * s, BAR_BOTTOM_Y * s, s, left = true)
+    /**
+     * Слева от круга — карточка поездки: средний расход, пробег, средняя
+     * скорость, моточасы. Подпись слева, значение с единицей — по правому краю.
+     * Справа карточка кончается до подписей левых дуг и «за бортом».
+     */
+    private fun drawTripCard(c: Canvas, cx: Float, r: Float, s: Float) {
+        val cardLeft = EDGE * s
+        val cardRight = cx - r - TRIP_CARD_GAP * s
+        if (cardRight - cardLeft < 240f * s) return
+        oval.set(cardLeft, CARD_TOP * s, cardRight, CARD_BOTTOM * s)
+        fill.color = Color.rgb(0x10, 0x15, 0x1C)
+        c.drawRoundRect(oval, 18f * s, 18f * s, fill)
+        stroke.color = Color.rgb(0x2A, 0x32, 0x3C)
+        stroke.strokeWidth = 2f * s
+        c.drawRoundRect(oval, 18f * s, 18f * s, stroke)
+
+        val t = ClusterPps.trip()
+        val v = CarHub.tripView
+        val hours = TripTracker.engineHours(view.context).totalMillis.coerceAtLeast(0L) / 3_600_000.0
+        val rows = listOf(
+            Triple("СРЕДНИЙ РАСХОД", (v?.avgCons ?: t?.avgFuelL100)?.let { "%.1f".format(RU, it) }, "л/100"),
+            Triple("ПРОБЕГ ПОЕЗДКИ", (t?.tripKm ?: v?.distKm)?.let { "%.1f".format(RU, it) }, "км"),
+            Triple("СРЕДНЯЯ СКОРОСТЬ", (t?.avgSpeedKmh ?: v?.avgSpeedKmh)?.let { "%.0f".format(RU, it) }, "км/ч"),
+            Triple("МОТОЧАСЫ", "%.1f".format(RU, hours), "ч"),
+        )
+        val left = cardLeft + CARD_PAD * s
+        val right = cardRight - CARD_PAD * s
+        val step = (CARD_BOTTOM - CARD_TOP) * s / rows.size
+        for ((i, row) in rows.withIndex()) {
+            val (label, value, unit) = row
+            val top = CARD_TOP * s + i * step
+            if (i > 0) {
+                stroke.color = Color.rgb(0x2A, 0x32, 0x3C)
+                stroke.strokeWidth = 2f * s
+                c.drawLine(left, top, right, top, stroke)
+            }
+            // Подпись сверху слева, значение под ней — по правому краю.
+            text.color = grey
+            text.textSize = 22f * s
+            text.textAlign = Paint.Align.LEFT
+            c.drawText(label, left, top + 40f * s, text)
+            val base = top + step - 26f * s
+            text.textSize = 26f * s
+            text.textAlign = Paint.Align.RIGHT
+            c.drawText(unit, right, base, text)
+            val uw = text.measureText(unit) + 10f * s
+            bold.color = white
+            bold.textSize = 54f * s
+            bold.textAlign = Paint.Align.RIGHT
+            c.drawText(value ?: "--", right - uw, base, bold)
+        }
+        text.textAlign = Paint.Align.CENTER
+        bold.textAlign = Paint.Align.CENTER
     }
 
     /** Внизу круга, на месте убранного обода между 0 и 8: одометр. */
@@ -433,8 +483,8 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         val avg = CarHub.tripView?.avgCons ?: t?.avgFuelL100
         val rangeRow = range?.let { "ЗАПАС" to "$it км" }
         val avgRow = avg?.let { "РАСХОД" to "%.1f л".format(RU, it) }
-        // «Тест»: сверху расход, под ним запас.
-        val rows = if (full) listOfNotNull(avgRow, rangeRow) else listOfNotNull(rangeRow, avgRow)
+        // «Тест»: расход — в карточке поездки слева, в круге только запас.
+        val rows = if (full) listOfNotNull(rangeRow) else listOfNotNull(rangeRow, avgRow)
         if (rows.isEmpty()) return
         // Строки «ЗАПАС  364 км» по центру, ниже цифр 0 и 8.
         var y = cy + (if (full) INFO_Y_FULL else INFO_Y) * s
@@ -580,13 +630,14 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         const val BAR_TOP_Y = 76f
         /** «Тест»: зазор от строки даты/часов до границы градиента. */
         const val TOP_BAR_GAP = 16f
-        const val BAR_BOTTOM_Y = 696f
         /** «Тест»: карточка навигации справа — по высоте круга. */
         const val CARD_TOP = 120f
         const val CARD_BOTTOM = 610f
         const val CARD_PAD = 28f
         /** Карточка — от обода круга, до правого края. */
         const val CARD_GAP = 40f
+        /** «Тест»: карточка поездки слева — до обода с запасом под левые дуги и подписи. */
+        const val TRIP_CARD_GAP = 150f
         const val EDGE_RIGHT = 32f
         /** Запас/расход в нижнем разрыве шкалы — ниже цифр 0 и 8 крупного круга. */
         const val INFO_Y_FULL = 250f
