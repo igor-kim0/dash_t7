@@ -156,7 +156,7 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         val v = CarHub.tripView
         val hours = TripTracker.engineHours(view.context).totalMillis.coerceAtLeast(0L) / 3_600_000.0
         val rows = listOf(
-            Triple("Средний расход", (v?.avgCons ?: t?.avgFuelL100)?.let { "%.1f".format(RU, it) }, "л/100"),
+            Triple("Средний расход", (v?.avgCons ?: t?.avgFuelL100)?.let { "%.1f".format(RU, it) }, "л"),
             Triple("Пробег поездки", (t?.tripKm ?: v?.distKm)?.let { "%.1f".format(RU, it) }, "км"),
             Triple("Средняя скорость", (t?.avgSpeedKmh ?: v?.avgSpeedKmh)?.let { "%.0f".format(RU, it) }, "км/ч"),
             Triple("Моточасы", "%.1f".format(RU, hours), "ч"),
