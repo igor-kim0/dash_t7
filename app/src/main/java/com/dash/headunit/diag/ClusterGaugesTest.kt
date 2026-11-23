@@ -34,7 +34,7 @@ import java.util.Locale
  * смене питания; 0 прячет весь Root/IGNON — навигационный слой с виньеткой и
  * TBT, приборы, верх, низ и ТЕКСТОВЫЕ ПРЕДУПРЕЖДЕНИЯ; остаются лампы
  * (Root/Indicator) и наше видео. ON возвращает (с анимацией включения).
- * Синтаксис enum у утилиты неизвестен — пишем все варианты подряд.
+ * Enum утилита разбирает через stoi — только номер (0 Default, 2 ON).
  */
 object ClusterGaugesTest {
 
@@ -47,8 +47,9 @@ object ClusterGaugesTest {
         ),
         ALL(
             "all", "Всё штатное",
-            listOf("--setenum=System.IGNState#Default", "--setenum=System.IGNState#0", "--setint=System.IGNState#0"),
-            listOf("--setenum=System.IGNState#ON", "--setenum=System.IGNState#2", "--setint=System.IGNState#2")
+            // --setenum — только номер (stoi): 0 Default, 2 ON.
+            listOf("--setenum=System.IGNState#0"),
+            listOf("--setenum=System.IGNState#2")
         )
     }
 

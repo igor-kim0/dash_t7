@@ -42,7 +42,9 @@ import java.util.concurrent.TimeUnit
  * ПРЕДУПРЕЖДЕНИЯ; лампы остаются (docs/research/cluster_theme.md, разбор
  * 2026-11-22, на ГУ не проверено). Вернуть — ON. sva.cluster пишет ключ
  * только при смене питания, поэтому после пуска двигателя прячем снова.
- * Синтаксис enum у утилиты неизвестен — пишем все варианты разом.
+ * Приборы в этом режиме прячем ещё и InitialStartUpInt 1 → 0 (проверено на
+ * ГУ): до 2026-11-23 «всё» писало только IGNState — на ГУ не спряталось
+ * ничего. Enum утилита принимает только номером (`--setenum=…#0`, stoi).
  */
 object ClusterGauges {
 
@@ -175,7 +177,7 @@ object ClusterGauges {
                 if (cmd == CMD_STOP || cmd == CMD_RESTART || !wanted) {
                     send("s")
                     // Дать sh дописать 1 до закрытия сокета.
-                    val until = SystemClock.uptimeMillis() + RUN_S * 1000 + 1500
+                    val until = SystemClock.uptimeMillis() + 2 * RUN_S * 1000 + 1500
                     while (SystemClock.uptimeMillis() < until) {
                         try {
                             drain()
@@ -259,10 +261,13 @@ object ClusterGauges {
      */
     private fun script(all: Boolean): String {
         val d = '$'
+        // --setenum утилита разбирает через stoi (дизассемблер main, 2026-11-23):
+        // только номер — 0 Default, 2 ON; «#Default» её роняет.
+        // Приборы — проверенным InitialStartUpInt 1 → 0, остальное — IGNState.
         val hv = if (all) {
             """
-            h() { r "--setenum=$IGN#Default" "--setenum=$IGN#0" "--setint=$IGN#0"; }
-            v() { r "--setenum=$IGN#ON" "--setenum=$IGN#2" "--setint=$IGN#2"; }
+            h() { r "--setint=$KEY#1"; sleep 1; r "--setint=$KEY#0"; r "--setenum=$IGN#0"; }
+            v() { r "--setenum=$IGN#2"; r "--setint=$KEY#1"; }
             """
         } else {
             """
