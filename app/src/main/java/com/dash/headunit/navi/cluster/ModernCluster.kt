@@ -99,7 +99,7 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         drawCenter(canvas, cx, cy, s, shownSpeed ?: speed?.let { Math.round(it) })
         drawInfo(canvas, cx, cy, r, s)
         if (full) {
-            drawTopBar(canvas, s)
+            drawTopBar(canvas, s, cx, cy, r)
             drawBottomBar(canvas, s)
             // Знак ограничения — внутри карточки, поэтому она от самого круга.
             drawRoute(canvas, g, cx + r + CARD_GAP * s, s)
@@ -112,22 +112,32 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
 
     // ── «Тест»: весь экран ───────────────────────────────────────────
 
-    /** Левый верхний угол: дата, за ней крупные часы (улица — в карточке навигации). */
-    private fun drawTopBar(c: Canvas, s: Float) {
+    /**
+     * Сверху слева: дата, за ней крупные часы — строка прижата правым краем
+     * к границе тёмного градиента за левыми дугами (улица — в карточке навигации).
+     */
+    private fun drawTopBar(c: Canvas, s: Float, cx: Float, cy: Float, r: Float) {
         val now = java.util.Date()
         val y = BAR_TOP_Y * s
-        val left = EDGE * s
-        text.color = grey
-        text.textSize = 32f * s
-        text.textAlign = Paint.Align.LEFT
         val day = date.format(now)
-        c.drawText(day, left, y, text)
+        val time = clock.format(now)
+        text.textSize = 32f * s
+        bold.textSize = 60f * s
         val dw = text.measureText(day)
+        val gap = 24f * s
+        val width = dw + gap + bold.measureText(time)
+        // Левая граница круга градиента ([drawSide]) на середине высоты часов.
+        val gr = r * (1 + SIDE_OUT)
+        val dy = cy - (y - 22f * s)
+        val edge = if (dy < gr) cx - r * GLOW_SHIFT - Math.sqrt((gr * gr - dy * dy).toDouble()).toFloat() else view.width.toFloat()
+        val left = (edge - TOP_BAR_GAP * s - width).coerceAtLeast(EDGE * s)
+        text.color = grey
+        text.textAlign = Paint.Align.LEFT
+        c.drawText(day, left, y, text)
         text.textAlign = Paint.Align.CENTER
         bold.color = white
-        bold.textSize = 60f * s
         bold.textAlign = Paint.Align.LEFT
-        c.drawText(clock.format(now), left + dw + 24f * s, y, bold)
+        c.drawText(time, left + dw + gap, y, bold)
         bold.textAlign = Paint.Align.CENTER
     }
 
@@ -552,6 +562,8 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         const val FULL_DIAL_R = 292f
         const val EDGE = 48f
         const val BAR_TOP_Y = 76f
+        /** «Тест»: зазор от строки даты/часов до границы градиента. */
+        const val TOP_BAR_GAP = 16f
         const val BAR_BOTTOM_Y = 696f
         /** «Тест»: карточка навигации справа — по высоте круга. */
         const val CARD_TOP = 120f
