@@ -371,7 +371,7 @@ class RetroSpeedometerView(context: Context) : View(context) {
             label.textSize = 24f
             // Резерв — подпись краснеет вместе с меткой в начале шкалы.
             label.color = if ((fuelTarget ?: 1f) < LOW_FUEL) red else dimCream
-            c.drawText("%d л".format(l.roundToInt()), 108f, LEDGE_Y + 30f, label)
+            c.drawText("%d л".format(l.roundToInt()), 108f, ROW_Y + 30f, label)
         }
     }
 
@@ -383,7 +383,7 @@ class RetroSpeedometerView(context: Context) : View(context) {
             label.textSize = 24f
             // Перегрев — подпись краснеет вместе с меткой в конце шкалы.
             label.color = if (t >= 110f) red else dimCream
-            c.drawText(text, VW - 108f, LEDGE_Y + 30f, label)
+            c.drawText(text, VW - 108f, ROW_Y + 30f, label)
         }
     }
 
@@ -393,7 +393,7 @@ class RetroSpeedometerView(context: Context) : View(context) {
         val gap = 3f
         val total = ODO_TOTAL
         val left = PIVOT_X - total / 2f
-        val top = LEDGE_Y + 8f
+        val top = ROW_Y + 8f
         // Козырёк над осью: под ним прячется основание стрелки.
         rect.set(left - 14f, LEDGE_Y - 2f, left + total + 14f, top + 46f)
         c.drawRoundRect(rect, 8f, 8f, hood)
@@ -440,7 +440,7 @@ class RetroSpeedometerView(context: Context) : View(context) {
         val w = ICON_W + 6f + textW
         val left = if (alignRight) edge - w else edge
         // Базовая линия — как у «42 л» под указателем топлива.
-        val baseline = LEDGE_Y + 30f
+        val baseline = ROW_Y + 30f
         if (warn) {
             mark.color = red
             mark.setShadowLayer(6f, 0f, 0f, com.dash.headunit.theme.RetroLook.glowColor(red))
@@ -626,6 +626,8 @@ class RetroSpeedometerView(context: Context) : View(context) {
         const val SCALE_HALF = 322f
         const val TICK_TOP_Y = 100f
         const val LEDGE_Y = 252f
+        /** Строка под козырьком (литры, показания, одометр, градусы ОЖ) — чуть ниже козырька. */
+        const val ROW_Y = LEDGE_Y + 8f
         /** Ширина ячеек одометра: 6 по 27 + 5 зазоров по 3. */
         const val ODO_TOTAL = 6 * 27f + 5 * 3f
         /** Показания по бокам одометра: ширина символа и зазор между показаниями. */
@@ -636,7 +638,7 @@ class RetroSpeedometerView(context: Context) : View(context) {
         const val VOLT_HIGH = 14.6f
 
         /** Верх таблички селектора (под одометром). */
-        const val GEAR_TOP = 314f
+        const val GEAR_TOP = 322f
         /** Порядок как в цифровом виде; индекс — [gearIndex]. */
         val GEARS = listOf("R", "N", "P", "1", "2", "3", "4", "5", "6", "7")
         /** Упор малых стрелок без данных (чуть ниже нуля). */
