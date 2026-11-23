@@ -247,7 +247,7 @@ object ClusterOverlay {
 
     /** Название темы приборки — для строки состояния в калибровке. */
     private fun themeName(ctx: Context): String = when (AppSettings.clusterTheme(ctx)) {
-        AppSettings.CLUSTER_THEME_MODERN -> "«Современная»"
+        AppSettings.CLUSTER_THEME_RETRO -> "«Ретро»"
         AppSettings.CLUSTER_THEME_R8 -> "«Audi R8»"
         AppSettings.CLUSTER_THEME_TEST -> "«Тест»"
         else -> "«Штатная»"

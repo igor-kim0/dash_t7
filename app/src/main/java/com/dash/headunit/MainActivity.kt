@@ -512,7 +512,7 @@ class MainActivity : AppCompatActivity() {
                 getString(R.string.settings_cluster_theme_s),
                 listOf(
                     getString(R.string.settings_cluster_theme_stock),
-                    getString(R.string.settings_cluster_theme_modern),
+                    getString(R.string.settings_cluster_theme_retro),
                     getString(R.string.settings_cluster_theme_r8),
                     getString(R.string.settings_cluster_theme_test)
                 ),

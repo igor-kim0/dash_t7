@@ -51,6 +51,27 @@ import kotlin.math.tan
 class RetroSpeedometerView(context: Context) : View(context) {
 
     private val hubListener: () -> Unit = { onData() }
+
+    /**
+     * Источник скорости вместо [CarHub] — тема приборки «Ретро»
+     * ([com.dash.headunit.navi.cluster.ClusterGuidanceView]): там вью не в окне,
+     * её рисуют вручную ([drawDetached]), а скорость берут прямо с приборки.
+     */
+    var speedSource: (() -> Float?)? = null
+
+    /** Стрелки ещё догоняют значения (после последнего кадра). */
+    var moving = false
+        private set
+
+    /**
+     * Нарисовать без окна в [canvas] размером [w]×[h]: данные перечитываются
+     * на каждый кадр. Пока [moving] — звать снова.
+     */
+    fun drawDetached(canvas: Canvas, w: Int, h: Int) {
+        if (width != w || height != h) layout(0, 0, w, h)
+        onData()
+        draw(canvas)
+    }
     private val climateListener: () -> Unit = { postInvalidateOnAnimation() }
 
     /** Целевые значения (null — данных нет, стрелка на упоре). */
@@ -169,18 +190,19 @@ class RetroSpeedometerView(context: Context) : View(context) {
     }
 
     private fun onData() {
-        val d = CarHub.data ?: DemoData.car()
-        speedTarget = d.speedKmh
-        fuelTarget = d.fuelPct?.let { (it / 100f).coerceIn(0f, 1f) }
-        fuelL = d.fuelLiters
+        // На приборке ([speedSource]) образцовых цифр быть не должно — только живые.
+        val d = CarHub.data ?: if (speedSource == null) DemoData.car() else null
+        speedTarget = speedSource?.let { it() } ?: d?.speedKmh
+        fuelTarget = d?.fuelPct?.let { (it / 100f).coerceIn(0f, 1f) }
+        fuelL = d?.fuelLiters
         // Стрелка ОЖ приборки (0..1) — ровно то, что видно на штатной;
         // если её нет, но есть градусы — по той же шкале ([CarScaling.coolantToNeedle]).
         waterTarget = ClusterPps.needle()
-            ?: d.engineTempC?.let { CarScaling.coolantToNeedle(it) }
+            ?: d?.engineTempC?.let { CarScaling.coolantToNeedle(it) }
         // Подпись у «ВОДА» в градусах: сначала честные (a0ff приборки /
         // OBD / VHAL / Desay), без них — оценка по положению стрелки
         // ([CoolantCalibration.estimate]).
-        waterC = d.engineTempC
+        waterC = d?.engineTempC
         waterEstimated = false
         if (waterC == null) {
             waterC = ClusterPps.needle()?.let {
@@ -188,13 +210,13 @@ class RetroSpeedometerView(context: Context) : View(context) {
                 CoolantCalibration.estimate(it)
             }
         }
-        odo = d.odoKm ?: ClusterPps.trip()?.odometerKm?.toInt()
-        range = d.rangeKm?.takeIf { it >= 0 }
-        volt = d.voltageV?.takeIf { it > 0f }
-        tireMin = d.tirePressure?.min()
+        odo = d?.odoKm ?: ClusterPps.trip()?.odometerKm?.toInt()
+        range = d?.rangeKm?.takeIf { it >= 0 }
+        volt = d?.voltageV?.takeIf { it > 0f }
+        tireMin = d?.tirePressure?.min()
         tireLow = tireMin?.let { it < AppSettings.tirePressureMin(context) } == true
-        cons = (CarHub.tripView ?: if (CarHub.data == null) DemoData.trip() else null)?.avgCons
-        gear = gearIndex(d.gearRaw)
+        cons = (CarHub.tripView ?: if (CarHub.data == null && speedSource == null) DemoData.trip() else null)?.avgCons
+        gear = gearIndex(d?.gearRaw)
         // Живой канал приходит ~10 раз/с и с оборотами, которых здесь нет:
         // перерисовка только при смене показываемого.
         val shown = listOf(speedTarget, fuelTarget, fuelL, waterTarget, waterC, waterEstimated, odo, gear,
@@ -247,6 +269,7 @@ class RetroSpeedometerView(context: Context) : View(context) {
         drawClimate(canvas)
 
         canvas.restore()
+        this.moving = moving
         if (moving) postInvalidateOnAnimation() else lastFrame = 0L
     }
 

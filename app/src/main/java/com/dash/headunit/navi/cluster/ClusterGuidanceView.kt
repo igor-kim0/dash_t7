@@ -95,7 +95,8 @@ class ClusterGuidanceView(context: Context) : View(context) {
     /**
      * Тема приборки ([AppSettings.clusterTheme]): [AppSettings.CLUSTER_THEME_STOCK] —
      * карточка маршрута поверх штатных приборов; своя тема
-     * ([ModernCluster] или [R8Cluster]) — свой тахометр вместо карточки;
+     * («Ретро» — [com.dash.headunit.widgets.RetroSpeedometerView], [R8Cluster],
+     * «Тест» — [ModernCluster]) — свой прибор вместо карточки;
      * штатные приборы при этом прячет [ClusterGauges].
      */
     var theme: Int = AppSettings.CLUSTER_THEME_STOCK
@@ -112,7 +113,15 @@ class ClusterGuidanceView(context: Context) : View(context) {
     val custom: Boolean
         get() = theme != AppSettings.CLUSTER_THEME_STOCK
 
-    private val modernPainter by lazy { ModernCluster(this) }
+    /** Тема «Ретро» — прибор виджета «Спидометр» в стиле «Ретро», рисуется без окна. */
+    private val retroPainter by lazy {
+        com.dash.headunit.car.ClimateHub.init(context)
+        com.dash.headunit.car.ClimateHub.ensurePolling()
+        com.dash.headunit.widgets.RetroSpeedometerView(context).also {
+            // На старте — пробег стрелки, дальше скорость прямо с приборки.
+            it.speedSource = { sweepSpeed?.toFloat() ?: speedNow }
+        }
+    }
     private val r8Painter by lazy { R8Cluster(this) }
     private val testPainter by lazy { ModernCluster(this, full = true) }
 
@@ -241,7 +250,9 @@ class ClusterGuidanceView(context: Context) : View(context) {
             } else if (theme == AppSettings.CLUSTER_THEME_TEST) {
                 testPainter.draw(canvas, g, speedNow, shownRpm, sweepSpeed)
             } else {
-                modernPainter.draw(canvas, g, speedNow, shownRpm, sweepSpeed)
+                canvas.drawColor(Color.BLACK)
+                retroPainter.drawDetached(canvas, width, height)
+                if (retroPainter.moving) postInvalidateOnAnimation()
             }
             return
         }
