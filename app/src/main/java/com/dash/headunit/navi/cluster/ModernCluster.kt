@@ -238,34 +238,41 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         text.textAlign = Paint.Align.LEFT
         bold.textAlign = Paint.Align.LEFT
         var y = (CARD_TOP + CARD_PAD) * s
-        // Знак ограничения — в правом верхнем углу карточки.
+        // Знак ограничения на текущем участке — в левом верхнем углу карточки,
+        // манёвр и надписи шапки — правее него.
+        val signTop = y
         val signW = g.speedLimit?.let {
             val sr = SIGN_R * s
-            view.drawSign(c, it, g.overspeed, right - sr, y + sr, sr)
+            view.drawSign(c, it, g.overspeed, left + sr, y + sr, sr)
             sr * 2 + 20f * s
         } ?: 0f
+        val signBottom = if (signW > 0f) signTop + SIGN_R * 2 * s + 40f * s else 0f
+        val hl = left + signW
+        val hw = w - signW
         if (g.hasManeuver) {
             val icon = 130f * s
-            view.drawManeuver(c, g, left, y, icon)
+            view.drawManeuver(c, g, hl, y, icon)
             g.distance?.let {
                 bold.color = white
                 bold.textSize = 60f * s
-                c.drawText(view.fit(it, bold, w - icon - 20f * s - signW), left + icon + 20f * s, y + icon * 0.62f, bold)
+                c.drawText(view.fit(it, bold, hw - icon - 20f * s), hl + icon + 20f * s, y + icon * 0.62f, bold)
             }
             y += icon + 50f * s
         } else if (!g.onRoute) {
             y += 40f * s
             text.color = grey
             text.textSize = 30f * s
-            c.drawText(view.fit("Маршрут не задан", text, w - signW), left, y, text)
+            c.drawText(view.fit("Маршрут не задан", text, hw), hl, y, text)
             y += 60f * s
             g.currentStreet?.let {
                 text.color = white
                 text.textSize = 32f * s
-                c.drawText(view.fit(it, text, w), left, y, text)
+                c.drawText(view.fit(it, text, hw), hl, y, text)
                 y += 30f * s
             }
         }
+        // Дальше строки во всю ширину — ниже знака.
+        if (y < signBottom) y = signBottom
         g.street?.takeIf { g.onRoute }?.let {
             text.color = white
             text.textSize = 32f * s
