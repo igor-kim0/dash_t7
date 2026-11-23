@@ -112,22 +112,22 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
 
     // ── «Тест»: весь экран ───────────────────────────────────────────
 
-    /** Правый верхний угол: дата и крупные часы (улица — в карточке навигации). */
+    /** Левый верхний угол: крупные часы и дата (улица — в карточке навигации). */
     private fun drawTopBar(c: Canvas, s: Float) {
         val now = java.util.Date()
         val y = BAR_TOP_Y * s
-        val right = view.width - EDGE_RIGHT * s
+        val left = EDGE * s
         bold.color = white
         bold.textSize = 60f * s
-        bold.textAlign = Paint.Align.RIGHT
+        bold.textAlign = Paint.Align.LEFT
         val time = clock.format(now)
-        c.drawText(time, right, y, bold)
+        c.drawText(time, left, y, bold)
         val tw = bold.measureText(time)
         bold.textAlign = Paint.Align.CENTER
         text.color = grey
         text.textSize = 32f * s
-        text.textAlign = Paint.Align.RIGHT
-        c.drawText(date.format(now), right - tw - 24f * s, y, text)
+        text.textAlign = Paint.Align.LEFT
+        c.drawText(date.format(now), left + tw + 24f * s, y, text)
         text.textAlign = Paint.Align.CENTER
     }
 
