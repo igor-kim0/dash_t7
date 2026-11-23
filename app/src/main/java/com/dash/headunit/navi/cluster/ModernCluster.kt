@@ -144,55 +144,40 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
     }
 
     /**
-     * Слева от круга — карточка поездки: средний расход, пробег, средняя
-     * скорость, моточасы. Подпись слева, значение с единицей — по правому краю.
-     * Справа карточка кончается до подписей левых дуг и «за бортом».
+     * Слева от круга — поездка списком без рамок: средний расход, пробег,
+     * средняя скорость, моточасы. В строке подпись слева, значение с единицей —
+     * по правому краю. Справа список кончается до подписей левых дуг.
      */
     private fun drawTripCard(c: Canvas, cx: Float, r: Float, s: Float) {
-        val cardLeft = EDGE * s
-        val cardRight = cx - r - TRIP_CARD_GAP * s
-        if (cardRight - cardLeft < 240f * s) return
-        oval.set(cardLeft, CARD_TOP * s, cardRight, CARD_BOTTOM * s)
-        fill.color = Color.rgb(0x10, 0x15, 0x1C)
-        c.drawRoundRect(oval, 18f * s, 18f * s, fill)
-        stroke.color = Color.rgb(0x2A, 0x32, 0x3C)
-        stroke.strokeWidth = 2f * s
-        c.drawRoundRect(oval, 18f * s, 18f * s, stroke)
-
+        val left = EDGE * s
+        val right = cx - r - TRIP_CARD_GAP * s
+        if (right - left < 240f * s) return
         val t = ClusterPps.trip()
         val v = CarHub.tripView
         val hours = TripTracker.engineHours(view.context).totalMillis.coerceAtLeast(0L) / 3_600_000.0
         val rows = listOf(
-            Triple("СРЕДНИЙ РАСХОД", (v?.avgCons ?: t?.avgFuelL100)?.let { "%.1f".format(RU, it) }, "л/100"),
-            Triple("ПРОБЕГ ПОЕЗДКИ", (t?.tripKm ?: v?.distKm)?.let { "%.1f".format(RU, it) }, "км"),
-            Triple("СРЕДНЯЯ СКОРОСТЬ", (t?.avgSpeedKmh ?: v?.avgSpeedKmh)?.let { "%.0f".format(RU, it) }, "км/ч"),
-            Triple("МОТОЧАСЫ", "%.1f".format(RU, hours), "ч"),
+            Triple("Средний расход", (v?.avgCons ?: t?.avgFuelL100)?.let { "%.1f".format(RU, it) }, "л/100"),
+            Triple("Пробег поездки", (t?.tripKm ?: v?.distKm)?.let { "%.1f".format(RU, it) }, "км"),
+            Triple("Средняя скорость", (t?.avgSpeedKmh ?: v?.avgSpeedKmh)?.let { "%.0f".format(RU, it) }, "км/ч"),
+            Triple("Моточасы", "%.1f".format(RU, hours), "ч"),
         )
-        val left = cardLeft + CARD_PAD * s
-        val right = cardRight - CARD_PAD * s
-        val step = (CARD_BOTTOM - CARD_TOP) * s / rows.size
-        for ((i, row) in rows.withIndex()) {
-            val (label, value, unit) = row
-            val top = CARD_TOP * s + i * step
-            if (i > 0) {
-                stroke.color = Color.rgb(0x2A, 0x32, 0x3C)
-                stroke.strokeWidth = 2f * s
-                c.drawLine(left, top, right, top, stroke)
-            }
-            // Подпись сверху слева, значение под ней — по правому краю.
+        // Строки по центру высоты круга.
+        var y = dialCy * s - TRIP_ROW * s * (rows.size - 1) / 2f
+        for ((label, value, unit) in rows) {
+            val base = y + 12f * s
             text.color = grey
-            text.textSize = 22f * s
+            text.textSize = 28f * s
             text.textAlign = Paint.Align.LEFT
-            c.drawText(label, left, top + 40f * s, text)
-            val base = top + step - 26f * s
-            text.textSize = 26f * s
+            c.drawText(label, left, base, text)
+            text.textSize = 24f * s
             text.textAlign = Paint.Align.RIGHT
             c.drawText(unit, right, base, text)
-            val uw = text.measureText(unit) + 10f * s
+            val uw = text.measureText(unit) + 8f * s
             bold.color = white
-            bold.textSize = 54f * s
+            bold.textSize = 40f * s
             bold.textAlign = Paint.Align.RIGHT
             c.drawText(value ?: "--", right - uw, base, bold)
+            y += TRIP_ROW * s
         }
         text.textAlign = Paint.Align.CENTER
         bold.textAlign = Paint.Align.CENTER
@@ -636,8 +621,9 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         const val CARD_PAD = 28f
         /** Карточка — от обода круга, до правого края. */
         const val CARD_GAP = 40f
-        /** «Тест»: карточка поездки слева — до обода с запасом под левые дуги и подписи. */
+        /** «Тест»: поездка слева — до обода с запасом под левые дуги и подписи; шаг строк. */
         const val TRIP_CARD_GAP = 150f
+        const val TRIP_ROW = 72f
         const val EDGE_RIGHT = 32f
         /** Запас/расход в нижнем разрыве шкалы — ниже цифр 0 и 8 крупного круга. */
         const val INFO_Y_FULL = 250f
