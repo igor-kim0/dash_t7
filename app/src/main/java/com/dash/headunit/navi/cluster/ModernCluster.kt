@@ -99,6 +99,7 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         drawCenter(canvas, cx, cy, s, shownSpeed ?: speed?.let { Math.round(it) })
         drawInfo(canvas, cx, cy, r, s)
         if (full) {
+            drawOdometer(canvas, cx, cy, r, s)
             drawTopBar(canvas, s, cx, cy, r)
             drawBottomBar(canvas, s)
             // Знак ограничения — внутри карточки, поэтому она от самого круга.
@@ -141,18 +142,22 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         bold.textAlign = Paint.Align.CENTER
     }
 
-    /** Снизу слева: одометр и поездка (запас хода и расход — внутри круга). */
+    /** Снизу слева: поездка (одометр — внизу круга, запас хода и расход — внутри). */
     private fun drawBottomBar(c: Canvas, s: Float) {
-        val t = ClusterPps.trip()
-        val d = CarHub.data
-        val odo = t?.odometerKm ?: d?.odoKm?.toLong()
-        val trip = t?.tripKm
-        val y = BAR_BOTTOM_Y * s
-        var x = EDGE * s
-        for ((label, value) in listOf(
-            "ОДОМЕТР" to (odo?.let { "%,d км".format(RU, it) } ?: "--"),
-            "ПОЕЗДКА" to (trip?.let { "%.1f км".format(RU, it) } ?: "--"),
-        )) x = pair(c, label, value, x, y, s, left = true) + 40f * s
+        val trip = ClusterPps.trip()?.tripKm
+        pair(c, "ПОЕЗДКА", trip?.let { "%.1f км".format(RU, it) } ?: "--", EDGE * s, BAR_BOTTOM_Y * s, s, left = true)
+    }
+
+    /** Внизу круга, на месте убранного обода между 0 и 8: одометр. */
+    private fun drawOdometer(c: Canvas, cx: Float, cy: Float, r: Float, s: Float) {
+        val odo = ClusterPps.trip()?.odometerKm ?: CarHub.data?.odoKm?.toLong()
+        text.color = white
+        text.textSize = 30f * s
+        text.textAlign = Paint.Align.CENTER
+        val fm = text.fontMetrics
+        // По середине полосы обода.
+        val y = cy + r - BEZEL * s / 2 - (fm.ascent + fm.descent) / 2
+        c.drawText(odo?.let { "%,d км".format(RU, it) } ?: "-- км", cx, y, text)
     }
 
     /**
@@ -290,9 +295,20 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
     // ── Циферблат ─────────────────────────────────────────────────────
 
     private fun drawFace(c: Canvas, cx: Float, cy: Float, r: Float, s: Float) {
-        fill.shader = bezelShader
-        c.drawCircle(cx, cy, r, fill)
-        fill.shader = null
+        if (full) {
+            // «Тест»: обод только вдоль шкалы — снизу, между 0 и 8, его нет
+            // (там одометр, [drawOdometer]).
+            val br = r - BEZEL * s / 2
+            oval.set(cx - br, cy - br, cx + br, cy + br)
+            stroke.shader = bezelShader
+            stroke.strokeWidth = BEZEL * s
+            c.drawArc(oval, START, SWEEP, false, stroke)
+            stroke.shader = null
+        } else {
+            fill.shader = bezelShader
+            c.drawCircle(cx, cy, r, fill)
+            fill.shader = null
+        }
         fill.color = Color.rgb(0x08, 0x0B, 0x0F)
         c.drawCircle(cx, cy, r - BEZEL * s, fill)
         fill.shader = faceShader
