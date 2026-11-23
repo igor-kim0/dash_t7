@@ -513,11 +513,10 @@ class MainActivity : AppCompatActivity() {
                 listOf(
                     getString(R.string.settings_cluster_theme_stock),
                     getString(R.string.settings_cluster_theme_retro),
-                    getString(R.string.settings_cluster_theme_r8),
                     getString(R.string.settings_cluster_theme_test)
                 ),
-                clusterTheme
-            ) { clusterTheme = it }
+                CLUSTER_THEMES.indexOf(clusterTheme).coerceAtLeast(0)
+            ) { clusterTheme = CLUSTER_THEMES[it] }
             .switch(
                 R.drawable.ic_thermo, getString(R.string.settings_etm_coolant_t),
                 getString(R.string.settings_etm_coolant_s), etm
@@ -2877,6 +2876,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
+        /** Темы приборки в настройках по порядку кнопок («Audi R8» пока убрана). */
+        private val CLUSTER_THEMES = listOf(
+            AppSettings.CLUSTER_THEME_STOCK,
+            AppSettings.CLUSTER_THEME_RETRO,
+            AppSettings.CLUSTER_THEME_TEST
+        )
         /** Смена дашборда: сдвиг (доля ширины) и длительность половины анимации. */
         private const val PAGE_SHIFT = 0.25f
         /** Цвет заряда телефона ≤ 20 %. */

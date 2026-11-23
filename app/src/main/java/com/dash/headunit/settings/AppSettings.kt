@@ -64,6 +64,8 @@ object AppSettings {
      */
     fun clusterTheme(context: Context): Int =
         prefs(context).getInt(KEY_CLUSTER_THEME, CLUSTER_THEME_STOCK)
+            // «Audi R8» пока убрана из настроек (2026-11-23) — у кого была, «Ретро».
+            .let { if (it == CLUSTER_THEME_R8) CLUSTER_THEME_RETRO else it }
 
     fun setClusterTheme(context: Context, id: Int) {
         prefs(context).edit().putInt(KEY_CLUSTER_THEME, id).apply()

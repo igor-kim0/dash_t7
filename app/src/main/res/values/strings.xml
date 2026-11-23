@@ -81,7 +81,7 @@
     <string name="settings_sec_general">Общее</string>
     <string name="settings_sec_cluster">Приборка</string>
     <string name="settings_cluster_theme_t">Тема приборки</string>
-    <string name="settings_cluster_theme_s">Своя тема прячет на приборке всё штатное, кроме ламп, включая текстовые предупреждения. «Ретро» — спидометр как у виджета «Спидометр» в стиле «Ретро»; «Audi R8» — свой тахометр и скорость по центру; «Тест» — на весь экран. Работает с маршрутом на приборке</string>
+    <string name="settings_cluster_theme_s">Своя тема прячет на приборке всё штатное, кроме ламп, включая текстовые предупреждения. «Ретро» — спидометр как у виджета «Спидометр» в стиле «Ретро»; «Тест» — круглый тахометр на весь экран. Работает с маршрутом на приборке</string>
     <string name="settings_cluster_theme_stock">Штатная</string>
     <string name="settings_cluster_theme_retro">Ретро</string>
     <string name="settings_cluster_theme_r8">Audi R8</string>
