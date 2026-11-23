@@ -559,7 +559,7 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         const val INFO_Y = 186f
         /** «Тест»: круг по центру высоты, строки у краёв экрана. */
         const val FULL_DIAL_CY = 360f
-        const val FULL_DIAL_R = 292f
+        const val FULL_DIAL_R = 340f
         const val EDGE = 48f
         const val BAR_TOP_Y = 76f
         /** «Тест»: зазор от строки даты/часов до границы градиента. */
@@ -573,7 +573,7 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         const val CARD_GAP = 40f
         const val EDGE_RIGHT = 32f
         /** Запас/расход в нижнем разрыве шкалы — ниже цифр 0 и 8 крупного круга. */
-        const val INFO_Y_FULL = 212f
+        const val INFO_Y_FULL = 250f
         /** «Тест»: насколько ниже скорость (на месте «км/ч»). */
         const val SPEED_DROP = 28f
         /** «Тест»: значки двигателя/топлива от дуги (место под цифры справа). */
