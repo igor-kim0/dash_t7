@@ -151,6 +151,7 @@ class RetroSpeedometerView(context: Context) : View(context) {
         strokeJoin = Paint.Join.ROUND
     }
     private val rect = RectF()
+    private val textBounds = android.graphics.Rect()
 
     // Градиенты в виртуальных координатах — создаём один раз, не на каждый кадр.
     private val panelShader = LinearGradient(
@@ -523,7 +524,9 @@ class RetroSpeedometerView(context: Context) : View(context) {
         c.drawRoundRect(rect, 10f, 10f, bezel)
 
         gearText.textSize = 34f
-        val baseline = top + 34f
+        // Буквы и цифры — по центру таблички по высоте (по высоте заглавных).
+        gearText.getTextBounds("R", 0, 1, textBounds)
+        val baseline = top + 29f + textBounds.height() / 2f
         GEARS.forEachIndexed { i, g ->
             val cx = left + cw * i + cw / 2f
             if (i == gear) {
