@@ -181,6 +181,7 @@ object ClusterOverlay {
      */
     private fun syncGauges() {
         val v = view
+        app?.let { ClusterGauges.init(it) }
         ClusterGauges.setWanted(v != null && v.custom && !v.blank && !calibration, all = true)
     }
 

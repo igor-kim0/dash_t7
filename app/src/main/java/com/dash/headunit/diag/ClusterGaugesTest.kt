@@ -6,6 +6,7 @@ import android.os.Looper
 import android.util.Log
 import android.widget.Toast
 import com.dash.headunit.car.QnxLauncher
+import com.dash.headunit.car.UitData
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -40,17 +41,8 @@ object ClusterGaugesTest {
 
     /** Что прятать: [hide] — аргументы утилиты по порядку, [restore] — чем вернуть. */
     enum class Mode(val key: String, val title: String, val hide: List<String>, val restore: List<String>) {
-        GAUGES(
-            "gauges", "Шкалы",
-            listOf("--setint=System.InitialStartUpInt#0"),
-            listOf("--setint=System.InitialStartUpInt#1")
-        ),
-        ALL(
-            "all", "Всё штатное",
-            // --setenum — только номер (stoi): 0 Default, 2 ON.
-            listOf("--setenum=System.IGNState#0"),
-            listOf("--setenum=System.IGNState#2")
-        )
+        GAUGES("gauges", "Шкалы", UitData.HIDE_GAUGES, UitData.SHOW_GAUGES),
+        ALL("all", "Всё штатное", UitData.HIDE_ALL, UitData.SHOW_ALL)
     }
 
     @Volatile
@@ -113,22 +105,7 @@ object ClusterGaugesTest {
         return "${mode.title}: ${if (hidden) "возвращено" else "проба не дошла до записи"}. Отчёт: ${file.name}"
     }
 
-    /**
-     * Запуск утилиты с окружением uit (библиотеки в /emmc/uit/lib); если она
-     * не завершается сама — снимаем через [RUN_S] с.
-     */
-    private fun controller(arg: String): String {
-        val script = """
-            export LD_LIBRARY_PATH=$UIT/lib:${'$'}LD_LIBRARY_PATH
-            cd $UIT/etc
-            $UIT/bin/uit.test.data-controller '$arg' 2>&1 &
-            P=${'$'}!
-            sleep $RUN_S
-            kill ${'$'}P 2>/dev/null && echo '(снята по таймауту)'
-            echo '(конец)'
-        """.trimIndent()
-        return QnxLauncher.sh(script, (RUN_S + 6) * 1000) ?: "(нет sh на QNX)\n"
-    }
+    private fun controller(arg: String): String = UitData.run(arg) ?: "(нет sh на QNX)\n"
 
     private fun save(app: Context, mode: Mode, sb: StringBuilder): File {
         val dir = File(app.getExternalFilesDir(null), "cluster").apply { mkdirs() }
@@ -144,8 +121,6 @@ object ClusterGaugesTest {
     private val main by lazy { Handler(Looper.getMainLooper()) }
     private val STAMP = SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US)
     private val FILE_STAMP = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US)
-    private const val UIT = "/emmc/uit"
-    private const val RUN_S = 4
     private const val HOLD_MS = 30_000L
     private const val TAG = "ClusterGaugesTest"
 }
