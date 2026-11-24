@@ -532,7 +532,7 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
             pct?.let { (it / 100f).coerceIn(0f, 1f) },
             pct?.let { if (it < 10f) red else if (it < 20f) amber else white } ?: grey,
             listOf("E", "1/2", "1/1"), fuel,
-            d?.fuelLiters?.let { "${Math.round(it)} л" }, iconAt = 0.75f
+            d?.fuelLiters?.let { "${Math.round(it)} л" }, iconShiftX = FUEL_ICON_SHIFT
         )
         // За бортом — в разрыве между дугами.
         val out = ClusterPps.outsideTempC() ?: d?.outsideTempC
@@ -554,9 +554,11 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         frac: Float?, color: Int, labels: List<String>, icon: Drawable?,
         value: String? = null,
         /** «Тест»: значок по высоте — на уровне подписей в этой доле дуги
-         *  (0,5 — между 70 и 100; 0,75 — между 1/2 и 1/1), а не на луче
+         *  (0,5 — между 70 и 100), а не на луче
          *  середины дуги (на большом радиусе он уходит от подписей). */
-        iconAt: Float? = null
+        iconAt: Float? = null,
+        /** «Тест»: сдвиг значка со значением вправо (px шкалы 1920). */
+        iconShiftX: Float = 0f
     ) {
         oval.set(cx - ar, cy - ar, cx + ar, cy + ar)
         stroke.strokeWidth = 12f * s
@@ -583,7 +585,7 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
             val a = Math.toRadians((from + ARC_SWEEP / 2).toDouble())
             // «Тест»: значок дальше от дуги — справа от него значение цифрами.
             val ir = ar + (if (full) ICON_OUT_FULL else 110f) * s
-            val ix = cx + Math.cos(a).toFloat() * ir
+            val ix = cx + Math.cos(a).toFloat() * ir + (if (full) iconShiftX * s else 0f)
             val iy = if (full && iconAt != null)
                 cy + Math.sin(Math.toRadians((from + ARC_SWEEP * iconAt).toDouble())).toFloat() * (ar + 24f * s)
             else cy + Math.sin(a).toFloat() * ir
@@ -657,6 +659,8 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         const val ODO_SIZE = 40f
         /** «Тест»: значки двигателя/топлива от дуги (место под цифры справа). */
         const val ICON_OUT_FULL = 150f
+        /** «Тест»: значок топлива правее (на луче середины дуги он далеко от неё). */
+        const val FUEL_ICON_SHIFT = 50f
         const val INFO_STEP = 34f
         /** Левые дуги: отступ от обода, угол; начало (по часовой = вверх). */
         const val ARC_GAP = 34f
