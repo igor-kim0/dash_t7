@@ -631,9 +631,9 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         const val FULL_DIAL_CY = 360f
         const val FULL_DIAL_R = 340f
         const val EDGE = 48f
-        const val BAR_TOP_Y = 76f
+        const val BAR_TOP_Y = 110f
         /** «Тест»: зазор от строки даты/часов до границы градиента (меньше 0 — заходит на градиент). */
-        const val TOP_BAR_GAP = -64f
+        const val TOP_BAR_GAP = -20f
         /** «Тест»: карточка навигации справа — по высоте круга. */
         const val CARD_TOP = 90f
         const val CARD_BOTTOM = 580f
