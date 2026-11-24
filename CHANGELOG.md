@@ -8,6 +8,8 @@
 
 ## [Unreleased]
 
+## [1.8.6] — 2026-11-24
+
 ### Добавлено
 - Экран диагностики: кнопки «Спрятать всё» и «Показать всё» — прячут на
   приборке всё штатное, кроме ламп: затемнения по краям, верхнюю и нижнюю
@@ -988,7 +990,8 @@
 - Wi-Fi, обучатель кнопок, маршрут на приборке.
 - Релизная сборка prod: подпись debug-ключом (обновление поверх установленной).
 
-[Unreleased]: https://github.com/igor-kim0/dash_t7/compare/v1.8.5...HEAD
+[Unreleased]: https://github.com/igor-kim0/dash_t7/compare/v1.8.6...HEAD
+[1.8.6]: https://github.com/igor-kim0/dash_t7/compare/v1.8.5...v1.8.6
 [1.8.5]: https://github.com/igor-kim0/dash_t7/compare/v1.8.4...v1.8.5
 [1.8.4]: https://github.com/igor-kim0/dash_t7/compare/v1.8.3...v1.8.4
 [1.8.3]: https://github.com/igor-kim0/dash_t7/compare/v1.8.2...v1.8.3
