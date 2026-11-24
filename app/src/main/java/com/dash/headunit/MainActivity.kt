@@ -1193,7 +1193,7 @@ class MainActivity : AppCompatActivity() {
         // Сессия уже идёт — повторное нажатие ничего не начинает.
         if (System.currentTimeMillis() < aliceUntil) return true
         aliceUntil = System.currentTimeMillis() + NaviUnderlay.ALICE_MAX_MS + 5_000L
-        NaviUnderlay.aliceSession(this, pkg) { error ->
+        NaviUnderlay.aliceSession(this, pkg, guard = fromWheel) { error ->
             aliceUntil = 0L
             if (error != null && !isDestroyed) {
                 Toast.makeText(this, getString(R.string.navi_alice_failed, error), Toast.LENGTH_LONG).show()

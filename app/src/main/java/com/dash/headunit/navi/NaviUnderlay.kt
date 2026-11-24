@@ -383,8 +383,15 @@ object NaviUnderlay {
      * запись была и её нет [ALICE_QUIET_MS], не началась за
      * [ALICE_START_MS] или прошло [ALICE_MAX_MS]. [onDone] — в UI-потоке,
      * аргумент — текст ошибки (null — диалог состоялся).
+     *
+     * [guard] (кнопка руля): первые [ALICE_GUARD_MS] следим, не открылось ли
+     * поверх навигатора чужое окно — ГУ 2026-11-24: после долгого нажатия
+     * кнопки голоса открывались штатные настройки автомобиля, кто их
+     * открывает — неизвестно (в прошивке на 292 такого нет). Тогда
+     * навигатор поднимается снова и кнопка голоса нажимается заново; что
+     * всплыло — в [note] (журнал «Логи для Claude»).
      */
-    fun aliceSession(activity: Activity, pkg: String, onDone: (String?) -> Unit) {
+    fun aliceSession(activity: Activity, pkg: String, guard: Boolean = false, onDone: (String?) -> Unit) {
         val navi = activity.packageManager.getLaunchIntentForPackage(pkg)
             ?: return onDone("навигатор $pkg не установлен")
         val a11y = com.dash.headunit.navi.cluster.NaviAccessibilityService.instance
@@ -392,21 +399,27 @@ object NaviUnderlay {
         val app = activity.applicationContext
         val self = Intent(app, activity.javaClass)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
+        navi.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
         val main = android.os.Handler(android.os.Looper.getMainLooper())
         val audio = app.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
         fun status(text: String) {
             lastStatus = "Алиса: $text"
         }
         try {
-            app.startActivity(
-                navi.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
-            )
+            app.startActivity(navi)
         } catch (e: Exception) {
             return onDone("${e.javaClass.simpleName}: ${e.message}")
         }
         status("навигатор поднят")
         val started = SystemClock.uptimeMillis()
+        var finished = false
+        var heard = false
+        var quietSince = 0L
+        var listenFrom = started
+        var intrusions = 0
         fun finish(error: String?) {
+            if (finished) return
+            finished = true
             try {
                 app.startActivity(self)
             } catch (e: Exception) {
@@ -414,41 +427,107 @@ object NaviUnderlay {
             }
             onDone(error)
         }
-        main.postDelayed({
+        val watch = object : Runnable {
+            override fun run() {
+                if (finished) return
+                val now = SystemClock.uptimeMillis()
+                val recording = try {
+                    audio.activeRecordingConfigurations.isNotEmpty()
+                } catch (e: Exception) {
+                    false
+                }
+                when {
+                    recording -> { heard = true; quietSince = 0L }
+                    quietSince == 0L -> quietSince = now
+                }
+                val end = when {
+                    now - started > ALICE_MAX_MS -> "таймаут ${ALICE_MAX_MS / 1000} с"
+                    heard && quietSince != 0L && now - quietSince >= ALICE_QUIET_MS -> "микрофон отпущен"
+                    !heard && now - listenFrom > ALICE_START_MS -> "запись не началась"
+                    else -> null
+                }
+                if (end == null) {
+                    main.postDelayed(this, ALICE_POLL_MS)
+                    return
+                }
+                status("конец диалога: $end")
+                finish(if (heard) null else "микрофон так и не включился (занят?)")
+            }
+        }
+        fun press() {
+            if (finished) return
             a11y.clickVoice { ok, why ->
+                if (finished) return@clickVoice
                 status("кнопка голоса: $why")
                 if (!ok) return@clickVoice finish("не нажалась кнопка голоса: $why")
-                var heard = false
-                var quietSince = 0L
-                val watch = object : Runnable {
-                    override fun run() {
-                        val now = SystemClock.uptimeMillis()
-                        val recording = try {
-                            audio.activeRecordingConfigurations.isNotEmpty()
-                        } catch (e: Exception) {
-                            false
-                        }
-                        when {
-                            recording -> { heard = true; quietSince = 0L }
-                            quietSince == 0L -> quietSince = now
-                        }
-                        val end = when {
-                            now - started > ALICE_MAX_MS -> "таймаут ${ALICE_MAX_MS / 1000} с"
-                            heard && quietSince != 0L && now - quietSince >= ALICE_QUIET_MS -> "микрофон отпущен"
-                            !heard && now - started > ALICE_START_MS -> "запись не началась"
-                            else -> null
-                        }
-                        if (end == null) {
-                            main.postDelayed(this, ALICE_POLL_MS)
-                            return
-                        }
-                        status("конец диалога: $end")
-                        finish(if (heard) null else "микрофон так и не включился (занят?)")
-                    }
-                }
+                main.removeCallbacks(watch)
+                heard = false
+                quietSince = 0L
+                listenFrom = SystemClock.uptimeMillis()
                 main.postDelayed(watch, ALICE_POLL_MS)
             }
-        }, ALICE_RESUME_MS)
+        }
+        main.postDelayed({ press() }, ALICE_RESUME_MS)
+        if (!guard) return
+        guardFront(app, pkg, isDone = { finished }) { comp ->
+            if (finished) return@guardFront
+            intrusions++
+            note("Алиса: поверх навигатора открылось $comp — поднимаю навигатор снова ($intrusions)")
+            if (intrusions > ALICE_MAX_INTRUSIONS) return@guardFront finish("поверх навигатора открывается $comp")
+            main.removeCallbacks(watch)
+            try {
+                app.startActivity(navi)
+            } catch (e: Exception) {
+                return@guardFront finish("${e.javaClass.simpleName}: ${e.message}")
+            }
+            main.postDelayed({ press() }, ALICE_RESUME_MS)
+        }
+    }
+
+    /**
+     * [ALICE_GUARD_MS] опрашивать окно в фокусе (adb, свой поток); окно
+     * чужой активности (не [pkg] и не наше) — [onForeign] в главном потоке,
+     * один раз на каждое новое. Канала adb нет — молча выходит.
+     */
+    fun guardFront(app: Context, pkg: String, isDone: () -> Boolean, onForeign: (String) -> Unit) {
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
+        Thread({
+            val until = SystemClock.uptimeMillis() + ALICE_GUARD_MS
+            var reported: String? = null
+            while (SystemClock.uptimeMillis() < until && !isDone()) {
+                val dump = AdbShell.exec(app, "dumpsys window | grep mCurrentFocus", 1000) ?: break
+                val comp = focusedComponent(dump)
+                if (comp != null && isForeign(comp, pkg, app.packageName)) {
+                    if (comp != reported) {
+                        reported = comp
+                        main.post { onForeign(comp) }
+                    }
+                } else {
+                    reported = null
+                }
+                try {
+                    Thread.sleep(ALICE_GUARD_POLL_MS)
+                } catch (e: InterruptedException) {
+                    break
+                }
+            }
+        }, "AliceGuard").apply { isDaemon = true }.start()
+    }
+
+    /**
+     * Активность окна в фокусе из `dumpsys window` («mCurrentFocus=Window{… u0
+     * пакет/класс}»); null — фокуса нет или это не окно активности
+     * (StatusBar и т. п. — без «/»).
+     */
+    internal fun focusedComponent(dump: String): String? {
+        val m = Regex("""mCurrentFocus=Window\{\S+ u\d+ ([^\s}]+)""").find(dump) ?: return null
+        return m.groupValues[1].takeIf { '/' in it }
+    }
+
+    /** Чужое окно поверх навигатора: не [pkg] и не наше приложение. */
+    internal fun isForeign(component: String, pkg: String, own: String): Boolean {
+        val p = component.substringBefore('/')
+        return p != pkg && p != own
     }
 
     /**
@@ -614,6 +693,11 @@ object NaviUnderlay {
     private const val ALICE_QUIET_MS = 2500L
     private const val ALICE_START_MS = 5000L
     const val ALICE_MAX_MS = 40_000L
+    /** Сколько после кнопки руля следить за чужим окном поверх навигатора. */
+    private const val ALICE_GUARD_MS = 8_000L
+    private const val ALICE_GUARD_POLL_MS = 300L
+    /** Чужое окно всплыло больше раз — сдаёмся (не воюем с ним). */
+    private const val ALICE_MAX_INTRUSIONS = 2
     private const val DRAWN_TIMEOUT_MS = 20_000L
     private const val DRAWN_POLL_MS = 500L
     private val STACK_RE =

@@ -185,6 +185,23 @@ object WheelKeys {
         if (onAliceRequest?.invoke() == true) return
         val a11y = NaviAccessibilityService.instance
             ?: return status(ctx, "служба спец. возможностей навигатора выключена")
+        // Навигатор на весь экран: если поверх него всплывёт чужое окно
+        // (ГУ 2026-11-24: штатные настройки после долгого нажатия) — поднять
+        // навигатор и нажать кнопку голоса заново, один раз.
+        var again = false
+        NaviUnderlay.guardFront(ctx, YANDEX_NAVI, isDone = { again }) { comp ->
+            again = true
+            NaviUnderlay.note("Алиса (руль): поверх навигатора открылось $comp — поднимаю навигатор")
+            val navi = ctx.packageManager.getLaunchIntentForPackage(YANDEX_NAVI) ?: return@guardFront
+            try {
+                ctx.startActivity(navi.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION))
+            } catch (e: Exception) {
+                return@guardFront status(ctx, "${e.javaClass.simpleName}: ${e.message}")
+            }
+            main.postDelayed({
+                a11y.clickVoice { ok, why -> status(ctx, if (ok) null else "не нажалась кнопка голоса: $why", "снова кнопка голоса: $why") }
+            }, NaviUnderlay.ALICE_RESUME_MS * 2)
+        }
         a11y.clickVoice { ok, why ->
             if (ok) {
                 status(ctx, null, "кнопка голоса: $why")
