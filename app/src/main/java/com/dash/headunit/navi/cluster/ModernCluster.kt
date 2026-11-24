@@ -187,7 +187,7 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
     private fun drawOdometer(c: Canvas, cx: Float, cy: Float, r: Float, s: Float) {
         val odo = ClusterPps.trip()?.odometerKm ?: CarHub.data?.odoKm?.toLong()
         text.color = white
-        text.textSize = 30f * s
+        text.textSize = ODO_SIZE * s
         text.textAlign = Paint.Align.CENTER
         val fm = text.fontMetrics
         // По середине полосы обода.
@@ -646,6 +646,8 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         const val SPEED_DROP = 14f
         /** «Тест»: размер цифр скорости. */
         const val SPEED_SIZE_FULL = 144f
+        /** «Тест»: размер цифр одометра в разрыве обода. */
+        const val ODO_SIZE = 40f
         /** «Тест»: значки двигателя/топлива от дуги (место под цифры справа). */
         const val ICON_OUT_FULL = 150f
         const val INFO_STEP = 34f
