@@ -627,9 +627,9 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         /** Запас/расход в нижнем разрыве шкалы — ниже цифр 0 и 8 крупного круга. */
         const val INFO_Y_FULL = 250f
         /** «Тест»: насколько ниже скорость (на месте «км/ч»). */
-        const val SPEED_DROP = 28f
+        const val SPEED_DROP = 14f
         /** «Тест»: размер цифр скорости. */
-        const val SPEED_SIZE_FULL = 132f
+        const val SPEED_SIZE_FULL = 144f
         /** «Тест»: значки двигателя/топлива от дуги (место под цифры справа). */
         const val ICON_OUT_FULL = 150f
         const val INFO_STEP = 34f
