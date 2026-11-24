@@ -137,8 +137,8 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
 
     /**
      * Слева от круга — поездка списком без рамок: средний расход, пробег,
-     * средняя скорость, моточасы. В строке подпись слева, значение с единицей —
-     * по правому краю. Справа список кончается до подписей левых дуг.
+     * средняя скорость, моточасы. Подписи выровнены по правому краю, значения
+     * с единицей — по левому, у общей границы. Справа список кончается до подписей левых дуг.
      */
     private fun drawTripCard(c: Canvas, cx: Float, r: Float, s: Float) {
         val left = EDGE * s
@@ -153,22 +153,30 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
             Triple("Средняя скорость", (t?.avgSpeedKmh ?: v?.avgSpeedKmh)?.let { "%.0f".format(RU, it) }, "км/ч"),
             Triple("Моточасы", "%.1f".format(RU, hours), "ч"),
         )
+        // Колонка значений — по самому широкому образцу, чтобы граница не
+        // прыгала со сменой цифр; подписи — вправо к ней, значения — влево от неё.
+        bold.textSize = 40f * s
+        text.textSize = 24f * s
+        val unitGap = 8f * s
+        val valueW = bold.measureText("000,0") + unitGap + text.measureText("км/ч")
+        val split = right - valueW
+        val labelRight = split - TRIP_SPLIT_GAP * s
         // Строки по центру высоты круга.
         var y = dialCy * s - TRIP_ROW * s * (rows.size - 1) / 2f
         for ((label, value, unit) in rows) {
             val base = y + 12f * s
             text.color = grey
             text.textSize = 28f * s
-            text.textAlign = Paint.Align.LEFT
-            c.drawText(label, left, base, text)
-            text.textSize = 24f * s
             text.textAlign = Paint.Align.RIGHT
-            c.drawText(unit, right, base, text)
-            val uw = text.measureText(unit) + 8f * s
+            c.drawText(label, labelRight, base, text)
             bold.color = white
             bold.textSize = 40f * s
-            bold.textAlign = Paint.Align.RIGHT
-            c.drawText(value ?: "--", right - uw, base, bold)
+            bold.textAlign = Paint.Align.LEFT
+            val shown = value ?: "--"
+            c.drawText(shown, split, base, bold)
+            text.textSize = 24f * s
+            text.textAlign = Paint.Align.LEFT
+            c.drawText(unit, split + bold.measureText(shown) + unitGap, base, text)
             y += TRIP_ROW * s
         }
         text.textAlign = Paint.Align.CENTER
@@ -623,6 +631,8 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         /** «Тест»: поездка слева — до обода с запасом под левые дуги и подписи; шаг строк. */
         const val TRIP_CARD_GAP = 150f
         const val TRIP_ROW = 72f
+        /** Зазор между подписями и колонкой значений. */
+        const val TRIP_SPLIT_GAP = 20f
         const val EDGE_RIGHT = 32f
         /** Запас/расход в нижнем разрыве шкалы — ниже цифр 0 и 8 крупного круга. */
         const val INFO_Y_FULL = 250f
