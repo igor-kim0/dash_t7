@@ -1,13 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Служба navi/cluster/NaviAccessibilityService: окно Яндекс Навигатора.
      canRequestFilterKeyEvents — проба кнопок руля (navi/WheelKeyProbe); флаг
-     фильтра служба включает на лету только на время пробы. -->
+     фильтра служба включает на лету только на время пробы.
+     canPerformGestures — тап по карте, чтобы Яндекс показал скрытую кнопку
+     голоса (Алиса). -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:accessibilityEventTypes="typeWindowContentChanged|typeWindowStateChanged|typeWindowsChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows|flagIncludeNotImportantViews"
     android:canRetrieveWindowContent="true"
     android:canRequestFilterKeyEvents="true"
+    android:canPerformGestures="true"
     android:description="@string/cluster_navi_a11y_description"
     android:notificationTimeout="300"
     android:packageNames="ru.yandex.yandexnavi" />

@@ -176,12 +176,9 @@ class NaviAccessibilityService : AccessibilityService() {
 
     /**
      * Нажать кнопку голоса (Алиса) навигатора — единственное, что служба
-     * нажимает сама. Навигатор к этому моменту должен быть поднят наверх
-     * ([com.dash.headunit.navi.NaviUnderlay.aliceSession]). Поиск — в потоке
-     * [bg] (вызовы в процесс навигатора), [done] — в главном: что вышло.
-     */
-    /**
-     * Нажать кнопку голоса Яндекса. Окно поднятого навигатора появляется
+     * нажимает сама (плюс тап по карте, чтобы кнопка показалась). Навигатор
+     * должен быть поднят наверх ([com.dash.headunit.navi.NaviUnderlay.aliceSession]).
+     * Поиск — в потоке [bg], [done] — в главном: что вышло. Окно поднятого навигатора появляется
      * у службы не сразу (ГУ 2026-11-24: одна попытка через 600 мс — «кнопки
      * голоса нет», сессия обрывалась) — пробовать каждые [VOICE_RETRY_MS]
      * до [timeoutMs]. Не вышло — снимок окон и дерева в files/navi_tree
@@ -189,12 +186,12 @@ class NaviAccessibilityService : AccessibilityService() {
      */
     fun clickVoice(timeoutMs: Long = VOICE_FIND_MS, done: (Boolean, String) -> Unit) {
         val until = android.os.SystemClock.uptimeMillis() + timeoutMs
-        var tries = 0
+        val st = VoiceTry()
         val attempt = object : Runnable {
             override fun run() {
-                tries++
+                st.tries++
                 val (ok, why) = try {
-                    clickVoiceNow()
+                    clickVoiceNow(st, lastTry = timeoutMs <= 0 || android.os.SystemClock.uptimeMillis() >= until)
                 } catch (e: Exception) {
                     false to "${e.javaClass.simpleName}: ${e.message}"
                 }
@@ -204,10 +201,17 @@ class NaviAccessibilityService : AccessibilityService() {
                 }
                 // timeoutMs = 0 — просто проверка «навигатор уже наверху?», без снимка.
                 val tail = if (ok || timeoutMs <= 0) "" else snapshotAlice()
-                main.post { done(ok, "$why (попыток $tries)$tail") }
+                main.post { done(ok, "$why (попыток ${st.tries}, тапов по карте ${st.taps})$tail") }
             }
         }
         bg.post(attempt)
+    }
+
+    /** Состояние одного [clickVoice]: попытки и тапы по карте. */
+    private class VoiceTry {
+        var tries = 0
+        var taps = 0
+        var lastTap = 0L
     }
 
     /** Снимок при ненайденной кнопке голоса (поток [bg]); « → файл» или пусто. */
@@ -218,11 +222,28 @@ class NaviAccessibilityService : AccessibilityService() {
         ""
     }
 
-    private fun clickVoiceNow(): Pair<Boolean, String> {
+    /**
+     * Яндекс прячет кнопки карты (в т. ч. голос) при ведении — показывает
+     * их по тапу в карту. Нет видимой кнопки голоса — тап по карте (не чаще
+     * [VOICE_TAP_GAP_MS], до [VOICE_MAX_TAPS] раз) и следующая попытка.
+     * На последней попытке ([lastTry]) жмём и невидимый узел — как раньше.
+     */
+    private fun clickVoiceNow(st: VoiceTry, lastTry: Boolean): Pair<Boolean, String> {
         val root = naviRoot() ?: return false to "окна навигатора нет"
         val nodes = root.findAccessibilityNodeInfosByViewId("$YANDEX_NAVI:id/$VOICE_ID")
             .ifEmpty { voiceByDescription(root) }
-        val node = nodes.firstOrNull { it.isVisibleToUser } ?: nodes.firstOrNull()
+        val visible = nodes.firstOrNull { it.isVisibleToUser }
+        if (visible == null && !lastTry && st.taps < VOICE_MAX_TAPS) {
+            val now = android.os.SystemClock.uptimeMillis()
+            if (now - st.lastTap >= VOICE_TAP_GAP_MS) {
+                st.lastTap = now
+                st.taps++
+                tapMap(root)
+            }
+            return false to (if (nodes.isEmpty()) "кнопки голоса нет" else "кнопка голоса скрыта") +
+                " — тап по карте"
+        }
+        val node = visible ?: nodes.firstOrNull()
             ?: return false to "кнопки голоса нет (ни #$VOICE_ID, ни описания «Алиса»)"
         // Сама картинка может быть не clickable — жмём ближайшего родителя.
         var n: AccessibilityNodeInfo? = node
@@ -237,6 +258,26 @@ class NaviAccessibilityService : AccessibilityService() {
         }
         val ok = node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
         return ok to "ACTION_CLICK по не-clickable узлу → $ok"
+    }
+
+    /**
+     * Короткий тап в карту навигатора жестом службы: по центру ширины, на
+     * трети высоты окна — выше метки машины и нижней карточки.
+     */
+    private fun tapMap(root: AccessibilityNodeInfo) {
+        val b = android.graphics.Rect().also { root.getBoundsInScreen(it) }
+        if (b.isEmpty) return
+        val path = android.graphics.Path().apply {
+            moveTo(b.exactCenterX(), b.top + b.height() / 3f)
+        }
+        val gesture = android.accessibilityservice.GestureDescription.Builder()
+            .addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(path, 0, 50))
+            .build()
+        try {
+            dispatchGesture(gesture, null, null)
+        } catch (e: Exception) {
+            Log.w(TAG, "tapMap", e)
+        }
     }
 
     /** Другие версии навигатора: кнопка голоса без id, но с описанием. */
@@ -420,5 +461,8 @@ class NaviAccessibilityService : AccessibilityService() {
         /** Сколько искать кнопку голоса после подъёма навигатора и как часто. */
         const val VOICE_FIND_MS = 5_000L
         private const val VOICE_RETRY_MS = 300L
+        /** Тап по карте, чтобы показались кнопки: пауза между тапами и сколько всего. */
+        private const val VOICE_TAP_GAP_MS = 1_500L
+        private const val VOICE_MAX_TAPS = 2
     }
 }
