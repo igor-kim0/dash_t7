@@ -454,10 +454,13 @@ object NaviUnderlay {
                 finish(if (heard) null else "микрофон так и не включился (занят?)")
             }
         }
+        var pressGen = 0
         fun press() {
             if (finished) return
+            val gen = ++pressGen
             a11y.clickVoice { ok, why ->
-                if (finished) return@clickVoice
+                // Сторож поднял навигатор заново — ответ старой попытки не нужен.
+                if (finished || gen != pressGen) return@clickVoice
                 status("кнопка голоса: $why")
                 if (!ok) return@clickVoice finish("не нажалась кнопка голоса: $why")
                 main.removeCallbacks(watch)
@@ -469,8 +472,19 @@ object NaviUnderlay {
         }
         main.postDelayed({ press() }, ALICE_RESUME_MS)
         if (!guard) return
-        guardFront(app, pkg, isDone = { finished }) { comp ->
-            if (finished) return@guardFront
+        // Сторож живёт все ALICE_GUARD_MS, даже если сессия уже кончилась:
+        // штатные настройки после долгого нажатия могут всплыть и после
+        // возврата дашборда (ГУ 2026-11-24) — тогда дашборд снова наверх.
+        guardFront(app, pkg, isDone = { false }) { comp ->
+            if (finished) {
+                note("Алиса: после сессии открылось $comp — возвращаю дашборд")
+                try {
+                    app.startActivity(self)
+                } catch (e: Exception) {
+                    status("возврат: ${e.javaClass.simpleName}: ${e.message}")
+                }
+                return@guardFront
+            }
             intrusions++
             note("Алиса: поверх навигатора открылось $comp — поднимаю навигатор снова ($intrusions)")
             if (intrusions > ALICE_MAX_INTRUSIONS) return@guardFront finish("поверх навигатора открывается $comp")

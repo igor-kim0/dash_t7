@@ -180,15 +180,42 @@ class NaviAccessibilityService : AccessibilityService() {
      * ([com.dash.headunit.navi.NaviUnderlay.aliceSession]). Поиск — в потоке
      * [bg] (вызовы в процесс навигатора), [done] — в главном: что вышло.
      */
-    fun clickVoice(done: (Boolean, String) -> Unit) {
-        bg.post {
-            val (ok, why) = try {
-                clickVoiceNow()
-            } catch (e: Exception) {
-                false to "${e.javaClass.simpleName}: ${e.message}"
+    /**
+     * Нажать кнопку голоса Яндекса. Окно поднятого навигатора появляется
+     * у службы не сразу (ГУ 2026-11-24: одна попытка через 600 мс — «кнопки
+     * голоса нет», сессия обрывалась) — пробовать каждые [VOICE_RETRY_MS]
+     * до [timeoutMs]. Не вышло — снимок окон и дерева в files/navi_tree
+     * (…_alice.txt), путь в причине.
+     */
+    fun clickVoice(timeoutMs: Long = VOICE_FIND_MS, done: (Boolean, String) -> Unit) {
+        val until = android.os.SystemClock.uptimeMillis() + timeoutMs
+        var tries = 0
+        val attempt = object : Runnable {
+            override fun run() {
+                tries++
+                val (ok, why) = try {
+                    clickVoiceNow()
+                } catch (e: Exception) {
+                    false to "${e.javaClass.simpleName}: ${e.message}"
+                }
+                if (!ok && android.os.SystemClock.uptimeMillis() < until) {
+                    bg.postDelayed(this, VOICE_RETRY_MS)
+                    return
+                }
+                // timeoutMs = 0 — просто проверка «навигатор уже наверху?», без снимка.
+                val tail = if (ok || timeoutMs <= 0) "" else snapshotAlice()
+                main.post { done(ok, "$why (попыток $tries)$tail") }
             }
-            main.post { done(ok, why) }
         }
+        bg.post(attempt)
+    }
+
+    /** Снимок при ненайденной кнопке голоса (поток [bg]); « → файл» или пусто. */
+    private fun snapshotAlice(): String = try {
+        " → " + com.dash.headunit.diag.NaviSnapshot.write(this, "alice").name
+    } catch (e: Exception) {
+        Log.w(TAG, "alice snapshot", e)
+        ""
     }
 
     private fun clickVoiceNow(): Pair<Boolean, String> {
@@ -390,5 +417,8 @@ class NaviAccessibilityService : AccessibilityService() {
         /** Кнопка голоса на карте (a11y-дампы навигатора 2026-10-25/30). */
         private const val VOICE_ID = "voicebutton"
         private val VOICE_DESC = listOf("алис", "alice") // не «голос»: это и кнопка подсказок
+        /** Сколько искать кнопку голоса после подъёма навигатора и как часто. */
+        const val VOICE_FIND_MS = 5_000L
+        private const val VOICE_RETRY_MS = 300L
     }
 }

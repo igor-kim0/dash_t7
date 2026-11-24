@@ -202,7 +202,7 @@ object WheelKeys {
                 a11y.clickVoice { ok, why -> status(ctx, if (ok) null else "не нажалась кнопка голоса: $why", "снова кнопка голоса: $why") }
             }, NaviUnderlay.ALICE_RESUME_MS * 2)
         }
-        a11y.clickVoice { ok, why ->
+        a11y.clickVoice(timeoutMs = 0) { ok, why ->
             if (ok) {
                 status(ctx, null, "кнопка голоса: $why")
                 return@clickVoice
