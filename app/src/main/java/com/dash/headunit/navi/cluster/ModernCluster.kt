@@ -519,7 +519,7 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
             eng?.let { ((it - TEMP_MIN) / (TEMP_MAX - TEMP_MIN)).coerceIn(0f, 1f) },
             eng?.let { if (it >= 115f) red else if (it < 60f) blue else white } ?: grey,
             listOf("40", "70", "100", "130°C"), thermo,
-            eng?.let { "${Math.round(it)}°" }, iconAtLabels = true
+            eng?.let { "${Math.round(it)}°" }, iconAt = 0.5f
         )
         // Топливо: снизу вверх E → 1/1.
         val pct = d?.fuelPct
@@ -528,7 +528,7 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
             pct?.let { (it / 100f).coerceIn(0f, 1f) },
             pct?.let { if (it < 10f) red else if (it < 20f) amber else white } ?: grey,
             listOf("E", "1/2", "1/1"), fuel,
-            d?.fuelLiters?.let { "${Math.round(it)} л" }
+            d?.fuelLiters?.let { "${Math.round(it)} л" }, iconAt = 0.75f
         )
         // За бортом — в разрыве между дугами.
         val out = ClusterPps.outsideTempC() ?: d?.outsideTempC
@@ -549,9 +549,10 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         c: Canvas, cx: Float, cy: Float, ar: Float, s: Float, from: Float,
         frac: Float?, color: Int, labels: List<String>, icon: Drawable?,
         value: String? = null,
-        /** «Тест»: значок по высоте — посередине подписей (между 70 и 100),
-         *  а не на луче середины дуги (на большом радиусе он уходит выше). */
-        iconAtLabels: Boolean = false
+        /** «Тест»: значок по высоте — на уровне подписей в этой доле дуги
+         *  (0,5 — между 70 и 100; 0,75 — между 1/2 и 1/1), а не на луче
+         *  середины дуги (на большом радиусе он уходит от подписей). */
+        iconAt: Float? = null
     ) {
         oval.set(cx - ar, cy - ar, cx + ar, cy + ar)
         stroke.strokeWidth = 12f * s
@@ -579,7 +580,9 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
             // «Тест»: значок дальше от дуги — справа от него значение цифрами.
             val ir = ar + (if (full) ICON_OUT_FULL else 110f) * s
             val ix = cx + Math.cos(a).toFloat() * ir
-            val iy = cy + Math.sin(a).toFloat() * (if (full && iconAtLabels) ar + 24f * s else ir)
+            val iy = if (full && iconAt != null)
+                cy + Math.sin(Math.toRadians((from + ARC_SWEEP * iconAt).toDouble())).toFloat() * (ar + 24f * s)
+            else cy + Math.sin(a).toFloat() * ir
             val half = 18f * s
             it.colorFilter = PorterDuffColorFilter(color, PorterDuff.Mode.SRC_IN)
             it.setBounds((ix - half).toInt(), (iy - half).toInt(), (ix + half).toInt(), (iy + half).toInt())
