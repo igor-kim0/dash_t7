@@ -186,13 +186,14 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
     /** Внизу круга, на месте убранного обода между 0 и 8: одометр. */
     private fun drawOdometer(c: Canvas, cx: Float, cy: Float, r: Float, s: Float) {
         val odo = ClusterPps.trip()?.odometerKm ?: CarHub.data?.odoKm?.toLong()
-        text.color = white
-        text.textSize = ODO_SIZE * s
-        text.textAlign = Paint.Align.CENTER
-        val fm = text.fontMetrics
+        // Жирным и без «км» (просьба пользователя 2026-11-24).
+        bold.color = white
+        bold.textSize = ODO_SIZE * s
+        bold.textAlign = Paint.Align.CENTER
+        val fm = bold.fontMetrics
         // По середине полосы обода.
         val y = cy + r - BEZEL * s / 2 - (fm.ascent + fm.descent) / 2
-        c.drawText(odo?.let { "%,d км".format(RU, it) } ?: "-- км", cx, y, text)
+        c.drawText(odo?.let { "%,d".format(RU, it) } ?: "--", cx, y, bold)
     }
 
     /**
@@ -481,19 +482,22 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         // Строки «ЗАПАС  364 км» по центру, ниже цифр 0 и 8.
         var y = cy + (if (full) INFO_Y_FULL else INFO_Y) * s
         val gap = 12f * s
+        // «Тест»: запас крупнее.
+        val labelSize = (if (full) INFO_LABEL_FULL else 20f) * s
+        val valueSize = (if (full) INFO_VALUE_FULL else 30f) * s
         for ((label, value) in rows) {
-            text.textSize = 20f * s
+            text.textSize = labelSize
             val lw = text.measureText(label)
-            text.textSize = 30f * s
+            text.textSize = valueSize
             val vw = text.measureText(value)
             var x = cx - (lw + gap + vw) / 2f
             text.textAlign = Paint.Align.LEFT
             text.color = grey
-            text.textSize = 20f * s
+            text.textSize = labelSize
             c.drawText(label, x, y, text)
             x += lw + gap
             text.color = white
-            text.textSize = 30f * s
+            text.textSize = valueSize
             c.drawText(value, x, y, text)
             text.textAlign = Paint.Align.CENTER
             y += INFO_STEP * s
@@ -641,7 +645,10 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         const val TRIP_SPLIT_GAP = 20f
         const val EDGE_RIGHT = 32f
         /** Запас/расход в нижнем разрыве шкалы — ниже цифр 0 и 8 крупного круга. */
-        const val INFO_Y_FULL = 250f
+        const val INFO_Y_FULL = 292f
+        /** «Тест»: размеры подписи «ЗАПАС» и значения. */
+        const val INFO_LABEL_FULL = 26f
+        const val INFO_VALUE_FULL = 42f
         /** «Тест»: насколько ниже скорость (на месте «км/ч»). */
         const val SPEED_DROP = 14f
         /** «Тест»: размер цифр скорости. */
