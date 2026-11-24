@@ -47,6 +47,25 @@ class NaviAccessibilityService : AccessibilityService() {
     }
     private val poll = Runnable { scanNow() }
 
+    /**
+     * Чужие узкие окна поверх экрана (полоса климата, systemui) — для
+     * [com.dash.headunit.navi.NaviUnderlay.uncovered]. Большие (шторка
+     * климата, диалоги) не берём: они временные.
+     */
+    private val updateBars = Runnable {
+        try {
+            val bars = windows.mapNotNull { w ->
+                val pkg = w.root?.packageName?.toString() ?: return@mapNotNull null
+                if (pkg == packageName || pkg == YANDEX_NAVI) return@mapNotNull null
+                val b = android.graphics.Rect().also { w.getBoundsInScreen(it) }
+                b.takeIf { !it.isEmpty && minOf(it.width(), it.height()) <= MAX_BAR_PX }
+            }
+            com.dash.headunit.navi.NaviUnderlay.setSystemBars(bars)
+        } catch (e: Exception) {
+            Log.w(TAG, "bars", e)
+        }
+    }
+
     /** Id знака ограничения, давший значение в последний раз (поток [bg]). */
     private var limitId: String? = null
 
@@ -58,6 +77,7 @@ class NaviAccessibilityService : AccessibilityService() {
         com.dash.headunit.car.TripLog.init(this)
         com.dash.headunit.car.TripLog.write { "служба привязана (спец. возможности): ${com.dash.headunit.car.TripLog.processInfo(this)}" }
         bg.post(scan)
+        bg.post(updateBars)
         // Алиса по кнопке руля (колбэк key_policy — в процессе, где бы он ни был поднят).
         com.dash.headunit.navi.WheelKeys.init(this)
         com.dash.headunit.location.GpsInject.init(this)
@@ -97,6 +117,7 @@ class NaviAccessibilityService : AccessibilityService() {
         }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event?.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED) bg.post(updateBars)
         if (event?.packageName?.toString() != YANDEX_NAVI) return
         if (GuidanceHub.paused) return
         // Навигатор шлёт события пачками (карта перерисовывается) — не чаще
@@ -357,6 +378,8 @@ class NaviAccessibilityService : AccessibilityService() {
         )
         /** Не чаще — скан по событиям (каждый — десяток IPC в навигатор). */
         private const val SCAN_MS = 1_000L
+        /** Окно уже этого (px) по одной из сторон — полоса поверх экрана (климат 20, systemui 18). */
+        private const val MAX_BAR_PX = 120
         /** Перечитывание окна без событий: идёт ведение (свежесть в GuidanceHub — 5 с) / стоит без маршрута. */
         private const val ROUTE_POLL_MS = 2_000L
         private const val IDLE_POLL_MS = 3_000L

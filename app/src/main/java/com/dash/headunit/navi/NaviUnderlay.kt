@@ -609,7 +609,14 @@ object NaviUnderlay {
             // peek-тестом на ГУ 2026-10-23). Отрезаем зону касаний по крайней
             // строке/столбцу выреза — с той стороны, где теряется меньше
             // площади дашборда (на ГУ вырез с y=20, выше — полоса климата).
-            region.op(openEdge(hole.bounds, view.width, view.height, keep), Region.Op.INTERSECT)
+            // Край открываем у видимой части выреза: строка под полосой
+            // климата закрыта её окном, и служба навигатор снова не видит
+            // (ГУ 2026-11-24: блок с y=10 при полосе 0..20 — окна Яндекса
+            // среди окон службы нет).
+            val loc = IntArray(2).also { view.getLocationOnScreen(it) }
+            val bars = systemBars.map { Rect(it).apply { offset(-loc[0], -loc[1]) } }
+            val open = uncovered(hole.bounds, bars)
+            region.op(openEdge(open, view.width, view.height, keep), Region.Op.INTERSECT)
             if (SystemClock.uptimeMillis() < peekUntil) {
                 // Проверка (cmd peek): зона касаний кончается над нижней
                 // строкой выреза — её описанный прямоугольник больше не
@@ -643,6 +650,44 @@ object NaviUnderlay {
             keep == null || keep.isEmpty || Rect(r).let { it.intersect(keep) && area(it) * 2 >= area(keep) }
         }
         return all.filter(keepsBar).ifEmpty { all }.maxByOrNull(area)!!
+    }
+
+    /**
+     * Чужие окна поверх экрана (полоса климата svhvac, боковая полоса
+     * systemui) в экранных координатах — от службы спец. возможностей
+     * ([setSystemBars]).
+     */
+    @Volatile
+    var systemBars: List<Rect> = emptyList()
+        private set
+
+    /** Обновить [systemBars]; при изменении пересчитать зону касаний. */
+    fun setSystemBars(bars: List<Rect>) {
+        if (bars == systemBars) return
+        systemBars = bars
+        Log.i(TAG, "полосы поверх экрана: $bars")
+        holeView?.get()?.let { v -> v.post { v.requestLayout() } }
+    }
+
+    /**
+     * Часть [hole], не закрытая полосами [bars] (те же координаты): полоса,
+     * перекрывающая вырез во всю ширину (высоту) от края, срезает его до
+     * своей границы. Если не остаётся ничего — [hole] как есть.
+     */
+    internal fun uncovered(hole: Rect, bars: List<Rect>): Rect {
+        val r = Rect(hole)
+        for (b in bars) {
+            if (!Rect.intersects(b, r)) continue
+            val fullW = b.left <= r.left && b.right >= r.right
+            val fullH = b.top <= r.top && b.bottom >= r.bottom
+            when {
+                fullW && b.top <= r.top && b.bottom < r.bottom -> r.top = b.bottom
+                fullW && b.bottom >= r.bottom && b.top > r.top -> r.bottom = b.top
+                fullH && b.left <= r.left && b.right < r.right -> r.left = b.right
+                fullH && b.right >= r.right && b.left > r.left -> r.right = b.left
+            }
+        }
+        return if (r.width() > 1 && r.height() > 1) r else Rect(hole)
     }
 
     @Volatile
