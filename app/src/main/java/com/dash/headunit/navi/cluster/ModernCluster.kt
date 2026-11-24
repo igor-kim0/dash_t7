@@ -519,7 +519,7 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
             eng?.let { ((it - TEMP_MIN) / (TEMP_MAX - TEMP_MIN)).coerceIn(0f, 1f) },
             eng?.let { if (it >= 115f) red else if (it < 60f) blue else white } ?: grey,
             listOf("40", "70", "100", "130°C"), thermo,
-            eng?.let { "${Math.round(it)}°" }
+            eng?.let { "${Math.round(it)}°" }, iconAtLabels = true
         )
         // Топливо: снизу вверх E → 1/1.
         val pct = d?.fuelPct
@@ -548,7 +548,10 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
     private fun sideArc(
         c: Canvas, cx: Float, cy: Float, ar: Float, s: Float, from: Float,
         frac: Float?, color: Int, labels: List<String>, icon: Drawable?,
-        value: String? = null
+        value: String? = null,
+        /** «Тест»: значок по высоте — посередине подписей (между 70 и 100),
+         *  а не на луче середины дуги (на большом радиусе он уходит выше). */
+        iconAtLabels: Boolean = false
     ) {
         oval.set(cx - ar, cy - ar, cx + ar, cy + ar)
         stroke.strokeWidth = 12f * s
@@ -576,7 +579,7 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
             // «Тест»: значок дальше от дуги — справа от него значение цифрами.
             val ir = ar + (if (full) ICON_OUT_FULL else 110f) * s
             val ix = cx + Math.cos(a).toFloat() * ir
-            val iy = cy + Math.sin(a).toFloat() * ir
+            val iy = cy + Math.sin(a).toFloat() * (if (full && iconAtLabels) ar + 24f * s else ir)
             val half = 18f * s
             it.colorFilter = PorterDuffColorFilter(color, PorterDuff.Mode.SRC_IN)
             it.setBounds((ix - half).toInt(), (iy - half).toInt(), (ix + half).toInt(), (iy + half).toInt())
