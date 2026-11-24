@@ -71,6 +71,40 @@ object ClusterGaugesTest {
         }.apply { start() }
     }
 
+    /**
+     * Разово спрятать ([hide]) или показать всё штатное (IGNState #0 / #2) —
+     * без автовозврата. Спрятанное вернёт «Показать всё» или следующее
+     * включение зажигания. Отчёт — files/cluster/gauges_set_*.txt.
+     */
+    fun setAll(context: Context, hide: Boolean) {
+        if (running) return
+        running = true
+        val app = context.applicationContext
+        val title = if (hide) "Спрятать всё" else "Показать всё"
+        Thread {
+            val verdict = try {
+                if (!QnxLauncher.reachable()) {
+                    "$title: qconn не отвечает"
+                } else {
+                    val args = if (hide) UitData.HIDE_ALL else UitData.SHOW_ALL
+                    val sb = StringBuilder("# $title ").append(STAMP.format(Date())).append('\n')
+                    for (arg in args) sb.append("\n== $arg\n").append(controller(arg))
+                    val dir = File(app.getExternalFilesDir(null), "cluster").apply { mkdirs() }
+                    val file = File(dir, "gauges_set_${if (hide) "hide" else "show"}_${FILE_STAMP.format(Date())}.txt")
+                    file.writeText(sb.toString())
+                    "$title: отправлено. Отчёт: ${file.name}"
+                }
+            } catch (e: Throwable) {
+                Log.w(TAG, "set all", e)
+                "$title: ошибка ${e.javaClass.simpleName}: ${e.message}"
+            } finally {
+                running = false
+            }
+            Log.i(TAG, verdict)
+            toast(app, verdict)
+        }.start()
+    }
+
     /** Вернуть шкалы, не дожидаясь [HOLD_MS]. */
     fun restoreNow() {
         worker?.interrupt()
