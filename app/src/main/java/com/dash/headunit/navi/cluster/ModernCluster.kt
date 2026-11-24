@@ -416,7 +416,7 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
     /** Скорость, км/ч, черта, передача и плашка режима. */
     private fun drawCenter(c: Canvas, cx: Float, cy: Float, s: Float, speed: Int?) {
         bold.color = white
-        bold.textSize = 120f * s
+        bold.textSize = (if (full) SPEED_SIZE_FULL else 120f) * s
         val top = cy - 40f * s
         // «Тест»: без «км/ч», скорость чуть ниже — ближе к черте.
         c.drawText(speed?.toString() ?: "--", cx, top + if (full) SPEED_DROP * s else 0f, bold)
@@ -612,11 +612,11 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         const val FULL_DIAL_R = 340f
         const val EDGE = 48f
         const val BAR_TOP_Y = 76f
-        /** «Тест»: зазор от строки даты/часов до границы градиента. */
-        const val TOP_BAR_GAP = 16f
+        /** «Тест»: зазор от строки даты/часов до границы градиента (меньше 0 — заходит на градиент). */
+        const val TOP_BAR_GAP = -24f
         /** «Тест»: карточка навигации справа — по высоте круга. */
-        const val CARD_TOP = 120f
-        const val CARD_BOTTOM = 610f
+        const val CARD_TOP = 90f
+        const val CARD_BOTTOM = 580f
         const val CARD_PAD = 28f
         /** Карточка — от обода круга, до правого края. */
         const val CARD_GAP = 40f
@@ -628,6 +628,8 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         const val INFO_Y_FULL = 250f
         /** «Тест»: насколько ниже скорость (на месте «км/ч»). */
         const val SPEED_DROP = 28f
+        /** «Тест»: размер цифр скорости. */
+        const val SPEED_SIZE_FULL = 132f
         /** «Тест»: значки двигателя/топлива от дуги (место под цифры справа). */
         const val ICON_OUT_FULL = 150f
         const val INFO_STEP = 34f
