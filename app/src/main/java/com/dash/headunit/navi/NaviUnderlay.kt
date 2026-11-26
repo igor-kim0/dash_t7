@@ -630,13 +630,19 @@ object NaviUnderlay {
             val loc = IntArray(2).also { view.getLocationOnScreen(it) }
             val bars = systemBars.map { Rect(it).apply { offset(-loc[0], -loc[1]) } }
             val open = uncovered(hole.bounds, bars)
-            region.op(openEdge(open, view.width, view.height, keep), Region.Op.INTERSECT)
+            val edge = openEdge(open, view.width, view.height, keep)
+            region.op(edge, Region.Op.INTERSECT)
+            lastInsets = "окно@${loc[0]},${loc[1]} вырез=${hole.bounds.toShortString()} " +
+                "открытая часть=${open.toShortString()} край=${edge.toShortString()} " +
+                "зона касаний=${region.bounds.toShortString()}"
             if (SystemClock.uptimeMillis() < peekUntil) {
                 // Проверка (cmd peek): зона касаний кончается над нижней
                 // строкой выреза — её описанный прямоугольник больше не
                 // накрывает окно навигатора целиком.
                 region.op(0, 0, view.width, hole.bounds.bottom - 1, Region.Op.INTERSECT)
             }
+        } else {
+            lastInsets = "выреза нет (зона касаний — всё окно)"
         }
         // InternalInsetsInfo.TOUCHABLE_INSETS_REGION
         cls.getMethod("setTouchableInsets", Int::class.javaPrimitiveType)
@@ -673,6 +679,11 @@ object NaviUnderlay {
      */
     @Volatile
     var systemBars: List<Rect> = emptyList()
+        private set
+
+    /** Последний расчёт зоны касаний с вырезом (экранные/view-координаты) — для снимков navi_tree. */
+    @Volatile
+    var lastInsets: String = "ещё не считали"
         private set
 
     /** Обновить [systemBars]; при изменении пересчитать зону касаний. */

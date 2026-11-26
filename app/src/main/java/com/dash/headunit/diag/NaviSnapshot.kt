@@ -1,6 +1,7 @@
 package com.dash.headunit.diag
 
 import android.content.Context
+import com.dash.headunit.navi.NaviUnderlay
 import com.dash.headunit.navi.cluster.ClusterOverlay
 import com.dash.headunit.navi.cluster.GuidanceHub
 import com.dash.headunit.navi.cluster.NaviAccessibilityService
@@ -19,18 +20,37 @@ import java.util.Locale
  */
 object NaviSnapshot {
 
-    fun write(context: Context, tag: String, ids: List<String> = emptyList()): File {
+    fun write(context: Context, tag: String, ids: List<String> = emptyList(), reason: String? = null): File {
         val a11y = NaviAccessibilityService.instance
         val text = buildString {
+            append("версия: ").append(versionName(context)).append('\n')
+            if (reason != null) append("-- причина\n").append(reason).append('\n')
             append("-- источники\n").append(GuidanceHub.sourcesInfo()).append('\n')
             append("чтение на паузе: ").append(GuidanceHub.paused).append('\n')
             append("-- приборка\n").append(ClusterOverlay.debugState()).append('\n')
+            append("-- вырез\n")
+            append("полосы поверх экрана: ").append(NaviUnderlay.systemBars.joinToString { it.toShortString() }.ifEmpty { "нет" }).append('\n')
+            append(NaviUnderlay.lastInsets).append('\n')
             append("-- окна\n").append(a11y?.describeWindows() ?: "служба спец. возможностей не подключена").append('\n')
             if (ids.isNotEmpty()) append("-- по id\n").append(a11y?.probeIds(ids) ?: "-").append('\n')
+            append("-- журнал\n")
+            val time = SimpleDateFormat("HH:mm:ss", Locale.US)
+            NaviUnderlay.statusHistory().takeLast(JOURNAL_LINES).forEach { line ->
+                val ms = line.substringBefore(' ').toLongOrNull()
+                append(if (ms != null) time.format(Date(ms)) + " " + line.substringAfter(' ') else line).append('\n')
+            }
             append("-- дерево\n").append(a11y?.dumpTree(full = true) ?: "-").append('\n')
         }
         val dir = File(context.getExternalFilesDir(null), "navi_tree").apply { mkdirs() }
         val name = SimpleDateFormat("HHmmss", Locale.US).format(Date()) + "_" + tag + ".txt"
         return File(dir, name).apply { writeText(text) }
     }
+
+    private fun versionName(context: Context): String = try {
+        context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "?"
+    } catch (e: Exception) {
+        "?"
+    }
+
+    private const val JOURNAL_LINES = 20
 }

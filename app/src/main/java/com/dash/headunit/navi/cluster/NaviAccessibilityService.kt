@@ -187,8 +187,13 @@ class NaviAccessibilityService : AccessibilityService() {
     fun clickVoice(timeoutMs: Long = VOICE_FIND_MS, done: (Boolean, String) -> Unit) {
         val until = android.os.SystemClock.uptimeMillis() + timeoutMs
         val st = VoiceTry()
+        // Активна одна попытка: новая (сторож поднял навигатор заново)
+        // отменяет старую — иначе старая дорабатывала свои 5 с, тапала по
+        // карте и писала лишний снимок (ГУ 2026-11-25: 165052/165054_alice).
+        val gen = voiceGen.incrementAndGet()
         val attempt = object : Runnable {
             override fun run() {
+                if (gen != voiceGen.get()) return
                 st.tries++
                 val (ok, why) = try {
                     clickVoiceNow(st, lastTry = timeoutMs <= 0 || android.os.SystemClock.uptimeMillis() >= until)
@@ -199,13 +204,16 @@ class NaviAccessibilityService : AccessibilityService() {
                     bg.postDelayed(this, VOICE_RETRY_MS)
                     return
                 }
+                val summary = "$why (попыток ${st.tries}, тапов по карте ${st.taps})"
                 // timeoutMs = 0 — просто проверка «навигатор уже наверху?», без снимка.
-                val tail = if (ok || timeoutMs <= 0) "" else snapshotAlice()
-                main.post { done(ok, "$why (попыток ${st.tries}, тапов по карте ${st.taps})$tail") }
+                val tail = if (ok || timeoutMs <= 0) "" else snapshotAlice(summary)
+                main.post { done(ok, "$summary$tail") }
             }
         }
         bg.post(attempt)
     }
+
+    private val voiceGen = java.util.concurrent.atomic.AtomicInteger()
 
     /** Состояние одного [clickVoice]: попытки и тапы по карте. */
     private class VoiceTry {
@@ -215,8 +223,8 @@ class NaviAccessibilityService : AccessibilityService() {
     }
 
     /** Снимок при ненайденной кнопке голоса (поток [bg]); « → файл» или пусто. */
-    private fun snapshotAlice(): String = try {
-        " → " + com.dash.headunit.diag.NaviSnapshot.write(this, "alice").name
+    private fun snapshotAlice(reason: String): String = try {
+        " → " + com.dash.headunit.diag.NaviSnapshot.write(this, "alice", reason = reason).name
     } catch (e: Exception) {
         Log.w(TAG, "alice snapshot", e)
         ""
@@ -230,6 +238,11 @@ class NaviAccessibilityService : AccessibilityService() {
      */
     private fun clickVoiceNow(st: VoiceTry, lastTry: Boolean): Pair<Boolean, String> {
         val root = naviRoot() ?: return false to "окна навигатора нет"
+        // Алиса уже открыта (наша прошлая попытка / сам Яндекс): кнопки карты
+        // спрятаны, #voicebutton нет — это успех, не тап по карте (ГУ
+        // 2026-11-25: 165107/165141_alice — «Как вам помочь?», а мы писали
+        // неудачу и возвращали дашборд поверх Алисы).
+        aliceOpen(root)?.let { return true to it }
         val nodes = root.findAccessibilityNodeInfosByViewId("$YANDEX_NAVI:id/$VOICE_ID")
             .ifEmpty { voiceByDescription(root) }
         val visible = nodes.firstOrNull { it.isVisibleToUser }
@@ -257,7 +270,15 @@ class NaviAccessibilityService : AccessibilityService() {
             depth++
         }
         val ok = node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-        return ok to "ACTION_CLICK по не-clickable узлу → $ok"
+        return ok to "ACTION_CLICK по не-clickable узлу (visible=${node.isVisibleToUser}, enabled=${node.isEnabled}) → $ok"
+    }
+
+    /** Открыто окно Алисы — описание, иначе null. */
+    private fun aliceOpen(root: AccessibilityNodeInfo): String? {
+        val id = ALICE_IDS.firstOrNull { id ->
+            root.findAccessibilityNodeInfosByViewId("$YANDEX_NAVI:id/$id").orEmpty().any { it.isVisibleToUser }
+        } ?: return null
+        return "Алиса уже открыта (#$id)"
     }
 
     /**
@@ -457,6 +478,8 @@ class NaviAccessibilityService : AccessibilityService() {
         private const val TAG = "NaviA11y"
         /** Кнопка голоса на карте (a11y-дампы навигатора 2026-10-25/30). */
         private const val VOICE_ID = "voicebutton"
+        /** Узлы открытой Алисы (ГУ 2026-11-25, 165107_alice). */
+        private val ALICE_IDS = listOf("alice_widget", "conversation_text", "oknyx")
         private val VOICE_DESC = listOf("алис", "alice") // не «голос»: это и кнопка подсказок
         /** Сколько искать кнопку голоса после подъёма навигатора и как часто. */
         const val VOICE_FIND_MS = 5_000L
