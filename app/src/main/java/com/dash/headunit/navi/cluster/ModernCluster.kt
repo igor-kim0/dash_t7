@@ -403,8 +403,9 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
      * погасшая — остаётся аккуратная пустая ниша.
      */
     private fun drawLampSockets(c: Canvas, s: Float) {
-        // Круиз / ACC: значок, «CRUISE …», скорость и «км/ч» — слот 170×100.
-        socket(c, lx(CRUISE_X - 12f), (CRUISE_Y - 12f) * s, lx(CRUISE_X + 182f), (CRUISE_Y + 112f) * s, s, null)
+        // Круиз / ACC: значок, «CRUISE …», скорость и «км/ч» — слот 170×100;
+        // на фото ГУ (2026-11-28) лампа кончается ~на 90 px — низ гнезда выше.
+        socket(c, lx(CRUISE_X - 12f), (CRUISE_Y - 12f) * s, lx(CRUISE_X + 182f), (CRUISE_Y + 96f) * s, s, null)
         caption(c, "КРУИЗ", lx(CRUISE_X - 12f), (CRUISE_Y - 22f) * s, s, Paint.Align.LEFT)
 
         // Режим движения: слово ECO/NORMAL/SPORT по центру слота 143×25.
