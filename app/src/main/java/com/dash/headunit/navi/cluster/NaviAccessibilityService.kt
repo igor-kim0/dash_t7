@@ -117,6 +117,7 @@ class NaviAccessibilityService : AccessibilityService() {
         }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        // С фильтром packageNames почти не приходит — основное обновление в [scanNow].
         if (event?.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED) bg.post(updateBars)
         if (event?.packageName?.toString() != YANDEX_NAVI) return
         if (GuidanceHub.paused) return
@@ -150,6 +151,11 @@ class NaviAccessibilityService : AccessibilityService() {
         // Навигатор на приборке — не сканируем и не опрашиваем; снова
         // запустит [resume].
         if (GuidanceHub.paused) return
+        // Полосы поверх экрана — на каждом опросе: TYPE_WINDOWS_CHANGED при
+        // фильтре packageNames службе не приходит (у события нет пакета), а
+        // при подключении службы (загрузка ГУ) полосы климата ещё нет — край
+        // выреза оставался под ней, и окна Яндекса служба не видела (ГУ 28.11).
+        updateBars.run()
         val root = naviRoot()
         if (root == null) {
             publish(null)
