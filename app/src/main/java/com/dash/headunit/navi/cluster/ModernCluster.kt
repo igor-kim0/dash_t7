@@ -493,6 +493,13 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         val mc = modeColor()?.let { Color.argb(200, Color.red(it), Color.green(it), Color.blue(it)) }
         val dark = Color.rgb(0x08, 0x0B, 0x0F)
         fill.color = if (full) dark else mc ?: dark
+        // «Тест»: низ циферблата срезан прямой между концами обода — запас
+        // хода и одометр на чёрном, край круга их не перечёркивает.
+        val cut = full
+        if (cut) {
+            c.save()
+            c.clipRect(0f, 0f, view.width.toFloat(), cy + FACE_CUT * s)
+        }
         c.drawCircle(cx, cy, r - BEZEL * s, fill)
         if (full && mc != null) {
             // «Тест»: цветная кромка — тоже только вдоль шкалы, как обод:
@@ -506,6 +513,7 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         fill.shader = faceShader
         c.drawCircle(cx, cy, r - (BEZEL + 4f) * s, fill)
         fill.shader = null
+        if (cut) c.restore()
         // Риски на ободе через 1000 об/мин.
         round.color = Color.rgb(0x20, 0x24, 0x2A)
         round.strokeWidth = 4f * s
@@ -814,7 +822,9 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         const val TRIP_SPLIT_GAP = 20f
         const val EDGE_RIGHT = 32f
         /** Запас/расход в нижнем разрыве шкалы — ниже цифр 0 и 8 крупного круга. */
-        const val INFO_Y_FULL = 292f
+        const val INFO_Y_FULL = 300f
+        /** «Тест»: низ циферблата срезан на этой высоте от центра (концы обода — ~270). */
+        const val FACE_CUT = 266f
         /** «Тест»: размеры подписи «ЗАПАС» и значения. */
         const val INFO_LABEL_FULL = 26f
         const val INFO_VALUE_FULL = 42f
