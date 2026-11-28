@@ -108,6 +108,9 @@ object ClusterPps {
     /** Сырые давления a005 b4–b7 — для калибровки на экране отладки. */
     fun tireRaw(): IntArray? = synchronized(parser) { parser.tireRaw(SystemClock.uptimeMillis()) }
 
+    /** Режим движения по лампе приборки (a00d); null — неизвестно. */
+    fun driveMode(): DriveMode? = synchronized(parser) { parser.driveMode(SystemClock.uptimeMillis()) }
+
     /** Разобранное состояние одной строкой — для диагностики. */
     fun describe(): String = synchronized(parser) { parser.describe(SystemClock.uptimeMillis()) }
 
@@ -302,7 +305,7 @@ object ClusterPps {
 
     private const val TAG = "ClusterPps"
     private const val DIR = "/var/pps/spi_service"
-    private val OBJECTS = listOf("a000", "a001", "a0ff", "a5a5", "a006", "a005")
+    private val OBJECTS = listOf("a000", "a001", "a0ff", "a5a5", "a006", "a005", "a00d")
     private const val DATA_PREFIX = "data:json:"
     private const val HISTORY_MAX = 50
     private const val FRAME_HISTORY_MAX = 200
@@ -373,6 +376,9 @@ class ClusterParser {
     private var tireRaw: IntArray? = null
     private var tireAt = 0L
 
+    private var driveMode: DriveMode? = null
+    private var driveModeAt = 0L
+
     /** [body] — текст после «data:json:», внутри должен быть массив data:[…]. */
     fun onFrame(obj: String, body: String, now: Long) {
         onFrame(obj, parseData(body) ?: return, now)
@@ -436,6 +442,21 @@ class ClusterParser {
                     tireAt = now
                 }
             }
+            // Лампы приборки (sva.cluster RcMIndicatorStatus_update, разбор
+            // 2026-11-28): data[0..19] — битовая карта, бит N = лампа kzbLedName[N]
+            // (байт N/8, бит N%8 от младшего). Режим — шесть отдельных флагов.
+            "a00d" -> if (bytes.size >= 17) {
+                driveMode = when {
+                    bytes[7] and 0x20 != 0 -> DriveMode.ECO
+                    bytes[7] and 0x40 != 0 -> DriveMode.SPORT
+                    bytes[10] and 0x04 != 0 -> DriveMode.NORMAL
+                    bytes[16] and 0x10 != 0 -> DriveMode.SNOW
+                    bytes[16] and 0x20 != 0 -> DriveMode.MUD
+                    bytes[16] and 0x40 != 0 -> DriveMode.SAND
+                    else -> null
+                }
+                driveModeAt = now
+            }
             // Забортная температура — ровно как её считает сама приборка
             // (sva.cluster, RcMTopBottomAmbientTempUpdate, разбор 2026-10-30):
             // a006 b3 × 0.5 − 55 °C; b3 > 250 — «--», b6 бит 1 — датчик неисправен.
@@ -492,6 +513,9 @@ class ClusterParser {
     /** Сырые давления a005 b4–b7. */
     fun tireRaw(now: Long): IntArray? = tireRaw?.takeIf { now - tireAt < STALE_MS }
 
+    /** Режим движения (лампа приборки). */
+    fun driveMode(now: Long): DriveMode? = driveMode?.takeIf { now - driveModeAt < STALE_MS }
+
     /** Давление в шинах, бар. */
     fun tires(now: Long): TirePressures? = tiresFromRaw(tireRaw(now))
 
@@ -505,7 +529,8 @@ class ClusterParser {
             "a5a5[2] ${if (a5a5b2 >= 0) a5a5b2 else "нет"}, " +
             "за бортом ${outsideTempC(now)?.let { "%.1f° ($outsideSource)".format(it) } ?: "нет"}, " +
             "БК ${trip(now)?.describe() ?: "нет"}, " +
-            "шины ${tireRaw(now)?.joinToString(",") ?: "нет"}"
+            "шины ${tireRaw(now)?.joinToString(",") ?: "нет"}, " +
+            "режим ${driveMode(now) ?: "нет"}"
     }
 
     companion object {
@@ -582,6 +607,9 @@ class ClusterParser {
 }
 
 /** Бортовой компьютер приборки (a001); null в поле — нет данных. */
+/** Режим движения — лампа ECO/NORMAL/SPORT (и внедорожные) на приборке. */
+enum class DriveMode { ECO, NORMAL, SPORT, SNOW, MUD, SAND }
+
 data class ClusterTrip(
     val odometerKm: Long?,
     /** Пробег после запуска двигателя. */

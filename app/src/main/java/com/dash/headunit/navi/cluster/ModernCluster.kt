@@ -17,6 +17,7 @@ import com.dash.headunit.R
 import com.dash.headunit.car.CarHub
 import com.dash.headunit.car.ClusterPps
 import com.dash.headunit.car.CoolantCalibration
+import com.dash.headunit.car.DriveMode
 import com.dash.headunit.car.TripTracker
 import com.dash.headunit.widgets.gearIndex
 import java.util.Locale
@@ -32,6 +33,10 @@ import java.util.Locale
  * температура двигателя, топливо и за бортом; дальше влево — список поездки
  * (расход, пробег, средняя скорость, моточасы). Сверху слева — дата и часы.
  * Справа — карточка навигации, знак ограничения в её левом верхнем углу.
+ * Штатные лампы QNX (indicator.kzb) не прячутся и стоят на фиксированных
+ * местах — под них нарисованы «гнёзда» ([drawLampSockets]): круиз, режим
+ * движения, AUTO HOLD/стояночный, Старт-стоп. Режим (a00d) ещё и красит
+ * кромку циферблата и плашку передачи ([modeColor]).
  * Ветки `!full` остались от «Современной» и сейчас не используются.
  */
 class ModernCluster(private val view: ClusterGuidanceView, private val full: Boolean = false) {
@@ -47,6 +52,12 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
     private val red = Color.rgb(0xE5, 0x39, 0x35)
     private val amber = Color.rgb(0xFF, 0xB3, 0x00)
     private val blue = Color.rgb(0x64, 0xB5, 0xF6)
+    private val green = Color.rgb(0x66, 0xBB, 0x6A)
+    private val socketFill = Color.rgb(0x0B, 0x0F, 0x14)
+    private val socketEdge = Color.rgb(0x2A, 0x32, 0x3C)
+
+    /** Режим движения на этот кадр (null — неизвестен). */
+    private var mode: DriveMode? = null
 
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
@@ -76,6 +87,7 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         canvas.drawColor(Color.BLACK)
         val s = view.height / 720f
         val cx = view.width / 2f
+        mode = if (full) ClusterPps.driveMode() else null
         val cy = dialCy * s
         val r = dialR * s
         if (shaderKey != cx * 10_000 + r) makeShaders(cx, cy, r)
@@ -93,6 +105,7 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         drawInfo(canvas, cx, cy, r, s)
         if (full) {
             drawOdometer(canvas, cx, cy, r, s)
+            drawLampSockets(canvas, s)
             drawTopBar(canvas, s, cx, cy, r)
             drawTripCard(canvas, cx, r, s)
             // Знак ограничения — внутри карточки, поэтому она от самого круга.
@@ -161,8 +174,8 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         val valueW = bold.measureText("000,0") + unitGap + text.measureText("км/ч")
         val split = right - valueW
         val labelRight = split - TRIP_SPLIT_GAP * s
-        // Строки по центру высоты круга.
-        var y = dialCy * s - TRIP_ROW * s * (rows.size - 1) / 2f
+        // Строки — под гнездом круиза, над нижним рядом ламп.
+        var y = TRIP_FIRST_Y * s
         for ((label, value, unit) in rows) {
             val base = y + 12f * s
             text.color = grey
@@ -177,7 +190,7 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
             text.textSize = 24f * s
             text.textAlign = Paint.Align.LEFT
             c.drawText(unit, split + bold.measureText(shown) + unitGap, base, text)
-            y += TRIP_ROW * s
+            y += TRIP_STEP * s
         }
         text.textAlign = Paint.Align.CENTER
         bold.textAlign = Paint.Align.CENTER
@@ -226,7 +239,7 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
     private fun drawRoute(c: Canvas, g: Guidance, cardLeft: Float, s: Float) {
         val cardRight = view.width - EDGE_RIGHT * s
         if (cardRight - cardLeft < 240f * s) return
-        oval.set(cardLeft, CARD_TOP * s, cardRight, CARD_BOTTOM * s)
+        oval.set(cardLeft, CARD_TOP * s, cardRight, (if (full) CARD_BOTTOM_LAMPS else CARD_BOTTOM) * s)
         fill.color = Color.rgb(0x10, 0x15, 0x1C)
         c.drawRoundRect(oval, 18f * s, 18f * s, fill)
         stroke.color = Color.rgb(0x2A, 0x32, 0x3C)
@@ -249,7 +262,8 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         } ?: 0f
         val signBottom = if (signW > 0f) signTop + SIGN_R * 2 * s + 40f * s else 0f
         val hl = left + signW
-        val hw = w - signW
+        // Шапка кончается до гнезда Старт-стоп в правом верхнем углу.
+        val hw = (lx(SS_X - 16f) - hl).coerceAtMost(w - signW)
         if (g.hasManeuver) {
             val icon = 130f * s
             view.drawManeuver(c, g, hl, y, icon)
@@ -311,6 +325,68 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         bold.textAlign = Paint.Align.CENTER
     }
 
+    /** Цвет режима: ECO — зелёный, SPORT — красный, NORMAL — голубой, внедорожные — янтарь. */
+    private fun modeColor(): Int? = when (mode) {
+        DriveMode.ECO -> green
+        DriveMode.SPORT -> red
+        DriveMode.NORMAL -> blue
+        DriveMode.SNOW, DriveMode.MUD, DriveMode.SAND -> amber
+        null -> null
+    }
+
+    /** X штатной лампы (координаты indicator.kzb в 1920×720) на нашем экране. */
+    private fun lx(x: Float) = x * view.width / 1920f
+
+    /**
+     * Гнёзда под штатные лампы (indicator.kzb, тема 2 «Карты», разбор
+     * 2026-11-28): тёмные ниши с рамкой. Горящая лампа QNX ложится внутрь,
+     * погасшая — остаётся аккуратная пустая ниша.
+     */
+    private fun drawLampSockets(c: Canvas, s: Float) {
+        // Круиз / ACC: значок, «CRUISE …», скорость и «км/ч» — слот 170×100.
+        socket(c, lx(CRUISE_X - 12f), (CRUISE_Y - 12f) * s, lx(CRUISE_X + 182f), (CRUISE_Y + 112f) * s, s, null)
+        caption(c, "КРУИЗ", lx(CRUISE_X - 12f), (CRUISE_Y - 22f) * s, s, Paint.Align.LEFT)
+
+        // Режим движения: слово ECO/NORMAL/SPORT по центру слота 143×25.
+        val mc = modeColor()
+        socket(c, lx(MODE_X - 14f), (MODE_Y - 10f) * s, lx(MODE_X + 157f), (MODE_Y + 35f) * s, s, mc)
+        caption(c, "РЕЖИМ", lx(MODE_X - 28f), (MODE_Y + 19f) * s, s, Paint.Align.RIGHT)
+
+        // Внизу слева: стояночный (красный), AUTO HOLD, стояночный (жёлтый).
+        socket(c, lx(EPB_X - 10f), (BOTTOM_Y - 8f) * s, lx(EPB_X + 2 * LAMP_STEP + 62f), view.height.toFloat() + 20f * s, s, null)
+        for (i in 0..2) ring(c, lx(EPB_X + i * LAMP_STEP + 26f), (BOTTOM_Y + 26f) * s, 28f * s)
+
+        // Старт-стоп — круглое гнездо в правом верхнем углу карточки навигации.
+        fill.color = socketFill
+        c.drawCircle(lx(SS_X + 26f), (SS_Y + 26f) * s, 34f * s, fill)
+        ring(c, lx(SS_X + 26f), (SS_Y + 26f) * s, 34f * s)
+    }
+
+    private fun socket(c: Canvas, l: Float, t: Float, r: Float, b: Float, s: Float, edge: Int?) {
+        oval.set(l, t, r, b)
+        fill.color = socketFill
+        c.drawRoundRect(oval, 12f * s, 12f * s, fill)
+        stroke.color = edge ?: socketEdge
+        stroke.strokeWidth = (if (edge != null) 3f else 2f) * s
+        c.drawRoundRect(oval, 12f * s, 12f * s, stroke)
+    }
+
+    private fun ring(c: Canvas, x: Float, y: Float, r: Float) {
+        stroke.color = socketEdge
+        stroke.strokeWidth = 2f * view.height / 720f
+        c.drawCircle(x, y, r, stroke)
+    }
+
+    private fun caption(c: Canvas, label: String, x: Float, y: Float, s: Float, align: Paint.Align) {
+        text.textSize = 18f * s
+        text.color = grey
+        text.letterSpacing = 0.12f
+        text.textAlign = align
+        c.drawText(label, x, y, text)
+        text.letterSpacing = 0f
+        text.textAlign = Paint.Align.CENTER
+    }
+
     private fun makeShaders(cx: Float, cy: Float, r: Float) {
         shaderKey = cx * 10_000 + r
         faceShader = RadialGradient(
@@ -352,7 +428,9 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
             c.drawCircle(cx, cy, r, fill)
             fill.shader = null
         }
-        fill.color = Color.rgb(0x08, 0x0B, 0x0F)
+        // Узкая кромка между ободом и циферблатом — цветом режима движения.
+        fill.color = modeColor()?.let { Color.argb(200, Color.red(it), Color.green(it), Color.blue(it)) }
+            ?: Color.rgb(0x08, 0x0B, 0x0F)
         c.drawCircle(cx, cy, r - BEZEL * s, fill)
         fill.shader = faceShader
         c.drawCircle(cx, cy, r - (BEZEL + 4f) * s, fill)
@@ -463,7 +541,7 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         val bw = text.measureText(badge) + 22f * s
         val by = top + 136f * s
         oval.set(cx - bw / 2, by, cx + bw / 2, by + 30f * s)
-        fill.color = white
+        fill.color = if (drive) modeColor() ?: white else white
         c.drawRoundRect(oval, 6f * s, 6f * s, fill)
         text.color = Color.rgb(0x1A, 0x22, 0x2C)
         c.drawText(badge, cx, by + 23f * s, text)
@@ -637,12 +715,26 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         /** «Тест»: карточка навигации справа — по высоте круга. */
         const val CARD_TOP = 90f
         const val CARD_BOTTOM = 580f
+        /** «Тест»: низ карточки — над гнездом режима движения. */
+        const val CARD_BOTTOM_LAMPS = 540f
+        /** Слоты штатных ламп (indicator.kzb, T2-navi; левый верхний угол). */
+        const val CRUISE_X = 184f
+        const val CRUISE_Y = 241f
+        const val MODE_X = 1380f
+        const val MODE_Y = 572f
+        const val EPB_X = 332f
+        const val BOTTOM_Y = 658f
+        const val LAMP_STEP = 58f
+        const val SS_X = 1708f
+        const val SS_Y = 106f
+        /** «Тест»: список поездки — под гнездом круиза. */
+        const val TRIP_FIRST_Y = 400f
+        const val TRIP_STEP = 64f
         const val CARD_PAD = 28f
         /** Карточка — от обода круга, до правого края. */
         const val CARD_GAP = 40f
-        /** «Тест»: поездка слева — до обода с запасом под левые дуги и подписи; шаг строк. */
+        /** «Тест»: поездка слева — до обода с запасом под левые дуги и подписи. */
         const val TRIP_CARD_GAP = 150f
-        const val TRIP_ROW = 72f
         /** Зазор между подписями и колонкой значений. */
         const val TRIP_SPLIT_GAP = 20f
         const val EDGE_RIGHT = 32f
