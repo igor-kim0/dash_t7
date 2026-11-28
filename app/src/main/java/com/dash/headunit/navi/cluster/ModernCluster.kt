@@ -18,7 +18,6 @@ import com.dash.headunit.car.CarHub
 import com.dash.headunit.car.ClusterPps
 import com.dash.headunit.car.CoolantCalibration
 import com.dash.headunit.car.DriveMode
-import com.dash.headunit.car.TripTracker
 import com.dash.headunit.widgets.gearIndex
 import java.util.Locale
 
@@ -31,7 +30,7 @@ import java.util.Locale
  * там одометр), сине-серый циферблат, обороты 0–8 тыс. (красная зона с 6000),
  * стрелка; внутри скорость, передача, запас хода. Слева вдоль обода —
  * температура двигателя, топливо и за бортом; дальше влево — список поездки
- * (расход, пробег, средняя скорость, моточасы). Сверху слева — дата и часы.
+ * (расход, пробег, средняя скорость). Сверху слева — дата и часы.
  * Справа — карточка навигации, знак ограничения в её левом верхнем углу.
  * Штатные лампы QNX (indicator.kzb) не прячутся и стоят на фиксированных
  * местах — под них нарисованы «гнёзда» ([drawLampSockets]): круиз, режим
@@ -151,7 +150,7 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
 
     /**
      * Слева от круга — поездка списком без рамок: средний расход, пробег,
-     * средняя скорость, моточасы. Подписи выровнены по правому краю, значения
+     * средняя скорость. Подписи выровнены по правому краю, значения
      * с единицей — по левому, у общей границы. Справа список кончается до подписей левых дуг.
      */
     private fun drawTripCard(c: Canvas, cx: Float, r: Float, s: Float) {
@@ -160,13 +159,11 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         if (right - left < 240f * s) return
         val t = ClusterPps.trip()
         val v = CarHub.tripView
-        val hours = TripTracker.engineHours(view.context).totalMillis.coerceAtLeast(0L) / 3_600_000.0
         val rows = listOf(
             Triple("Мгновенный расход", ClusterPps.instFuelL100()?.let { "%.1f".format(RU, it.coerceAtMost(INST_MAX)) }, "л"),
             Triple("Средний расход", (v?.avgCons ?: t?.avgFuelL100)?.let { "%.1f".format(RU, it) }, "л"),
             Triple("Пробег поездки", (t?.tripKm ?: v?.distKm)?.let { "%.1f".format(RU, it) }, "км"),
             Triple("Средняя скорость", (t?.avgSpeedKmh ?: v?.avgSpeedKmh)?.let { "%.0f".format(RU, it) }, "км/ч"),
-            Triple("Моточасы", "%.1f".format(RU, hours), "ч"),
         )
         // Колонка значений — по самому широкому образцу, чтобы граница не
         // прыгала со сменой цифр; подписи — вправо к ней, значения — влево от неё.
