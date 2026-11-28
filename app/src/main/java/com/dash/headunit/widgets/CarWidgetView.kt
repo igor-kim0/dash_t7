@@ -113,7 +113,8 @@ internal fun rangeColor(km: Int, green: Int): Int = when {
  * ТОПЛИВО (литры / % бака; иконка бака заливается снизу вверх:
  * >25 % зелёный, <8 % красный, иначе жёлтый) | АККУМУЛЯТОР (вольты / статус) |
  * ДВИГАТЕЛЬ (температура / прогрев) | ЗАПАС ХОДА (км) | КОЛЁСА (давление
- * в шинах: схема машины вид сверху, колесо ниже порога из настроек — красное).
+ * в шинах: схема машины вид сверху, колесо ниже порога из настроек — красное) |
+ * РАСХОД (мгновенный, л/100 км, с приборки a001; стоим — «—»).
  * Иконки остальных метрик целиком окрашиваются по порогам
  * ([voltageColor], [engineTempColor], [rangeColor]).
  * Вместо текстовых заголовков — иконки слева от значений (если в колонку
@@ -161,6 +162,10 @@ class CarWidgetView(
     private val tireUnit = unitView()
     private val tireSub = subView()
     private val tireIcon = TireSchematicView(context)
+    private val instValue = valueView()
+    private val instUnit = unitView()
+    private val instSub = subView()
+    private val instIcon = iconView(R.drawable.ic_fuel_drop)
 
     // Объявлены до init: заполняются в metric().
     private val metricViews = mutableListOf<MetricViews>()
@@ -177,6 +182,7 @@ class CarWidgetView(
                 "eng" -> metric(engIcon, engValue, engUnit, engSub, unitTop = true)
                 "range" -> metric(rangeIcon, rangeValue, rangeUnit, rangeSub)
                 "tires" -> metric(tireIcon, tireValue, tireUnit, tireSub, iconDp = TIRE_ICON_DP)
+                "inst" -> metric(instIcon, instValue, instUnit, instSub)
                 else -> metric(fuelIcon, fuelValue, fuelUnit, fuelSub)
             }
         }
@@ -202,18 +208,18 @@ class CarWidgetView(
 
     private fun valueView(): TextView = TextView(context).apply {
         setTextColor(theme.primaryText)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 44f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, VALUE_SP)
     }
 
     private fun unitView(): TextView = TextView(context).apply {
         setTextColor(theme.secondaryText)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, UNIT_SP)
         setPadding(dp(4), 0, 0, 0)
     }
 
     private fun subView(): TextView = TextView(context).apply {
         setTextColor(theme.secondaryText)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, SUB_SP)
     }
 
     private fun iconView(res: Int): ImageView = ImageView(context).apply {
@@ -292,15 +298,36 @@ class CarWidgetView(
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         // Иконки сбоку, если все метрики с минимальными промежутками помещаются
-        // в ширину; иначе — иконки над значениями у всех.
+        // в ширину; не помещаются — сначала уменьшаем шрифт (до [MIN_TEXT_SCALE]),
+        // и только если и так тесно — иконки над значениями у всех.
         val available = MeasureSpec.getSize(widthMeasureSpec) - paddingLeft - paddingRight -
             2 * dp(SIDE_INDENT_DP)
-        val need = metricViews.sumOf { besideWidth(it) } +
-            (metricViews.size - 1).coerceAtLeast(0) * dp(MIN_COL_GAP_DP)
-        val beside = MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.UNSPECIFIED ||
-            need <= available
+        val unspecified = MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.UNSPECIFIED
+        setTextScale(1f)
+        var need = besideNeed()
+        if (!unspecified && need > available) {
+            setTextScale((available.toFloat() / need * 0.98f).coerceAtLeast(MIN_TEXT_SCALE))
+            need = besideNeed()
+        }
+        val beside = unspecified || need <= available
         if (beside != iconBeside) applyIconBeside(beside)
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+    }
+
+    private fun besideNeed(): Int = metricViews.sumOf { besideWidth(it) } +
+        (metricViews.size - 1).coerceAtLeast(0) * dp(MIN_COL_GAP_DP)
+
+    private var textScale = 0f
+
+    /** Масштаб шрифтов значений, единиц и подписей (1 — обычный). */
+    private fun setTextScale(k: Float) {
+        if (k == textScale) return
+        textScale = k
+        for (m in metricViews) {
+            m.value.setTextSize(TypedValue.COMPLEX_UNIT_SP, VALUE_SP * k)
+            m.unit.setTextSize(TypedValue.COMPLEX_UNIT_SP, UNIT_SP * k)
+            m.sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, SUB_SP * k)
+        }
     }
 
     private fun dp(value: Int): Int =
@@ -396,6 +423,11 @@ class CarWidgetView(
         // Колёса: давление в шинах (OBD-профиль с TPMS). Ниже порога из
         // настроек — колесо красное, все в норме — зелёные.
         renderTires(d?.tirePressure)
+        // Мгновенный расход — с приборки (a001); на стоянке приборка его не даёт.
+        val inst = ClusterPps.instFuelL100()
+        instValue.text = inst?.let { "%.1f".format(locale, it.coerceAtMost(INST_MAX)) } ?: "—"
+        instUnit.text = if (inst != null) "л" else ""
+        instSub.text = context.getString(R.string.car_inst_sub)
         // Забортная температура переехала в виджет «Часы».
     }
 
@@ -444,7 +476,7 @@ class CarWidgetView(
 
     companion object {
         /** Ключи метрик в настройке "items" (порядок — порядок отображения). */
-        val ITEM_KEYS = listOf("fuel", "batt", "eng", "range", "tires")
+        val ITEM_KEYS = listOf("fuel", "batt", "eng", "range", "tires", "inst")
 
         /**
          * Видимые метрики: сохранённый список плюс те, что добавлены после
@@ -458,8 +490,9 @@ class CarWidgetView(
             val saved = raw.split(',')
                 .mapNotNull { it.trim().takeIf { s -> s in ITEM_KEYS } }
                 .toSet()
-            val stale = (widgetId?.let { settings?.getOption(it, OPT_ITEMS_VER, "1") } ?: "1") < ITEMS_VER
-            return saved + if (stale) NEW_KEYS else emptyList()
+            val ver = widgetId?.let { settings?.getOption(it, OPT_ITEMS_VER, "1") } ?: "1"
+            // Добавленные после сохранённой версии списка — показываем.
+            return saved + NEW_KEYS.filterKeys { it > ver }.values.flatten()
         }
 
         /** Имя опции в [WidgetSettingsStore] со списком видимых метрик. */
@@ -471,11 +504,14 @@ class CarWidgetView(
         /** Имя опции с версией списка метрик (новые метрики добавляются к старому списку). */
         const val OPT_ITEMS_VER = "items_ver"
 
-        /** Текущая версия списка метрик; 2 — добавлены «Колёса». */
-        const val ITEMS_VER = "2"
+        /** Текущая версия списка метрик; 2 — «Колёса», 3 — «Мгновенный расход». */
+        const val ITEMS_VER = "3"
 
-        /** Метрики, добавленные в версии 2. */
-        private val NEW_KEYS = listOf("tires")
+        /** Метрики по версии, в которой они добавлены. */
+        private val NEW_KEYS = mapOf("2" to listOf("tires"), "3" to listOf("inst"))
+
+        /** Больше не показываем (в разгон с места — сотни л/100). */
+        private const val INST_MAX = 99.9f
 
         /** Размер иконки метрики, dp. */
         private const val ICON_DP = 40
@@ -491,5 +527,11 @@ class CarWidgetView(
 
         /** Минимальный промежуток между метриками, при котором иконки ещё сбоку. */
         private const val MIN_COL_GAP_DP = 12
+
+        /** Шрифты метрик, sp, и до скольких их можно ужать, прежде чем ставить иконки сверху. */
+        private const val VALUE_SP = 44f
+        private const val UNIT_SP = 18f
+        private const val SUB_SP = 16f
+        private const val MIN_TEXT_SCALE = 0.7f
     }
 }

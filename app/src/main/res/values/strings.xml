@@ -265,6 +265,8 @@
     <string name="car_item_eng">Двигатель</string>
     <string name="car_item_range">Запас хода</string>
     <string name="car_item_tires">Колёса</string>
+    <string name="car_item_inst">Мгновенный расход</string>
+    <string name="car_inst_sub">мгновенный</string>
     <string name="music_bluetooth">BLUETOOTH</string>
     <string name="music_yandex">ЯНДЕКС МУЗЫКА</string>
     <string name="widget_radio">Радио</string>

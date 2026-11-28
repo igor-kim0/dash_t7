@@ -2342,14 +2342,16 @@ class MainActivity : AppCompatActivity() {
             "batt" to R.string.car_item_batt,
             "eng" to R.string.car_item_eng,
             "range" to R.string.car_item_range,
-            "tires" to R.string.car_item_tires
+            "tires" to R.string.car_item_tires,
+            "inst" to R.string.car_item_inst
         )
         val icons = mapOf(
             "fuel" to R.drawable.ic_fuel,
             "batt" to R.drawable.ic_battery,
             "eng" to R.drawable.ic_thermo,
             "range" to R.drawable.ic_range,
-            "tires" to R.drawable.ic_tire
+            "tires" to R.drawable.ic_tire,
+            "inst" to R.drawable.ic_fuel_drop
         )
         val orderRaw = settingsStore.getOption(widgetId, CarWidgetView.OPT_ORDER, "")
         val savedOrder = orderRaw.split(',')

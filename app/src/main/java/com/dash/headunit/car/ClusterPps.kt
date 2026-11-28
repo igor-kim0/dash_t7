@@ -108,6 +108,9 @@ object ClusterPps {
     /** Сырые давления a005 b4–b7 — для калибровки на экране отладки. */
     fun tireRaw(): IntArray? = synchronized(parser) { parser.tireRaw(SystemClock.uptimeMillis()) }
 
+    /** Мгновенный расход, л/100 км (a001); null — нет данных (стоим / не едем). */
+    fun instFuelL100(): Float? = synchronized(parser) { parser.instFuelL100(SystemClock.uptimeMillis()) }
+
     /** Режим движения по лампе приборки (a00d); null — неизвестно. */
     fun driveMode(): DriveMode? = synchronized(parser) { parser.driveMode(SystemClock.uptimeMillis()) }
 
@@ -377,6 +380,9 @@ class ClusterParser {
     private var tireAt = 0L
 
     private var driveMode: DriveMode? = null
+
+    private var instFuel: Float? = null
+    private var instFuelAt = 0L
     private var driveModeAt = 0L
 
     /** [body] — текст после «data:json:», внутри должен быть массив data:[…]. */
@@ -411,6 +417,11 @@ class ClusterParser {
                     rangeKm = u16(bytes, 44).takeIf { it <= MAX_RANGE_KM },
                 )
                 tripAt = now
+                // Мгновенный расход (sva.cluster RcMVehicleInfoInstFuelUpdate,
+                // разбор 2026-11-28): b12|b13 ×0.1 л/100 км; старшая тетрада
+                // не 0 (0xFFFF) — нет данных: стоим или ползём ≤2 км/ч.
+                instFuel = u16(bytes, 12).takeIf { it and 0xF000 == 0 }?.let { it / 10f }
+                instFuelAt = now
             }
             "a0ff" -> if (bytes.size >= 16) {
                 val raw = u16(bytes, 14)
@@ -513,6 +524,9 @@ class ClusterParser {
     /** Сырые давления a005 b4–b7. */
     fun tireRaw(now: Long): IntArray? = tireRaw?.takeIf { now - tireAt < STALE_MS }
 
+    /** Мгновенный расход, л/100 км — только свежий кадр. */
+    fun instFuelL100(now: Long): Float? = instFuel?.takeIf { now - instFuelAt < LIVE_MS }
+
     /** Режим движения (лампа приборки). */
     fun driveMode(now: Long): DriveMode? = driveMode?.takeIf { now - driveModeAt < STALE_MS }
 
@@ -530,7 +544,8 @@ class ClusterParser {
             "за бортом ${outsideTempC(now)?.let { "%.1f° ($outsideSource)".format(it) } ?: "нет"}, " +
             "БК ${trip(now)?.describe() ?: "нет"}, " +
             "шины ${tireRaw(now)?.joinToString(",") ?: "нет"}, " +
-            "режим ${driveMode(now) ?: "нет"}"
+            "режим ${driveMode(now) ?: "нет"}, " +
+            "мгн. расход ${instFuelL100(now)?.let { "%.1f".format(it) } ?: "нет"}"
     }
 
     companion object {

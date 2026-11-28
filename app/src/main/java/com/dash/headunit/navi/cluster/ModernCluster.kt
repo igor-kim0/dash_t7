@@ -162,6 +162,7 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         val v = CarHub.tripView
         val hours = TripTracker.engineHours(view.context).totalMillis.coerceAtLeast(0L) / 3_600_000.0
         val rows = listOf(
+            Triple("Мгновенный расход", ClusterPps.instFuelL100()?.let { "%.1f".format(RU, it.coerceAtMost(INST_MAX)) }, "л"),
             Triple("Средний расход", (v?.avgCons ?: t?.avgFuelL100)?.let { "%.1f".format(RU, it) }, "л"),
             Triple("Пробег поездки", (t?.tripKm ?: v?.distKm)?.let { "%.1f".format(RU, it) }, "км"),
             Triple("Средняя скорость", (t?.avgSpeedKmh ?: v?.avgSpeedKmh)?.let { "%.0f".format(RU, it) }, "км/ч"),
@@ -729,8 +730,10 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         const val SS_X = 1708f
         const val SS_Y = 106f
         /** «Тест»: список поездки — под гнездом круиза. */
-        const val TRIP_FIRST_Y = 400f
-        const val TRIP_STEP = 64f
+        const val TRIP_FIRST_Y = 392f
+        const val TRIP_STEP = 56f
+        /** Мгновенный расход выше — как у приборки, не больше 99,9 (место под цифры). */
+        const val INST_MAX = 99.9f
         const val CARD_PAD = 28f
         /** Карточка — от обода круга, до правого края. */
         const val CARD_GAP = 40f
