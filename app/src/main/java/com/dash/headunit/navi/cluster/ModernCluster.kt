@@ -106,8 +106,9 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
             drawOdometer(canvas, cx, cy, r, s)
             drawTopBar(canvas, s, cx, cy, r)
             drawTripCard(canvas, cx, r, s)
-            // Знак ограничения — внутри карточки, поэтому она от самого круга.
-            drawRoute(canvas, g, cx + r + CARD_GAP * s, s)
+            // Карточка — по левому краю гнезда режима под ней (знак
+            // ограничения внутри карточки).
+            drawRoute(canvas, g, lx(MODE_X - 14f), s)
             // Гнёзда — после карточки: Старт-стоп лежит на ней.
             drawLampSockets(canvas, s)
         } else {
@@ -348,8 +349,8 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
 
         // Режим движения: слово ECO/NORMAL/SPORT по центру слота 143×25.
         val mc = modeColor()
+        // Без подписи; левый край — общий с карточкой навигации ([drawRoute]).
         socket(c, lx(MODE_X - 14f), (MODE_Y - 10f) * s, lx(MODE_X + 157f), (MODE_Y + 35f) * s, s, mc)
-        caption(c, "РЕЖИМ", lx(MODE_X - 28f), (MODE_Y + 19f) * s, s, Paint.Align.RIGHT)
 
         // Внизу слева: стояночный (красный), AUTO HOLD, стояночный (жёлтый).
         socket(c, lx(EPB_X - 10f), (BOTTOM_Y - 8f) * s, lx(EPB_X + 2 * LAMP_STEP + 62f), view.height.toFloat() + 20f * s, s, null)
@@ -742,8 +743,6 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         /** Мгновенный расход выше — как у приборки, не больше 99,9 (место под цифры). */
         const val INST_MAX = 99.9f
         const val CARD_PAD = 28f
-        /** Карточка — от обода круга, до правого края. */
-        const val CARD_GAP = 40f
         /** «Тест»: поездка слева — до обода с запасом под левые дуги и подписи. */
         const val TRIP_CARD_GAP = 150f
         /** Зазор между подписями и колонкой значений. */
