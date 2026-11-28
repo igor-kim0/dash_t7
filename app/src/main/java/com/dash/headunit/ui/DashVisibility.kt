@@ -1,6 +1,7 @@
 package com.dash.headunit.ui
 
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 
 /**
@@ -32,6 +33,9 @@ object DashVisibility {
 
     /** Дашборд виден или показана заставка, которой нужна музыка. */
     val musicVisible: Boolean get() = music.value
+
+    /** [musicVisible] потоком — для опросов, которые ждут ещё и своё условие. */
+    val musicState: StateFlow<Boolean> get() = music
 
     /** onStart / «настоящий» onStop MainActivity (главный поток). */
     fun setStarted(on: Boolean) {

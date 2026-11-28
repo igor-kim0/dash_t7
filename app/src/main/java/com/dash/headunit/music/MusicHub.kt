@@ -18,6 +18,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
 /**
@@ -78,6 +81,13 @@ object MusicHub {
         listeners.toList().forEach { it() }
     }
 
+    /** Опрашивать и при скрытом дашборде (приборка «Тест» — [com.dash.headunit.navi.cluster.ClusterMedia]). */
+    private val background = MutableStateFlow(false)
+
+    fun setBackground(on: Boolean) {
+        background.value = on
+    }
+
     fun ensurePolling() {
         if (pollJob == null) {
             connectBluetooth()
@@ -85,8 +95,10 @@ object MusicHub {
             probeAccess()
             pollJob = scope.launch {
                 while (true) {
-                    // Дашборд не виден — виджетам опрос не нужен (кроме «Цветомузыки»).
-                    com.dash.headunit.ui.DashVisibility.awaitMusicVisible()
+                    // Дашборд не виден — виджетам опрос не нужен (кроме
+                    // «Цветомузыки» и приборки — [setBackground]).
+                    combine(com.dash.headunit.ui.DashVisibility.musicState, background) { v, b -> v || b }
+                        .first { it }
                     refresh()
                     delay(POLL_MS)
                 }

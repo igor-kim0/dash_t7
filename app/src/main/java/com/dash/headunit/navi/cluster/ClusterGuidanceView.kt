@@ -106,8 +106,18 @@ class ClusterGuidanceView(context: Context) : View(context) {
             removeCallbacks(dialTick)
             sweepAt = 0L
             if (custom && isAttachedToWindow) post(dialTick)
+            syncMedia()
             invalidate()
         }
+
+    /** «Тест» показывает, что играет — подписка на [ClusterMedia] только с этой темой. */
+    private fun syncMedia() {
+        if (isAttachedToWindow && theme == AppSettings.CLUSTER_THEME_TEST) {
+            ClusterMedia.start(context) { invalidate() }
+        } else {
+            ClusterMedia.stop()
+        }
+    }
 
     /** Своя тема (не «Штатная») — рисуем свой тахометр. */
     val custom: Boolean
@@ -366,11 +376,13 @@ class ClusterGuidanceView(context: Context) : View(context) {
         CarHub.addListener(hubListener)
         CarHub.ensurePolling()
         if (custom) post(dialTick)
+        syncMedia()
     }
 
     override fun onDetachedFromWindow() {
         removeCallbacks(dialTick)
         CarHub.removeListener(hubListener)
+        ClusterMedia.stop()
         super.onDetachedFromWindow()
     }
 

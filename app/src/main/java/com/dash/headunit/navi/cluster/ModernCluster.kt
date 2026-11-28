@@ -3,9 +3,11 @@ package com.dash.headunit.navi.cluster
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.RadialGradient
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.SweepGradient
@@ -73,6 +75,9 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         textAlign = Paint.Align.CENTER
     }
     private val oval = RectF()
+    private val artClip = Path()
+    private val artSrc = Rect()
+    private val artPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
 
     private var shaderKey = 0f
     private var faceShader: Shader? = null
@@ -109,6 +114,7 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
             // Карточка — по левому краю гнезда режима под ней (знак
             // ограничения внутри карточки).
             drawRoute(canvas, g, lx(MODE_X - 14f), s)
+            drawMedia(canvas, s)
             // Гнёзда — после карточки: Старт-стоп лежит на ней.
             drawLampSockets(canvas, s)
         } else {
@@ -322,6 +328,59 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
             c.drawText(view.fit("$it$lim", text, w - lw - 12f * s), left + lw + 12f * s, y, text)
         }
         text.textAlign = Paint.Align.CENTER
+        bold.textAlign = Paint.Align.CENTER
+    }
+
+    /**
+     * Справа внизу, правее гнезда режима и выше ряда ламп (ремни, подушка):
+     * что играет — обложка или значок станции, название и исполнитель /
+     * частота ([ClusterMedia]). Ничего не играет — пусто.
+     */
+    private fun drawMedia(c: Canvas, s: Float) {
+        val m = ClusterMedia.item ?: return
+        val left = lx(MEDIA_X)
+        val right = view.width - EDGE_RIGHT * s
+        val icon = MEDIA_ICON * s
+        val top = MEDIA_Y * s
+        if (right - left < icon * 3) return
+        val icx = left + icon / 2
+        val icy = top + icon / 2
+        val art = m.art
+        if (art != null && !art.isRecycled) {
+            oval.set(left, top, left + icon, top + icon)
+            c.save()
+            artClip.reset()
+            artClip.addRoundRect(oval, 10f * s, 10f * s, Path.Direction.CW)
+            c.clipPath(artClip)
+            artSrc.set(0, 0, art.width, art.height)
+            c.drawBitmap(art, artSrc, oval, artPaint)
+            c.restore()
+        } else {
+            fill.color = m.color ?: socketFill
+            c.drawCircle(icx, icy, icon / 2, fill)
+            stroke.color = if (m.color != null) Color.argb(90, 255, 255, 255) else socketEdge
+            stroke.strokeWidth = 2f * s
+            c.drawCircle(icx, icy, icon / 2, stroke)
+            val label = m.badge ?: "\u266A"
+            bold.color = white
+            bold.textAlign = Paint.Align.CENTER
+            bold.textSize = (if (m.badge == null) 34f else if (label.length > 2) 18f else 24f) * s
+            val fm = bold.fontMetrics
+            c.drawText(label, icx, icy - (fm.ascent + fm.descent) / 2, bold)
+        }
+        val tx = left + icon + 16f * s
+        val tw = right - tx
+        bold.textAlign = Paint.Align.LEFT
+        bold.color = white
+        bold.textSize = 28f * s
+        c.drawText(view.fit(m.title, bold, tw), tx, top + 26f * s, bold)
+        m.sub?.let {
+            text.textAlign = Paint.Align.LEFT
+            text.color = grey
+            text.textSize = 24f * s
+            c.drawText(view.fit(it, text, tw), tx, top + 56f * s, text)
+            text.textAlign = Paint.Align.CENTER
+        }
         bold.textAlign = Paint.Align.CENTER
     }
 
@@ -737,6 +796,10 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         const val LAMP_STEP = 58f
         const val SS_X = 1708f
         const val SS_Y = 106f
+        /** «Тест»: что играет — правее гнезда режима, над рядом ламп y=654. */
+        const val MEDIA_X = 1561f
+        const val MEDIA_Y = 562f
+        const val MEDIA_ICON = 60f
         /** «Тест»: список поездки — под гнездом круиза. */
         const val TRIP_FIRST_Y = 392f
         const val TRIP_STEP = 56f
