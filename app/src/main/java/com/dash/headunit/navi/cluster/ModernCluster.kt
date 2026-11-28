@@ -332,7 +332,8 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
     }
 
     /**
-     * Справа внизу, правее гнезда режима и выше ряда ламп (ремни, подушка):
+     * Справа внизу, под гнездом режима, от его левого края (по просьбе
+     * пользователя; штатные лампы подушки/ремней y=654 горят поверх):
      * что играет — обложка или значок станции, название и исполнитель /
      * частота ([ClusterMedia]). Ничего не играет — пусто.
      */
@@ -796,9 +797,9 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         const val LAMP_STEP = 58f
         const val SS_X = 1708f
         const val SS_Y = 106f
-        /** «Тест»: что играет — правее гнезда режима, над рядом ламп y=654. */
-        const val MEDIA_X = 1561f
-        const val MEDIA_Y = 562f
+        /** «Тест»: что играет — под гнездом режима (MODE_X - 14 — его левый край). */
+        const val MEDIA_X = 1366f
+        const val MEDIA_Y = 622f
         const val MEDIA_ICON = 60f
         /** «Тест»: список поездки — под гнездом круиза. */
         const val TRIP_FIRST_Y = 392f
