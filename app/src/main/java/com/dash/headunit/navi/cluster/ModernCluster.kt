@@ -428,9 +428,19 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
             fill.shader = null
         }
         // Узкая кромка между ободом и циферблатом — цветом режима движения.
-        fill.color = modeColor()?.let { Color.argb(200, Color.red(it), Color.green(it), Color.blue(it)) }
-            ?: Color.rgb(0x08, 0x0B, 0x0F)
+        val mc = modeColor()?.let { Color.argb(200, Color.red(it), Color.green(it), Color.blue(it)) }
+        val dark = Color.rgb(0x08, 0x0B, 0x0F)
+        fill.color = if (full) dark else mc ?: dark
         c.drawCircle(cx, cy, r - BEZEL * s, fill)
+        if (full && mc != null) {
+            // «Тест»: цветная кромка — тоже только вдоль шкалы, как обод:
+            // снизу между 0 и 8 она перечёркивала запас хода и одометр.
+            val kr = r - (BEZEL + 2f) * s
+            oval.set(cx - kr, cy - kr, cx + kr, cy + kr)
+            stroke.color = mc
+            stroke.strokeWidth = 4f * s
+            c.drawArc(oval, START, SWEEP, false, stroke)
+        }
         fill.shader = faceShader
         c.drawCircle(cx, cy, r - (BEZEL + 4f) * s, fill)
         fill.shader = null
