@@ -105,11 +105,12 @@ class ModernCluster(private val view: ClusterGuidanceView, private val full: Boo
         drawInfo(canvas, cx, cy, r, s)
         if (full) {
             drawOdometer(canvas, cx, cy, r, s)
-            drawLampSockets(canvas, s)
             drawTopBar(canvas, s, cx, cy, r)
             drawTripCard(canvas, cx, r, s)
             // Знак ограничения — внутри карточки, поэтому она от самого круга.
             drawRoute(canvas, g, cx + r + CARD_GAP * s, s)
+            // Гнёзда — после карточки: Старт-стоп лежит на ней.
+            drawLampSockets(canvas, s)
         } else {
             g.speedLimit?.let {
                 view.drawSign(canvas, it, g.overspeed, cx + r + SIGN_GAP * s + SIGN_R * s, cy, SIGN_R * s)
