@@ -10,12 +10,13 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import android.widget.LinearLayout
 import android.widget.Toast
 import com.dash.headunit.R
+import com.dash.headunit.bt.BtAutoConnect
 import com.dash.headunit.bt.PhoneBattery
 import com.dash.headunit.elm.ElmHub
+import com.dash.headunit.settings.AppSettings
 import com.dash.headunit.theme.DashTheme
 import com.dash.headunit.theme.ThemeStore
 import com.dash.headunit.ui.WifiConnectionDialog.note
@@ -32,11 +33,8 @@ import com.dash.headunit.ui.WifiConnectionDialog.section
  * не пустить (hidden API / системное право) — тогда тост «не удалось».
  */
 object BluetoothDialog {
-    private const val TAG = "BluetoothDialog"
-
-    /** BluetoothProfile.HEADSET_CLIENT / A2DP_SINK (@hide). */
-    private const val HEADSET_CLIENT = 16
-    private const val A2DP_SINK = 11
+    private const val HEADSET_CLIENT = BtAutoConnect.HEADSET_CLIENT
+    private const val A2DP_SINK = BtAutoConnect.A2DP_SINK
 
     private val main = Handler(Looper.getMainLooper())
 
@@ -154,6 +152,7 @@ object BluetoothDialog {
             return
         }
         val elm = ElmHub.address()
+        val auto = AppSettings.btAutoConnect(context)
         // Подключённые — первыми.
         bonded.sortedWith(
             compareByDescending<BluetoothDevice> { connectedProfiles(proxies, it).isNotEmpty() }
@@ -172,7 +171,7 @@ object BluetoothDialog {
                 }
                 device.address == elm -> context.getString(R.string.bt_elm_note)
                 else -> context.getString(R.string.bt_paired_note)
-            }
+            }.let { if (device.address in auto) it + " · " + context.getString(R.string.bt_auto_suffix) else it }
             host.addView(
                 row(
                     context, theme,
@@ -189,6 +188,25 @@ object BluetoothDialog {
                     } else null
                 )
             )
+            if (device.address != elm) {
+                val on = device.address in auto
+                host.addView(
+                    row(
+                        context, theme,
+                        title = "    " + context.getString(R.string.bt_auto_row),
+                        note = context.getString(if (on) R.string.wifi_on else R.string.wifi_off),
+                        noteAccent = on,
+                        onClick = {
+                            AppSettings.setBtAutoConnect(context, device.address, !on)
+                            if (!on) {
+                                BtAutoConnect.unpause(device.address)
+                                BtAutoConnect.kick()
+                            }
+                            renderRows(context, theme, host, adapter, proxies)
+                        }
+                    )
+                )
+            }
         }
         host.addView(note(context, theme, context.getString(R.string.bt_note_hint)))
     }
@@ -199,11 +217,8 @@ object BluetoothDialog {
                 .getOrDefault(false)
         }.keys
 
-    /** Скрытый connect/disconnect профиля; true — стек принял команду. */
     private fun call(proxy: BluetoothProfile, method: String, device: BluetoothDevice): Boolean =
-        runCatching {
-            proxy.javaClass.getMethod(method, BluetoothDevice::class.java).invoke(proxy, device) as Boolean
-        }.onFailure { Log.w(TAG, "$method: $it") }.getOrDefault(false)
+        BtAutoConnect.call(proxy, method, device)
 
     private fun connect(
         context: Context,
@@ -211,6 +226,7 @@ object BluetoothDialog {
         device: BluetoothDevice,
         name: String
     ) {
+        BtAutoConnect.unpause(device.address)
         // Сначала звонки (HFP), затем музыка (A2DP) — как штатное подключение.
         val ok = listOf(HEADSET_CLIENT, A2DP_SINK)
             .mapNotNull { proxies[it] }
@@ -234,6 +250,7 @@ object BluetoothDialog {
             .setTitle(R.string.bt_disconnect_title)
             .setMessage(context.getString(R.string.bt_disconnect_text, name))
             .setPositiveButton(R.string.bt_disconnect) { _, _ ->
+                BtAutoConnect.pauseUntilRestart(device.address)
                 val ok = proxies.values.map { call(it, "disconnect", device) }.any { it }
                 if (!ok) {
                     Toast.makeText(context, R.string.bt_disconnect_fail, Toast.LENGTH_SHORT).show()

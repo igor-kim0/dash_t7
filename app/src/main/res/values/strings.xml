@@ -536,7 +536,9 @@
     <string name="bt_note_no_paired">Нет сопряжённых устройств — сопрягите телефон в штатных настройках</string>
     <string name="bt_paired_note">сопряжено</string>
     <string name="bt_elm_note">OBD-адаптер</string>
-    <string name="bt_note_hint">Коснитесь устройства, чтобы подключить; долгое нажатие на подключённом — отключить</string>
+    <string name="bt_note_hint">Коснитесь устройства, чтобы подключить; долгое нажатие на подключённом — отключить. «Подключать автоматически» — Dash раз в 20 с пытается подключить телефон, пока он не подключится (после ручного отключения — до перезапуска).</string>
+    <string name="bt_auto_row">Подключать автоматически</string>
+    <string name="bt_auto_suffix">авто</string>
     <string name="bt_connecting">Подключаюсь к %1$s…</string>
     <string name="bt_connect_fail">Не удалось подключить — система не разрешает</string>
     <string name="bt_disconnect_title">Отключить устройство?</string>

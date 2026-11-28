@@ -171,6 +171,8 @@ class MainActivity : AppCompatActivity() {
         // Заряд телефона под значком Bluetooth (HFP-индикатор телефона).
         com.dash.headunit.bt.PhoneBattery.addListener(phoneBatteryListener)
         com.dash.headunit.bt.PhoneBattery.start(this)
+        // Автоподключение отмеченных в диалоге Bluetooth телефонов.
+        com.dash.headunit.bt.BtAutoConnect.start(this)
         // Диалог управления Wi-Fi: сохранённые/видимые сети, добавление сети.
         findViewById<View>(R.id.icon_wifi).setOnClickListener {
             com.dash.headunit.ui.WifiConnectionDialog.show(this)

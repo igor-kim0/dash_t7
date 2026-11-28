@@ -108,6 +108,16 @@ object AppSettings {
         prefs(context).edit().putBoolean(KEY_RADIO_ON_START, enabled).apply()
     }
 
+    /** Адреса Bluetooth-устройств, которые подключать автоматически ([com.dash.headunit.bt.BtAutoConnect]). */
+    fun btAutoConnect(context: Context): Set<String> =
+        prefs(context).getStringSet(KEY_BT_AUTO_CONNECT, null)?.toSet() ?: emptySet()
+
+    fun setBtAutoConnect(context: Context, address: String, enabled: Boolean) {
+        val set = btAutoConnect(context).toMutableSet()
+        if (enabled) set.add(address) else set.remove(address)
+        prefs(context).edit().putStringSet(KEY_BT_AUTO_CONNECT, set).apply()
+    }
+
     /**
      * Вход в инженерное меню (ETM) приборки ради °C ОЖ
      * ([com.dash.headunit.car.CoolantEtm]): запись в tx при старте и
@@ -308,6 +318,7 @@ object AppSettings {
     private const val KEY_JOURNAL_KEEP_DAYS = "journal_keep_days"
     private const val KEY_SHADE_RESUME = "shade_resume"
     private const val KEY_RADIO_ON_START = "radio_on_start"
+    private const val KEY_BT_AUTO_CONNECT = "bt_auto_connect"
     private const val KEY_ETM_COOLANT = "etm_coolant"
     private const val KEY_TIRE_MIN = "tire_pressure_min"
 
